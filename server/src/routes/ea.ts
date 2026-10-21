@@ -47,6 +47,17 @@ const statusSchema = z.object({
   currency: z.string().trim().min(3).max(5),
   // keyed by broker symbol; mapped back to app symbols with the account's symbolMap
   symbols: z.record(z.string(), specSchema).default({}),
+  // open positions with the app's magic number; absent from older EA versions
+  positions: z.array(z.object({
+    ticket: z.number().int().positive(),
+    symbol: z.string().trim().min(1).max(30),
+    side: z.enum(['buy', 'sell']),
+    volume: z.number().positive(),
+    openPrice: price,
+    sl: z.number().min(0),
+    tp: z.number().min(0),
+    comment: z.string().max(64).default(''),
+  })).max(500).optional(),
 });
 
 const resultSchema = z.object({
@@ -141,9 +152,10 @@ export function eaRoutes(db: Collections, config: Config): Router {
     const byBroker = new Map(Object.entries(account.symbolMap).map(([app, broker]) => [broker, app]));
     const specs = { ...account.specs };
     for (const [broker, spec] of Object.entries(input.symbols)) specs[byBroker.get(broker) ?? broker] = spec;
+    const positions = input.positions?.map((p) => ({ ...p, symbol: byBroker.get(p.symbol) ?? p.symbol }));
     await db.accounts.updateOne(
       { _id: account._id },
-      { $set: { balance: input.balance, currency: input.currency, balanceAt: new Date(), specs } },
+      { $set: { balance: input.balance, currency: input.currency, balanceAt: new Date(), specs, ...(positions ? { positions } : {}) } },
     );
     res.json({ ok: true });
   });

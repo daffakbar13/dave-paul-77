@@ -1,5 +1,6 @@
 import { MongoClient, type Collection, type Db, type ObjectId } from 'mongodb';
 import { DEFAULT_SR } from './analysis/sr.ts';
+import type { OpenPosition } from './analysis/positions.ts';
 import type { Candidate, Line, Side, SrParams, SymbolSpec } from './analysis/types.ts';
 
 // One document, _id 'main'. `version` changes on every save so stored analyses know
@@ -69,6 +70,7 @@ export type AccountDoc = {
   currency: string | null;
   balanceAt: Date | null;
   specs: Record<string, SymbolSpec>; // by app symbol
+  positions?: OpenPosition[]; // open positions with the app's magic, from the last status
   createdAt: Date;
 };
 

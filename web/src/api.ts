@@ -2,7 +2,7 @@
 
 export type Side = 'buy' | 'sell';
 export type AggressiveMode = 'auto' | 'on' | 'off';
-export type RowStatus = 'valid' | 'skipped' | 'invalid' | 'cancelled';
+export type RowStatus = 'valid' | 'skipped' | 'invalid' | 'cancelled' | 'running';
 
 export type OrderRow = {
   id: string;
@@ -21,6 +21,7 @@ export type OrderRow = {
   multiplier: number;
   status: RowStatus;
   reason?: string;
+  position?: number; // ticket of the open position this level came from
 };
 
 export type Candle = { t: number; o: number; h: number; l: number; c: number };
@@ -53,7 +54,7 @@ export type Analysis = {
   newsAffected: boolean;
 };
 
-export type RiskSummary = { orders: number; totalRisk: number; lowRr: number; byCurrency: Record<string, number> };
+export type RiskSummary = { orders: number; running: number; totalRisk: number; lowRr: number; byCurrency: Record<string, number> };
 export type AccountOrders = { account: AccountInfo; rows: OrderRow[]; summary: RiskSummary };
 
 export type SymbolItem = {

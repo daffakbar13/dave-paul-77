@@ -123,7 +123,9 @@ export function Chart({ analysis, colors, focusId, onlyFocused, onFocus, onCance
       const focused = active === r.id;
       const dim = active !== null && !focused;
       const weak = r.status === 'invalid' ? 0.45 : 1;
-      add(r.entry!, alpha(colors.entry, (dim ? 0.15 : 1) * weak), LineStyle.Dashed, focused);
+      // a level whose position is still open: same colours, sparse dots, never re-sent
+      const style = r.status === 'running' ? LineStyle.SparseDotted : LineStyle.Dashed;
+      add(r.entry!, alpha(colors.entry, (dim ? 0.15 : 1) * weak), style, focused, r.status === 'running' ? 2 : 1);
       const sltp = alpha(colors.sltp, (dim ? 0.12 : focused ? 1 : 0.4) * weak);
       add(r.sl!, sltp, LineStyle.Dashed, focused);
       add(r.tp!, sltp, LineStyle.Dashed, focused);
@@ -191,18 +193,25 @@ export function Chart({ analysis, colors, focusId, onlyFocused, onFocus, onCance
           return (
             <div
               key={l.key}
-              className={`chart-label entry${dim ? ' dim' : ''}${active === r.id ? ' focused' : ''}`}
+              className={`chart-label entry${dim ? ' dim' : ''}${active === r.id ? ' focused' : ''}${r.status === 'running' ? ' running' : ''}`}
               style={{ top: l.y - 9 }}
               onMouseEnter={() => setHoverId(r.id)}
               onMouseLeave={() => setHoverId(null)}
               onClick={() => onFocus(focusId === r.id ? null : r.id)}
             >
-              <span className="tabular">
-                {r.type} {fmtLot(r.lot)}
-                {r.multiplier > 1 && <span className="aggr"> {r.multiplier}x</span>}
-              </span>
+              {r.status === 'running' ? (
+                <span className="tabular">
+                  {r.side} · posisi #{r.position}
+                </span>
+              ) : (
+                <span className="tabular">
+                  {r.type} {fmtLot(r.lot)}
+                  {r.multiplier > 1 && <span className="aggr"> {r.multiplier}x</span>}
+                </span>
+              )}
               <span className={`tabular${r.lowRr ? ' low-rr-text' : ''}`}>RR {fmtRr(r.rr)}</span>
               {r.status === 'invalid' && <span className="invalid-text">{r.reason}</span>}
+              {r.status !== 'running' && (
               <button
                 type="button"
                 className="x"
@@ -214,6 +223,7 @@ export function Chart({ analysis, colors, focusId, onlyFocused, onFocus, onCance
               >
                 ×
               </button>
+              )}
             </div>
           );
         })}

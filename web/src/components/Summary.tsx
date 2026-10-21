@@ -24,6 +24,7 @@ export function Summary({ data, named }: { data: AccountOrders; named?: boolean 
           .join(' · ') || '–'}
       </span>
       <span className={summary.lowRr ? 'low-rr-text' : 'muted'}>{summary.lowRr} baris RR rendah</span>
+      {summary.running > 0 && <span className="running-text">{summary.running} posisi berjalan, levelnya tidak dikirim ulang</span>}
       {aggressiveRows > 0 && (
         <span className="aggr">
           Aggressive {account.multiplier}x di {aggressiveRows} order

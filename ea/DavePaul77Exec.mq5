@@ -2,7 +2,9 @@
 //| DavePaul77Exec.mq5                                               |
 //| Executor for DavePaul77: reports balance and symbol specs, takes |
 //| the command of the logged-in account, deletes the app's pending  |
-//| orders (magic number) and places the new buy/sell stops.         |
+//| orders (magic number) and places the new buy/sell stops. Open    |
+//| positions with the magic are reported so their levels are not    |
+//| placed again while they run.                                     |
 //| Open positions and manual orders are never touched.              |
 //|                                                                  |
 //| DryRun is ON by default: it only logs what it would do and       |
@@ -38,6 +40,7 @@ bool     g_warnedConfig = false;
 bool     g_warnedTrade = false;
 string   g_unsentPath = "";  // result that could not be delivered; retried before new work
 string   g_unsentBody = "";
+string   g_posSig = "";   // tickets of the app's open positions at the last status
 
 //+------------------------------------------------------------------+
 //| Config: inputs win over the ini file                             |
@@ -117,11 +120,16 @@ void OnTimer()
       g_unsentBody = "";
      }
 
+   // a fill or a close is reported at once, not at the next status interval
+   string sig = PositionsSignature();
+   if(sig != g_posSig)
+      g_lastStatus = 0;
    if(TimeLocal() - g_lastStatus >= StatusSeconds)
      {
       if(!SendStatus())
          return;
       g_lastStatus = TimeLocal();
+      g_posSig = sig;
      }
 
    // a live command must not be taken when this terminal cannot trade: it would be lost
@@ -210,6 +218,46 @@ string Escape(string s)
   }
 
 //+------------------------------------------------------------------+
+//| Open positions with the app's magic number                       |
+//+------------------------------------------------------------------+
+string PositionsSignature()
+  {
+   string sig = "";
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket > 0 && PositionGetInteger(POSITION_MAGIC) == MagicNumber)
+         sig += IntegerToString((long)ticket) + ";";
+     }
+   return(sig);
+  }
+
+string PositionsJson()
+  {
+   string items = "";
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0 || PositionGetInteger(POSITION_MAGIC) != MagicNumber)
+         continue;
+      string symbol = PositionGetString(POSITION_SYMBOL);
+      int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+      bool buy = PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY;
+      if(StringLen(items) > 0)
+         items += ",";
+      items += "{\"ticket\":" + IntegerToString((long)ticket)
+               + ",\"symbol\":\"" + symbol + "\""
+               + ",\"side\":\"" + (buy ? "buy" : "sell") + "\""
+               + ",\"volume\":" + DoubleToString(PositionGetDouble(POSITION_VOLUME), 2)
+               + ",\"openPrice\":" + DoubleToString(PositionGetDouble(POSITION_PRICE_OPEN), digits)
+               + ",\"sl\":" + DoubleToString(PositionGetDouble(POSITION_SL), digits)
+               + ",\"tp\":" + DoubleToString(PositionGetDouble(POSITION_TP), digits)
+               + ",\"comment\":\"" + Escape(PositionGetString(POSITION_COMMENT)) + "\"}";
+     }
+   return("[" + items + "]");
+  }
+
+//+------------------------------------------------------------------+
 //| Balance and specs of the symbols the server asks for              |
 //+------------------------------------------------------------------+
 bool SendStatus()
@@ -259,7 +307,8 @@ bool SendStatus()
    string body = "{\"account\":" + IntegerToString(g_login)
                  + ",\"balance\":" + Num(AccountInfoDouble(ACCOUNT_BALANCE))
                  + ",\"currency\":\"" + AccountInfoString(ACCOUNT_CURRENCY) + "\""
-                 + ",\"symbols\":{" + specs + "}}";
+                 + ",\"symbols\":{" + specs + "}"
+                 + ",\"positions\":" + PositionsJson() + "}";
    return(Http("POST", "/api/ea/mt5/status", body, response) == 200);
   }
 

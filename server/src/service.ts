@@ -1,4 +1,5 @@
 import { evaluate, summarize, type OrderRow, type RiskSummary } from './analysis/orders.ts';
+import { markRunning } from './analysis/positions.ts';
 import { analyze } from './analysis/sr.ts';
 import type { Candle } from './analysis/types.ts';
 import { symbolInputs } from './lines.ts';
@@ -72,7 +73,8 @@ export function rowsFor(
 ): OrderRow[] {
   const symbol = analysis._id;
   const cancelled = new Set(analysis.cancelled);
-  return analysis.candidates.map((candidate) =>
+  const positions = account?.positions?.filter((p) => p.symbol === symbol) ?? [];
+  const rows = analysis.candidates.map((candidate) =>
     evaluate({
       symbol,
       candidate,
@@ -86,6 +88,7 @@ export function rowsFor(
       offset: account?.offsets[symbol] ?? 0,
     }),
   );
+  return markRunning(rows, positions);
 }
 
 export type AccountOrders = {

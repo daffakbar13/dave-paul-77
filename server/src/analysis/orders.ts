@@ -1,7 +1,8 @@
 import { roundTo } from './sr.ts';
 import type { Candidate, Side, SymbolSpec } from './types.ts';
 
-export type RowStatus = 'valid' | 'skipped' | 'invalid' | 'cancelled';
+// running: an open position came from this level, so it is not placed again
+export type RowStatus = 'valid' | 'skipped' | 'invalid' | 'cancelled' | 'running';
 
 export type OrderRow = {
   id: string;
@@ -20,6 +21,7 @@ export type OrderRow = {
   multiplier: number; // 1, or the account's Aggressive multiplier
   status: RowStatus;
   reason?: string;
+  position?: number; // ticket of the running position
 };
 
 export type Quote = { bid: number; ask: number };
@@ -115,6 +117,7 @@ export function currenciesOf(symbol: string): string[] {
 
 export type RiskSummary = {
   orders: number;
+  running: number; // levels skipped because their position is still open
   totalRisk: number;
   lowRr: number;
   byCurrency: Record<string, number>;
@@ -128,6 +131,7 @@ export function summarize(rows: OrderRow[]): RiskSummary {
   }
   return {
     orders: valid.length,
+    running: rows.filter((r) => r.status === 'running').length,
     totalRisk: roundTo(valid.reduce((a, r) => a + (r.risk ?? 0), 0), 2),
     lowRr: valid.filter((r) => r.lowRr).length,
     byCurrency,

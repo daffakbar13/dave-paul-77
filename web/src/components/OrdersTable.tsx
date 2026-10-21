@@ -13,6 +13,7 @@ const STATUS_TEXT: Record<OrderRow['status'], string> = {
   skipped: 'Dilewati',
   invalid: 'Tidak valid',
   cancelled: 'Dibatalkan',
+  running: 'Posisi berjalan',
 };
 
 // Pending Orders / Execute table. Every row stays visible with its reason; only valid
@@ -66,7 +67,7 @@ export function OrdersTable({ rows, onCancel, onRestore, busyId }: Props) {
                     <button type="button" className="link" disabled={busyId === r.id} onClick={() => onRestore(r)}>
                       Pulihkan
                     </button>
-                  ) : r.status !== 'skipped' ? (
+                  ) : r.status !== 'skipped' && r.status !== 'running' ? (
                     <button type="button" className="x" aria-label={`Batalkan ${r.symbol} ${r.type}`} disabled={busyId === r.id} onClick={() => onCancel(r)}>
                       ×
                     </button>

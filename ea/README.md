@@ -85,6 +85,11 @@ Key.12345678=<key akun dari web>
 | `MagicNumber` | penanda order aplikasi; hanya order dengan magic ini yang dihapus |
 | `PollSeconds` / `StatusSeconds` | ambil perintah tiap 5 detik, lapor balance dan spesifikasi tiap 60 detik |
 
+**Posisi berjalan**: status juga memuat posisi terbuka ber-magic number (dikirim langsung saat ada order tersentuh atau
+posisi tutup). Server mencocokkan tiap posisi ke levelnya lewat komentar order (ID level), atau, jika broker mengubah
+komentar, lewat harga buka dalam 30% jarak entry ke SL (kebal slippage/spread). Level itu berstatus "Posisi berjalan",
+tetap tampil di chart (garis bertitik jarang, label "posisi #tiket") dan tidak dikirim ulang saat Execute.
+
 **Pengaman**
 
 - Mode live dengan Algo Trading mati: perintah tidak diambil (tetap menunggu di server sampai kedaluwarsa).
