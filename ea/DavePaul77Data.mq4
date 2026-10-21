@@ -4,15 +4,18 @@
 //| DavePaul77 backend. Timer driven (not tick), never trades.       |
 //|                                                                  |
 //| Setup: Tools > Options > Expert Advisors > Allow WebRequest for  |
-//| the ServerUrl below. Attach to ONE chart (any symbol/timeframe). |
+//| the server URL. Attach to ONE chart (any symbol/timeframe).      |
+//| ServerUrl and DataKey left empty are read from                   |
+//| MQL4/Files/DavePaul77.ini (ServerUrl=..., DataKey=...), so the   |
+//| key never has to be typed in and stays out of the source.        |
 //+------------------------------------------------------------------+
 #property copyright "DavePaul77"
 #property version   "1.00"
 #property strict
 
-input string ServerUrl       = "https://your-app.onrender.com"; // backend URL, no trailing slash
-input string DataKey         = "";      // EA_DATA_KEY from the Render environment
-input string SymbolSuffix    = "";      // broker suffix in this MT4, e.g. "m" for EURUSDm
+input string ServerUrl       = "";      // URL server (kosong = dari DavePaul77.ini)
+input string DataKey         = "";      // Data key (kosong = dari DavePaul77.ini)
+input string SymbolSuffix    = "";      // Akhiran simbol broker, mis. "m" untuk EURUSDm
 input string FallbackSymbols = "AUDJPY,AUDUSD,CADJPY,CHFJPY,EURGBP,EURNZD,EURUSD,GBPJPY,NZDJPY,NZDUSD,USDCAD,USDCHF,USDJPY"; // used when the server list cannot be read
 input int    HistoryBars     = 520;     // closed D1 candles sent on the first run (about 2 years)
 input int    QuoteSeconds    = 60;      // bid/ask interval
@@ -25,15 +28,50 @@ datetime g_sent[];      // open time of the last closed D1 candle the server acc
 datetime g_retryAt[];   // per symbol back-off
 datetime g_lastQuotes = 0;
 datetime g_lastList   = 0;
+string   g_url        = "";
+string   g_key        = "";
+bool     g_quotesOk   = false;
+
+//+------------------------------------------------------------------+
+//| ServerUrl / DataKey: the input when filled, else the ini file     |
+//+------------------------------------------------------------------+
+void LoadConfig()
+  {
+   g_url = ServerUrl;
+   g_key = DataKey;
+   int h = FileOpen("DavePaul77.ini", FILE_READ | FILE_TXT | FILE_ANSI);
+   if(h == INVALID_HANDLE)
+      return;
+   while(!FileIsEnding(h))
+     {
+      string line = FileReadString(h);
+      StringTrimLeft(line);
+      StringTrimRight(line);
+      int eq = StringFind(line, "=");
+      if(eq <= 0 || StringGetCharacter(line, 0) == '#')
+         continue;
+      string key = StringSubstr(line, 0, eq);
+      string value = StringSubstr(line, eq + 1);
+      if(key == "ServerUrl" && StringLen(g_url) == 0)
+         g_url = value;
+      if(key == "DataKey" && StringLen(g_key) == 0)
+         g_key = value;
+     }
+   FileClose(h);
+   if(StringLen(g_url) > 0 && StringGetCharacter(g_url, StringLen(g_url) - 1) == '/')
+      g_url = StringSubstr(g_url, 0, StringLen(g_url) - 1);
+  }
 
 //+------------------------------------------------------------------+
 int OnInit()
   {
-   if(StringLen(DataKey) == 0)
+   LoadConfig();
+   if(StringLen(g_url) == 0 || StringLen(g_key) == 0)
      {
-      Alert("DavePaul77: isi parameter DataKey");
+      Alert("DavePaul77: ServerUrl/DataKey kosong. Isi input EA atau file MQL4/Files/DavePaul77.ini");
       return(INIT_PARAMETERS_INCORRECT);
      }
+   Print("DavePaul77: server ", g_url);
    EventSetTimer(5);
    RefreshList();
    return(INIT_SUCCEEDED);
@@ -66,19 +104,20 @@ int Http(const string method, const string path, const string body, string &resp
    char data[];
    char result[];
    string resultHeaders;
-   string headers = "Content-Type: application/json\r\nX-Api-Key: " + DataKey + "\r\n";
+   // ngrok-skip-browser-warning: the free ngrok domain otherwise answers with an HTML warning page
+   string headers = "Content-Type: application/json\r\nX-Api-Key: " + g_key + "\r\nngrok-skip-browser-warning: 1\r\n";
    if(StringLen(body) > 0)
      {
       StringToCharArray(body, data, 0, WHOLE_ARRAY, CP_UTF8);
       ArrayResize(data, ArraySize(data) - 1); // drop the terminating zero
      }
    ResetLastError();
-   int code = WebRequest(method, ServerUrl + path, headers, TimeoutMs, data, result, resultHeaders);
+   int code = WebRequest(method, g_url + path, headers, TimeoutMs, data, result, resultHeaders);
    if(code == -1)
      {
       int err = GetLastError();
       if(err == 4060)
-         Print("DavePaul77: URL belum diizinkan. Tambahkan ", ServerUrl, " di Tools > Options > Expert Advisors > Allow WebRequest");
+         Print("DavePaul77: URL belum diizinkan. Tambahkan ", g_url, " di Tools > Options > Expert Advisors > Allow WebRequest");
       else
          Print("DavePaul77: WebRequest gagal, error ", err, " (", path, ")");
       return(-1);
@@ -103,7 +142,8 @@ void RefreshList()
       // {"symbols":["AUDJPY","AUDUSD"]}
       int open = StringFind(response, "[");
       int close = StringFind(response, "]", open);
-      if(open >= 0 && close > open)
+      // close == open + 1 is an empty list; StringSubstr with length 0 would return the rest
+      if(open >= 0 && close > open + 1)
         {
          string inner = StringSubstr(response, open + 1, close - open - 1);
          StringReplace(inner, "\"", "");
@@ -220,6 +260,9 @@ void SendQuotes()
    if(StringLen(items) == 0)
       return;
    string response;
-   Http("POST", "/api/ea/mt4/quotes", "{\"now\":" + IntegerToString((long)TimeCurrent()) + ",\"quotes\":[" + items + "]}", response);
+   int code = Http("POST", "/api/ea/mt4/quotes", "{\"now\":" + IntegerToString((long)TimeCurrent()) + ",\"quotes\":[" + items + "]}", response);
+   if(code == 200 && !g_quotesOk)
+      Print("DavePaul77: bid/ask terkirim ", response); // once, to show the connection works
+   g_quotesOk = (code == 200);
   }
 //+------------------------------------------------------------------+

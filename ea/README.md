@@ -15,13 +15,30 @@ pernah membuka order.
 
 | Parameter | Isi |
 | --- | --- |
-| `ServerUrl` | URL Render tanpa `/` di akhir |
-| `DataKey` | sama dengan `EA_DATA_KEY` di environment Render |
+| `ServerUrl` | kosongkan untuk memakai `DavePaul77.ini`; atau URL server tanpa `/` di akhir |
+| `DataKey` | kosongkan untuk memakai `DavePaul77.ini`; atau nilai `EA_DATA_KEY` |
 | `SymbolSuffix` | akhiran nama simbol broker di MT4 ini, mis. `m` untuk `EURUSDm`; kosong jika tidak ada |
 | `FallbackSymbols` | dipakai hanya jika daftar pair dari server tidak terbaca |
 | `HistoryBars` | jumlah candle D1 yang dikirim saat pertama jalan (520 = sekitar 2 tahun) |
 | `QuoteSeconds` | jeda kirim bid/ask |
 | `TimeoutMs` | 30000; Render paket gratis bisa butuh 30 sampai 50 detik untuk bangun |
+
+**Tanpa mengetik key: `MQL4/Files/DavePaul77.ini`** (File > Open Data Folder > MQL4 > Files)
+
+```
+ServerUrl=https://nama-anda.ngrok-free.dev
+DataKey=<EA_DATA_KEY dari server/.env>
+```
+
+Input yang diisi tetap menang atas file ini. Pindah ke Render cukup dengan mengganti `ServerUrl` di file, lalu pasang ulang EA.
+
+**Uji lokal lewat ngrok**
+
+1. Di laptop: `cd server && npm run dev:memory -- --empty` (DB in-memory kosong, memakai `server/.env`), lalu
+   `ngrok http --url=nama-anda.ngrok-free.dev 4000`.
+2. Isi `DavePaul77.ini` seperti di atas dan daftarkan URL yang sama di Allow WebRequest.
+3. EA mengirim header `ngrok-skip-browser-warning` agar ngrok gratis tidak membalas dengan halaman peringatan.
+4. Data in-memory hilang saat server dihentikan; EA mengirim ulang 520 candle setelah EA di-restart.
 
 **Cara kerja**
 

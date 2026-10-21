@@ -100,8 +100,10 @@ export function eaRoutes(db: Collections, config: Config): Router {
     const digits = input.digits ?? defaultDigits(input.symbol);
     const exists = await db.symbols.findOne({ name: input.symbol });
     if (!exists) {
+      // the EA only sends pairs from the web list or its FallbackSymbols, so a new pair is
+      // active straight away (an empty database fills its tabs on the first run)
       const order = await db.symbols.countDocuments();
-      await db.symbols.insertOne({ _id: new ObjectId(), name: input.symbol, active: false, order, digits });
+      await db.symbols.insertOne({ _id: new ObjectId(), name: input.symbol, active: true, order, digits });
     } else if (input.digits !== undefined && exists.digits !== input.digits) {
       await db.symbols.updateOne({ _id: exists._id }, { $set: { digits } });
     }

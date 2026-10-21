@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "node --env-file-if-exists=.env --watch src/server.ts",
-    "dev:memory": "node scripts/dev-memory.ts",
+    "dev:memory": "node --env-file-if-exists=.env scripts/dev-memory.ts",
     "start": "node --env-file-if-exists=.env dist/src/server.js",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
