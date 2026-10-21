@@ -698,3 +698,7 @@ button.aggr-off {
 .import-tpl input[type='file'] {
   border: 1px dashed var(--border);
 }
+
+button.restore-all {
+  padding: 4px 10px;
+}

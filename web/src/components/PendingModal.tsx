@@ -58,6 +58,20 @@ export function PendingModal({ account, accounts, aggressive, onClose, onChanged
   };
 
   const rows = data ? (hideSkipped ? data.rows.filter((r) => r.status !== 'skipped') : data.rows) : [];
+  const cancelled = data?.rows.filter((r) => r.status === 'cancelled').length ?? 0;
+
+  const restoreAll = async () => {
+    setBusyId('*');
+    try {
+      await api.restoreAll();
+      await load();
+      onChanged();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusyId(null);
+    }
+  };
   const nameOf = (id: string) => accounts.find((a) => a.id === id)?.name ?? id;
 
   return (
@@ -75,6 +89,11 @@ export function PendingModal({ account, accounts, aggressive, onClose, onChanged
           <label className="check">
             <input type="checkbox" checked={hideSkipped} onChange={(e) => setHideSkipped(e.target.checked)} /> Sembunyikan yang dilewati
           </label>
+        )}
+        {tab === 'orders' && cancelled > 0 && (
+          <button type="button" className="restore-all" disabled={busyId !== null} title="Kembalikan semua order yang dibatalkan dengan X, di semua pair" onClick={restoreAll}>
+            Pulihkan semua ({cancelled})
+          </button>
         )}
       </div>
       {error && <p className="error">{error}</p>}

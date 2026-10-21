@@ -228,6 +228,16 @@ export function webRoutes(db: Collections, news: NewsProvider | null): Router {
     });
   });
 
+  // Undo every X at once: one pair, or all pairs when no symbol is given.
+  router.post('/orders/restore-all', async (req, res) => {
+    const { symbol } = parse(z.object({ symbol: symbolName.optional() }).default({}), req.body ?? {});
+    const filter = symbol ? { _id: symbol, 'cancelled.0': { $exists: true } } : { 'cancelled.0': { $exists: true } };
+    const docs = await db.analyses.find(filter, { projection: { cancelled: 1 } }).toArray();
+    const restored = docs.reduce((n, d) => n + d.cancelled.length, 0);
+    if (docs.length) await db.analyses.updateMany({ _id: { $in: docs.map((d) => d._id) } }, { $set: { cancelled: [] } });
+    res.json({ restored });
+  });
+
   // X: cancel one level for every account; restore undoes it.
   for (const action of ['cancel', 'restore'] as const) {
     router.post(`/orders/:id/${action}`, async (req, res) => {

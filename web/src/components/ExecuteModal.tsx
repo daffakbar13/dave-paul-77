@@ -86,6 +86,21 @@ export function ExecuteModal({ accounts, initialAccountId, aggressive, onClose, 
   }
 
   const valid = preview?.reduce((n, p) => n + p.summary.orders, 0) ?? 0;
+  // a cancel applies to every account, so count each level once
+  const cancelled = new Set(preview?.flatMap((p) => p.rows.filter((r) => r.status === 'cancelled').map((r) => r.id)) ?? []).size;
+
+  const restoreAll = async () => {
+    setBusyId('*');
+    try {
+      await api.restoreAll();
+      await load();
+      onChanged();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusyId(null);
+    }
+  };
   const empty = preview?.filter((p) => p.summary.orders === 0) ?? [];
 
   return (
@@ -130,6 +145,14 @@ export function ExecuteModal({ accounts, initialAccountId, aggressive, onClose, 
         <p className="aggr">Aggressive otomatis: risk dikali untuk pair yang mata uangnya ada berita merah (lihat penanda di kolom risk).</p>
       )}
       {error && <p className="error">{error}</p>}
+      {cancelled > 0 && (
+        <div className="modal-tools">
+          <span className="muted">{cancelled} order dibatalkan dan tidak ikut dikirim.</span>
+          <button type="button" className="restore-all" disabled={busyId !== null} title="Kembalikan semua order yang dibatalkan dengan X, di semua pair" onClick={restoreAll}>
+            Pulihkan semua ({cancelled})
+          </button>
+        </div>
+      )}
       {preview?.map((p) => (
         <section key={p.account.id} className="exec-account">
           {preview.length > 1 && (

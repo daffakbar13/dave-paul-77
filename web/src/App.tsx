@@ -159,6 +159,16 @@ function Main({ onLogout }: { onLogout: () => void }) {
   };
 
   const account = accounts.find((a) => a.id === accountId) ?? null;
+  const cancelledHere = analysis?.rows.filter((r) => r.status === 'cancelled').length ?? 0;
+
+  const restoreAll = async () => {
+    try {
+      await api.restoreAll(symbol ?? undefined);
+      refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
 
   // auto: on for pairs with red news ahead (accounts with auto enabled); a click turns
   // the feature off for the session, another click turns it on for every pair.
@@ -257,6 +267,11 @@ function Main({ onLogout }: { onLogout: () => void }) {
                   {mt4?.brokerOffsetMinutes !== undefined && ` (server broker UTC${mt4.brokerOffsetMinutes >= 0 ? '+' : ''}${mt4.brokerOffsetMinutes / 60})`}
                 </span>
               </span>
+              {cancelledHere > 0 && (
+                <button type="button" className="restore-all" title={`Kembalikan semua order ${analysis.symbol} yang dibatalkan dengan X`} onClick={restoreAll}>
+                  Pulihkan semua ({cancelledHere})
+                </button>
+              )}
               <div className="seg">
                 <button type="button" aria-pressed={!onlyFocused} onClick={() => setOnlyFocused(false)}>
                   Semua

@@ -239,6 +239,8 @@ export const api = {
     request<Analysis>('GET', `/analysis/${encodeURIComponent(symbol)}${q({ accountId, aggressive })}`),
   cancel: (id: string) => request<{ ok: true }>('POST', `/orders/${encodeURIComponent(id)}/cancel`),
   restore: (id: string) => request<{ ok: true }>('POST', `/orders/${encodeURIComponent(id)}/restore`),
+  // undo every X: one pair, or all pairs without a symbol
+  restoreAll: (symbol?: string) => request<{ restored: number }>('POST', '/orders/restore-all', symbol ? { symbol } : {}),
   orders: (accountId: string, aggressive: AggressiveMode) => request<AccountOrders>('GET', `/orders${q({ accountId, aggressive })}`),
   preview: (accountIds: string[], aggressive: AggressiveMode) =>
     request<{ accounts: AccountOrders[] }>('POST', '/execute/preview', { accountIds, aggressive }),
