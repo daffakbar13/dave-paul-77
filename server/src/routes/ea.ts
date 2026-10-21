@@ -50,6 +50,7 @@ const statusSchema = z.object({
 
 const resultSchema = z.object({
   dryRun: z.boolean().default(false),
+  deleted: z.number().int().min(0).optional(), // app pending orders removed (or that would be, in dry-run)
   results: z.array(z.object({
     ref: z.string().max(80),
     ok: z.boolean(),
@@ -137,6 +138,14 @@ export function eaRoutes(db: Collections, config: Config): Router {
     res.json({ ok: true });
   });
 
+  // Broker symbols whose specs the EA should report: the active pairs through the
+  // account's symbol map.
+  router.get('/mt5/symbols', accountKey, async (_req, res) => {
+    const account = keyAccount(res);
+    const symbols = await db.symbols.find({ active: true }).sort({ order: 1 }).toArray();
+    res.json({ symbols: symbols.map((s) => account.symbolMap[s.name] ?? s.name) });
+  });
+
   // Oldest pending, unexpired command of the logged-in account; taking it is atomic so a
   // second poll never receives the same command.
   router.get('/mt5/commands', accountKey, async (_req, res) => {
@@ -158,12 +167,12 @@ export function eaRoutes(db: Collections, config: Config): Router {
   router.post('/mt5/commands/:id/result', accountKey, async (req, res) => {
     const account = keyAccount(res);
     const id = parseId(req.params.id, 'Perintah');
-    const { dryRun, results } = parse(resultSchema, req.body);
+    const { dryRun, deleted, results } = parse(resultSchema, req.body);
     const command = await db.commands.findOne({ _id: id, accountId: account._id });
     if (!command) throw notFound('Perintah tidak ditemukan');
     if (command.status !== 'taken') throw new HttpError(409, `Perintah berstatus ${command.status}.`);
     const status = results.every((r) => r.ok) ? 'done' : 'failed';
-    await db.commands.updateOne({ _id: id }, { $set: { status, results, dryRun, finishedAt: new Date() } });
+    await db.commands.updateOne({ _id: id }, { $set: { status, results, dryRun, deleted, finishedAt: new Date() } });
     res.json({ ok: true, status });
   });
 

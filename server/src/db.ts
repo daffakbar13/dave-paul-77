@@ -86,6 +86,7 @@ export type CommandDoc = {
   takenAt?: Date;
   finishedAt?: Date;
   dryRun?: boolean;
+  deleted?: number;
   results?: { ref: string; ok: boolean; ticket?: number; error?: string }[];
   purgeAt: Date; // TTL
 };

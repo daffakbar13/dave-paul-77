@@ -67,6 +67,13 @@ Environment: `MONGODB_URI`, `MONGODB_DB`, `JWT_SECRET`, `ADMIN_PASSWORD_HASH` (`
   - klik saat aktif: *mati* untuk sesi itu; klik lagi: *manual* untuk semua pair.
 - Batasan: feed tidak memuat minggu depan, jadi berita Senin baru muncul setelah feed berganti minggu (akhir pekan).
 
+## Tahap 4: EA MT5 eksekutor
+
+`ea/DavePaul77Exec.mq5` (lihat `ea/README.md`): lapor balance dan spesifikasi simbol, ambil perintah akun yang login,
+hapus pending order ber-magic number lalu pasang yang baru, lapor hasil per order. DryRun default menyala. Hasil
+terlihat di Pending Orders > Perintah ke MT5 (status, dry-run, berhasil/gagal, order lama yang dihapus).
+Urutan uji: dry-run (selesai) → akun demo live → live.
+
 ## Catatan kalibrasi
 
 Dengan aturan default, data 2 tahun menghasilkan banyak garis (20 sampai 30 per pair), dan TP = garis berikutnya

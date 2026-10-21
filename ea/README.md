@@ -57,4 +57,37 @@ Input yang diisi tetap menang atas file ini. Pindah ke Render cukup dengan mengg
 
 ## DavePaul77Exec.mq5 (MT5, eksekutor)
 
-Tahap 4.
+Mengambil perintah milik akun yang sedang login, menghapus pending order ber-magic number aplikasi (default 77077),
+memasang buy/sell stop baru dengan SL dan TP, lalu melapor hasil per order. Posisi terbuka dan order manual tidak
+disentuh. **DryRun menyala secara default**: hanya mencatat apa yang akan dihapus dan dipasang, lalu melapor ke web.
+
+**Pasang**
+
+1. Salin ke `MQL5/Experts`, compile (F7). Tools > Options > Expert Advisors: Allow WebRequest untuk URL server.
+2. Buat akun di web (Pengaturan > Akun MT5, nomor = login MT5). Key ditampilkan sekali.
+3. `MQL5/Files/DavePaul77.ini`, satu baris key per akun:
+
+```
+ServerUrl=https://nama-anda.ngrok-free.dev
+Key.12345678=<key akun dari web>
+```
+
+4. Pasang EA di satu chart dengan input `ServerUrl`/`AccountKey` kosong. Pindah akun di MT5 tidak perlu ubah apa pun:
+   EA membaca `Key.<login>` akun yang sedang login.
+
+| Parameter | Isi |
+| --- | --- |
+| `DryRun` | `true` sampai hasil di akun demo sesuai tabel; `false` untuk memasang order |
+| `MagicNumber` | penanda order aplikasi; hanya order dengan magic ini yang dihapus |
+| `PollSeconds` / `StatusSeconds` | ambil perintah tiap 5 detik, lapor balance dan spesifikasi tiap 60 detik |
+
+**Pengaman**
+
+- Mode live dengan Algo Trading mati: perintah tidak diambil (tetap menunggu di server sampai kedaluwarsa).
+- Lot dinormalkan ke step broker dan dibulatkan ke bawah.
+- Hasil yang gagal terkirim dicoba lagi tanpa memasang order ulang; satu perintah hanya bisa diambil sekali.
+- Spesifikasi simbol yang belum punya harga (pasar tutup) dilewati dan dikirim di status berikutnya.
+- Simbol yang tidak ada di akun dicatat di log: atur mapping simbol akun di web (mis. `EURUSD=EURUSDm`).
+
+Diuji 22 Okt 2026 di server demo broker (demo): status, spesifikasi 13 pair dan perintah dry-run 48 order
+(48 berhasil, 0 gagal) terlapor ke web.

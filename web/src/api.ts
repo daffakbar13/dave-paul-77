@@ -112,6 +112,7 @@ export type Command = {
   expiresAt: string;
   results?: { ref: string; ok: boolean; ticket?: number; error?: string }[];
   dryRun?: boolean;
+  deleted?: number; // app pending orders removed by the EA (or that would be, in dry-run)
 };
 
 export type Mt4Status = { lastSeenAt: string; brokerOffsetMinutes?: number } | null;

@@ -113,6 +113,11 @@ export function PendingModal({ account, accounts, aggressive, onClose, onChanged
                         {c.results
                           ? `${c.results.length - failed.length} berhasil, ${failed.length} gagal`
                           : '–'}
+                        {c.deleted !== undefined && (
+                          <span className="reason">
+                            {c.deleted} pending order lama {c.dryRun ? 'akan dihapus' : 'dihapus'}
+                          </span>
+                        )}
                         {failed.map((f) => (
                           <span key={f.ref} className="reason">
                             {f.ref}: {f.error}
