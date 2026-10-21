@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { newAccountKey } from '../auth.ts';
 import { getSettings, type AccountDoc, type AnalysisDoc, type CommandDoc, type Collections, type Settings } from '../db.ts';
 import { HttpError, notFound, parse, parseId } from '../http.ts';
+import { defaultMinSlPips, parseTpl, setManualLines } from '../lines.ts';
 import { aggressiveContext, isAffected, newsStatus, refreshNews, upcomingRed, type NewsProvider } from '../news.ts';
 import { accountInfo, freshQuote, getAnalysis, loadCandles, ordersForAccount, refreshAnalysis, rowsFor } from '../service.ts';
 
@@ -76,6 +77,11 @@ const settingsSchema = z.object({
     bufferAtr: z.number().min(0).max(5),
     autoTpRr: z.number().positive().max(20),
     maxLinesPerSide: z.number().int().min(0).max(50),
+    orderModel: z.enum(['ladder', 'strong']),
+    entryGap: z.number().min(0).max(2),
+    slGap: z.number().min(0).max(2),
+    tpGap: z.number().min(0).max(1),
+    minDistanceAtr: z.number().min(0).max(10),
   }).partial(),
   colors: z.object({ sr: hexColor, entry: hexColor, sltp: hexColor }).partial(),
 }).partial();
@@ -108,7 +114,18 @@ export function webRoutes(db: Collections, news: NewsProvider | null): Router {
       symbols: symbols.map((s) => {
         const a = byName.get(s.name);
         const open = a ? a.candidates.filter((c) => !c.skipped && !a.cancelled.includes(c.id)).length : 0;
-        return { name: s.name, active: s.active, order: s.order, digits: s.digits, candidates: open, lastCandleAt: a?.lastCandleAt ?? null };
+        return {
+          name: s.name,
+          active: s.active,
+          order: s.order,
+          digits: s.digits,
+          candidates: open,
+          lastCandleAt: a?.lastCandleAt ?? null,
+          manualLines: s.manualLines?.length ?? 0,
+          manualLinesAt: s.manualLinesAt ?? null,
+          manualLinesSource: s.manualLinesSource ?? null,
+          minSlPips: s.minSlPips ?? defaultMinSlPips(s.name),
+        };
       }),
       colors: settings.colors,
       mt4: await db.meta.findOne({ _id: 'mt4' }, { projection: { _id: 0 } }),
@@ -117,15 +134,71 @@ export function webRoutes(db: Collections, news: NewsProvider | null): Router {
 
   // Replaces the tab list: names, order and active flag. Unknown names are added.
   router.put('/symbols', async (req, res) => {
-    const list = parse(z.array(z.object({ name: symbolName, active: z.boolean(), digits: z.number().int().min(0).max(8).optional() })).max(60), req.body);
+    const list = parse(
+      z.array(z.object({
+        name: symbolName,
+        active: z.boolean(),
+        digits: z.number().int().min(0).max(8).optional(),
+        minSlPips: z.number().min(0).max(1000).optional(),
+      })).max(60),
+      req.body,
+    );
+    const settings = await getSettings(db);
     for (const [order, s] of list.entries()) {
+      const before = await db.symbols.findOne({ name: s.name });
       await db.symbols.updateOne(
         { name: s.name },
-        { $set: { active: s.active, order, ...(s.digits !== undefined ? { digits: s.digits } : {}) }, $setOnInsert: { digits: s.digits ?? defaultDigits(s.name) } },
+        {
+          $set: {
+            active: s.active,
+            order,
+            ...(s.digits !== undefined ? { digits: s.digits } : {}),
+            ...(s.minSlPips !== undefined ? { minSlPips: s.minSlPips } : {}),
+          },
+          $setOnInsert: { digits: s.digits ?? defaultDigits(s.name) },
+        },
         { upsert: true },
       );
+      const minSlChanged = s.minSlPips !== undefined && s.minSlPips !== (before?.minSlPips ?? defaultMinSlPips(s.name));
+      if (minSlChanged) await refreshAnalysis(db, s.name, settings);
     }
     res.json({ ok: true });
+  });
+
+  // The user's own S/R lines for one pair; an empty list goes back to automatic lines.
+  router.put('/symbols/:symbol/lines', async (req, res) => {
+    const symbol = parse(symbolName, req.params.symbol);
+    const { lines } = parse(z.object({ lines: z.array(z.number().positive().finite()).max(300) }), req.body);
+    if (!(await db.symbols.findOne({ name: symbol }))) throw notFound('Pair tidak ditemukan');
+    await setManualLines(db, symbol, lines, 'web');
+    res.json({ symbol, lines: lines.length });
+  });
+
+  // MT4/MT5 chart templates (.tpl) with horizontal lines, one per pair.
+  router.post('/lines/import-tpl', async (req, res) => {
+    const { files } = parse(z.object({ files: z.array(z.object({ name: z.string().max(200), content: z.string().max(500_000) })).min(1).max(40) }), req.body);
+    const results: { file: string; symbol?: string; lines?: number; error?: string }[] = [];
+    for (const f of files) {
+      const tpl = parseTpl(f.content);
+      if (!tpl) {
+        results.push({ file: f.name, error: 'Bukan template chart (tidak ada symbol=)' });
+        continue;
+      }
+      // a broker suffix (EURUSDm, EURUSD.pro) falls back to the 6-letter pair
+      const sym = (await db.symbols.findOne({ name: tpl.symbol })) ?? (await db.symbols.findOne({ name: tpl.symbol.slice(0, 6) }));
+      const name = tpl.symbol;
+      if (!sym) {
+        results.push({ file: f.name, symbol: name, error: 'Pair belum ada di daftar' });
+        continue;
+      }
+      if (!tpl.lines.length) {
+        results.push({ file: f.name, symbol: sym.name, error: 'Tidak ada garis horizontal' });
+        continue;
+      }
+      await setManualLines(db, sym.name, tpl.lines, 'import');
+      results.push({ file: f.name, symbol: sym.name, lines: tpl.lines.length });
+    }
+    res.json({ results });
   });
 
   // --- analysis --------------------------------------------------------------

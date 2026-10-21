@@ -24,7 +24,7 @@ export type OrderRow = {
 };
 
 export type Candle = { t: number; o: number; h: number; l: number; c: number };
-export type Line = { price: number; touches: number; low: number; high: number };
+export type Line = { price: number; touches: number; low: number; high: number; source?: 'manual' | 'auto' };
 
 export type AccountInfo = {
   id: string;
@@ -56,7 +56,18 @@ export type Analysis = {
 export type RiskSummary = { orders: number; totalRisk: number; lowRr: number; byCurrency: Record<string, number> };
 export type AccountOrders = { account: AccountInfo; rows: OrderRow[]; summary: RiskSummary };
 
-export type SymbolItem = { name: string; active: boolean; order: number; digits: number; candidates: number; lastCandleAt: string | null };
+export type SymbolItem = {
+  name: string;
+  active: boolean;
+  order: number;
+  digits: number;
+  candidates: number;
+  lastCandleAt: string | null;
+  manualLines: number; // 0 = automatic lines
+  manualLinesAt: string | null;
+  manualLinesSource: 'import' | 'mt4' | 'web' | null;
+  minSlPips: number;
+};
 export type Colors = { sr: string; entry: string; sltp: string };
 
 export type Account = {
@@ -89,6 +100,11 @@ export type SrParams = {
   bufferAtr: number;
   autoTpRr: number;
   maxLinesPerSide: number;
+  orderModel: 'ladder' | 'strong';
+  entryGap: number;
+  slGap: number;
+  tpGap: number;
+  minDistanceAtr: number;
 };
 
 export type Settings = {
@@ -215,7 +231,10 @@ const q = (params: Record<string, string | boolean | undefined>) => {
 export const api = {
   login: (password: string) => request<{ token: string; expiresAt: string }>('POST', '/auth/login', { password }),
   symbols: () => request<{ symbols: SymbolItem[]; colors: Colors; mt4: Mt4Status }>('GET', '/symbols'),
-  saveSymbols: (list: { name: string; active: boolean }[]) => request<{ ok: true }>('PUT', '/symbols', list),
+  saveSymbols: (list: { name: string; active: boolean; minSlPips?: number }[]) => request<{ ok: true }>('PUT', '/symbols', list),
+  setLines: (symbol: string, lines: number[]) => request<{ symbol: string; lines: number }>('PUT', `/symbols/${encodeURIComponent(symbol)}/lines`, { lines }),
+  importTpl: (files: { name: string; content: string }[]) =>
+    request<{ results: { file: string; symbol?: string; lines?: number; error?: string }[] }>('POST', '/lines/import-tpl', { files }),
   analysis: (symbol: string, accountId?: string, aggressive?: AggressiveMode) =>
     request<Analysis>('GET', `/analysis/${encodeURIComponent(symbol)}${q({ accountId, aggressive })}`),
   cancel: (id: string) => request<{ ok: true }>('POST', `/orders/${encodeURIComponent(id)}/cancel`),

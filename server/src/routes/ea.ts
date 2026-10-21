@@ -5,6 +5,7 @@ import { keyAccount, requireAccountKey, requireDataKey } from '../auth.ts';
 import type { Config } from '../config.ts';
 import { getSettings, type Collections } from '../db.ts';
 import { HttpError, notFound, parse, parseId } from '../http.ts';
+import { setManualLines } from '../lines.ts';
 import { refreshAnalysis } from '../service.ts';
 import { defaultDigits } from './web.ts';
 
@@ -111,6 +112,15 @@ export function eaRoutes(db: Collections, config: Config): Router {
     if (closed.length) await refreshAnalysis(db, input.symbol, await getSettings(db));
     await seen(input.now);
     res.json({ stored: closed.length, ignoredOpen: input.candles.length - closed.length });
+  });
+
+  // Horizontal lines from the MT4 charts of one pair (the user's own S/R). An empty list
+  // means the lines were removed: the pair goes back to automatic lines.
+  router.post('/mt4/lines', dataKey, async (req, res) => {
+    const input = parse(z.object({ symbol: symbolName, lines: z.array(price).max(300) }), req.body);
+    if (!(await db.symbols.findOne({ name: input.symbol }))) throw notFound('Pair belum dikenal');
+    await setManualLines(db, input.symbol, input.lines, 'mt4');
+    res.json({ stored: input.lines.length });
   });
 
   router.post('/mt4/quotes', dataKey, async (req, res) => {

@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { compareAll, sweep, type ManualOrder, type SymbolData } from '../analysis/calibrate.ts';
 import { getSettings, type Collections, type ManualOrderDoc } from '../db.ts';
 import { notFound, parse, parseId } from '../http.ts';
+import { symbolInputs } from '../lines.ts';
 import { defaultDigits } from './web.ts';
 
 const price = z.number().positive().finite();
@@ -38,6 +39,7 @@ async function loadData(db: Collections, symbols: string[]): Promise<Map<string,
     const sym = await db.symbols.findOne({ name: symbol });
     map.set(symbol, {
       digits: sym?.digits ?? defaultDigits(symbol),
+      inputs: symbolInputs(sym),
       candles: docs.map((c) => ({ t: c.t.getTime(), o: c.o, h: c.h, l: c.l, c: c.c })),
     });
   }

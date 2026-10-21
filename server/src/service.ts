@@ -1,6 +1,7 @@
 import { evaluate, summarize, type OrderRow, type RiskSummary } from './analysis/orders.ts';
 import { analyze } from './analysis/sr.ts';
 import type { Candle } from './analysis/types.ts';
+import { symbolInputs } from './lines.ts';
 import { isAffected, type Aggressive } from './news.ts';
 import { getSettings, type AccountDoc, type AnalysisDoc, type Collections, type QuoteDoc, type Settings } from './db.ts';
 
@@ -24,7 +25,7 @@ export async function refreshAnalysis(db: Collections, symbol: string, settings:
   const candles = await loadCandles(db, symbol, settings.sr.lookback);
   if (!candles.length) return null;
   const quote = freshQuote(await db.quotes.findOne({ _id: symbol }), settings);
-  const result = analyze(symbol, candles, settings.sr, sym.digits, quote ? (quote.bid + quote.ask) / 2 : undefined);
+  const result = analyze(symbol, candles, settings.sr, sym.digits, quote ? (quote.bid + quote.ask) / 2 : undefined, symbolInputs(sym));
   const previous = await db.analyses.findOne({ _id: symbol });
   const ids = new Set(result.candidates.map((c) => c.id));
   const cancelled = previous && previous.lastCandleAt.getTime() === result.lastCandleAt

@@ -74,6 +74,21 @@ hapus pending order ber-magic number lalu pasang yang baru, lapor hasil per orde
 terlihat di Pending Orders > Perintah ke MT5 (status, dry-run, berhasil/gagal, order lama yang dihapus).
 Urutan uji: dry-run (selesai) → akun demo live → live.
 
+## Model order tangga dan garis manual (22 Okt 2026)
+
+Dianalisa dari history MT5 akun 12345678 (4.622 pending order, September 2026) terhadap garis S/R yang digambar user
+sendiri (template `.tpl` di folder template chart user):
+
+- **Garis**: garis manual menang (import `.tpl` di Pengaturan > Pair, atau dikirim EA MT4 dari garis horizontal di chart).
+  Pair tanpa garis manual memakai garis otomatis (fraktal 2, gabung 0,3 ATR, minimal 2 sentuhan: paling mirip garis user,
+  F1 sekitar 0,5).
+- **Order per garis** (g = jarak ke garis berikutnya searah order): entry = garis + 0,22·g, SL = garis − 0,16·g (seberang
+  garis yang sama), TP = garis berikutnya − 0,07·g; garis terakhir: TP = RR 1,5. RR sekitar 1,9 di semua jarak garis.
+- **SL minimal** per pair dalam pips (10/15/20/30, dari alat order lama), bisa diubah di Pengaturan > Pair.
+- **Per sisi** 6 garis terdekat dari harga; garis yang lebih dekat dari 0,3 ATR ke harga dilewati.
+- **Validasi** (replay 224 setup pair, 3.555 order): entry dalam 0,1 ATR 84,5%, SL dalam 0,1 ATR 75,8%, TP dalam 0,15 ATR
+  90,1%. Model candle kuat lama: 10,3% / 6,6% / 13,6%. Model candle kuat tetap bisa dipilih di Pengaturan > Analisa S/R.
+
 ## Catatan kalibrasi
 
 Dengan aturan default, data 2 tahun menghasilkan banyak garis (20 sampai 30 per pair), dan TP = garis berikutnya

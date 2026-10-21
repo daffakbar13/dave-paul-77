@@ -8,6 +8,8 @@
 //| ServerUrl and DataKey left empty are read from                   |
 //| MQL4/Files/DavePaul77.ini (ServerUrl=..., DataKey=...), so the   |
 //| key never has to be typed in and stays out of the source.        |
+//| Horizontal lines drawn on the open charts of a pair are sent as  |
+//| the user's own S/R lines (only when they change).                |
 //+------------------------------------------------------------------+
 #property copyright "DavePaul77"
 #property version   "1.00"
@@ -22,10 +24,14 @@ input int    QuoteSeconds    = 60;      // bid/ask interval
 input int    ListMinutes     = 30;      // refresh the pair list from the web settings
 input int    RetrySeconds    = 60;      // wait after a failed send or history not ready
 input int    TimeoutMs       = 30000;   // a sleeping Render free instance can take ~30-50 s to wake
+input bool   SendChartLines  = true;    // kirim garis horizontal di chart sebagai garis S/R manual
+input int    LinesSeconds    = 60;      // jeda cek perubahan garis
 
 string   g_symbols[];   // app names (without suffix)
 datetime g_sent[];      // open time of the last closed D1 candle the server accepted
 datetime g_retryAt[];   // per symbol back-off
+string   g_linesSig[];  // last horizontal lines accepted by the server, per symbol
+datetime g_lastLines  = 0;
 datetime g_lastQuotes = 0;
 datetime g_lastList   = 0;
 string   g_url        = "";
@@ -93,6 +99,12 @@ void OnTimer()
      {
       SendQuotes();
       g_lastQuotes = now;
+     }
+   if(SendChartLines && now - g_lastLines >= LinesSeconds)
+     {
+      g_lastLines = now;
+      for(int i = 0; i < ArraySize(g_symbols); i++)
+         SendLines(i);
      }
   }
 
@@ -163,19 +175,26 @@ void RefreshList()
    // keep progress for pairs that stay in the list
    string   oldSymbols[];
    datetime oldSent[];
+   string   oldSig[];
    ArrayCopy(oldSymbols, g_symbols);
    ArrayCopy(oldSent, g_sent);
+   ArrayCopy(oldSig, g_linesSig);
    ArrayResize(g_symbols, count);
    ArrayResize(g_sent, count);
    ArrayResize(g_retryAt, count);
+   ArrayResize(g_linesSig, count);
    for(int i = 0; i < count; i++)
      {
       g_symbols[i] = names[i];
       g_sent[i] = 0;
       g_retryAt[i] = 0;
+      g_linesSig[i] = "";
       for(int j = 0; j < ArraySize(oldSymbols); j++)
          if(oldSymbols[j] == names[i])
+           {
             g_sent[i] = oldSent[j];
+            g_linesSig[i] = oldSig[j];
+           }
       if(!SymbolSelect(names[i] + SymbolSuffix, true))
          Print("DavePaul77: ", names[i] + SymbolSuffix, " tidak ada di MT4 ini. Cek nama atau SymbolSuffix.");
      }
@@ -237,6 +256,59 @@ void SendCandles(const int i)
      }
    else
       g_retryAt[i] = TimeLocal() + RetrySeconds;
+  }
+
+//+------------------------------------------------------------------+
+//| The user's S/R: horizontal lines on every open chart of the pair  |
+//| Pairs without an open chart are skipped (the server keeps what it |
+//| has); a chart without lines clears them (back to automatic).      |
+//+------------------------------------------------------------------+
+void SendLines(const int i)
+  {
+   string broker = g_symbols[i] + SymbolSuffix;
+   double prices[];
+   int n = 0;
+   bool found = false;
+   for(long chart = ChartFirst(); chart >= 0; chart = ChartNext(chart))
+     {
+      if(ChartSymbol(chart) != broker)
+         continue;
+      found = true;
+      int total = ObjectsTotal(chart, 0, OBJ_HLINE);
+      for(int k = 0; k < total; k++)
+        {
+         string name = ObjectName(chart, k, 0, OBJ_HLINE);
+         double price = ObjectGetDouble(chart, name, OBJPROP_PRICE, 0);
+         if(price <= 0)
+            continue;
+         ArrayResize(prices, n + 1);
+         prices[n++] = price;
+        }
+     }
+   if(!found)
+      return;
+   ArraySort(prices);
+   int digits = (int)MarketInfo(broker, MODE_DIGITS);
+   string items = "";
+   string last = "";
+   for(int k = 0; k < n; k++)
+     {
+      string v = Num(prices[k], digits + 1);
+      if(v == last)
+         continue; // the same line on two charts
+      last = v;
+      if(StringLen(items) > 0)
+         items += ",";
+      items += v;
+     }
+   if(items == g_linesSig[i])
+      return;
+   string response;
+   if(Http("POST", "/api/ea/mt4/lines", "{\"symbol\":\"" + g_symbols[i] + "\",\"lines\":[" + items + "]}", response) == 200)
+     {
+      g_linesSig[i] = items;
+      Print("DavePaul77: ", g_symbols[i], " garis S/R dari chart terkirim ", response);
+     }
   }
 
 //+------------------------------------------------------------------+

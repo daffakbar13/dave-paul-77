@@ -32,6 +32,10 @@ DataKey=<EA_DATA_KEY dari server/.env>
 
 Input yang diisi tetap menang atas file ini. Pindah ke Render cukup dengan mengganti `ServerUrl` di file, lalu pasang ulang EA.
 
+**Garis S/R dari chart**: tiap 60 detik EA membaca garis horizontal di semua chart yang terbuka untuk pair aktif dan
+mengirimnya jika berubah (`SendChartLines`, `LinesSeconds`). Pair tanpa chart terbuka dilewati (server menyimpan garis
+terakhir); chart tanpa garis mengembalikan pair itu ke garis otomatis.
+
 **Uji lokal lewat ngrok**
 
 1. Di laptop: `cd server && npm run dev:memory -- --empty` (DB in-memory kosong, memakai `server/.env`), lalu

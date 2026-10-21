@@ -27,7 +27,17 @@ export const DEFAULT_SETTINGS: Omit<Settings, '_id'> = {
   colors: { sr: '#FFD60A', entry: '#FFFFFF', sltp: '#FF453A' },
 };
 
-export type SymbolDoc = { _id: ObjectId; name: string; active: boolean; order: number; digits: number };
+export type SymbolDoc = {
+  _id: ObjectId;
+  name: string;
+  active: boolean;
+  order: number;
+  digits: number;
+  manualLines?: number[]; // the user's own S/R lines; absent = automatic lines
+  manualLinesAt?: Date;
+  manualLinesSource?: 'import' | 'mt4' | 'web';
+  minSlPips?: number; // absent = default per pair (lines.ts)
+};
 
 export type CandleDoc = { _id?: ObjectId; symbol: string; t: Date; o: number; h: number; l: number; c: number };
 

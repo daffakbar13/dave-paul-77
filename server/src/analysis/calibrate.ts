@@ -2,7 +2,7 @@
 // day, and searches the S/R parameters that reproduce them best. Differences are in ATR
 // units so pairs with different price scales can be averaged.
 import { analyze, roundTo } from './sr.ts';
-import type { Candidate, Candle, Side, SrParams } from './types.ts';
+import type { Candidate, Candle, Side, SrParams, SymbolInputs } from './types.ts';
 
 const DAY = 86_400_000;
 
@@ -16,7 +16,7 @@ export type ManualOrder = {
   asOf: number; // ms, start of the trading day the order was placed
 };
 
-export type SymbolData = { candles: Candle[]; digits: number };
+export type SymbolData = { candles: Candle[]; digits: number; inputs?: SymbolInputs };
 
 export type Comparison = {
   id: string;
@@ -43,7 +43,7 @@ export function candlesAsOf(candles: Candle[], asOf: number): Candle[] {
 }
 
 // Orders of one symbol and day share one analysis; the candle slice is cut once.
-type Group = { orders: ManualOrder[]; candles: Candle[] | null; digits: number };
+type Group = { orders: ManualOrder[]; candles: Candle[] | null; digits: number; inputs: SymbolInputs };
 
 function prepare(orders: ManualOrder[], data: Map<string, SymbolData>): Group[] {
   const map = new Map<string, ManualOrder[]>();
@@ -53,7 +53,7 @@ function prepare(orders: ManualOrder[], data: Map<string, SymbolData>): Group[] 
   }
   return [...map.values()].map((g) => {
     const d = data.get(g[0]!.symbol);
-    return { orders: g, candles: d ? candlesAsOf(d.candles, g[0]!.asOf) : null, digits: d?.digits ?? 5 };
+    return { orders: g, candles: d ? candlesAsOf(d.candles, g[0]!.asOf) : null, digits: d?.digits ?? 5, inputs: d?.inputs ?? {} };
   });
 }
 
@@ -69,7 +69,7 @@ function compareGroup(g: Group, p: SrParams): Comparison[] {
     return orders.map((o) => missing(o, 'Candle sebelum tanggal ini belum cukup'));
   }
   // every line gets a candidate here; the per-side limit is a display choice, not a level rule
-  const a = analyze(first.symbol, candles, { ...p, maxLinesPerSide: 0 }, g.digits);
+  const a = analyze(first.symbol, candles, { ...p, maxLinesPerSide: 0 }, g.digits, undefined, g.inputs);
   return orders.map((o) => {
     const nearestLine = a.lines.reduce<number | null>(
       (best, l) => (best === null || Math.abs(l.price - o.entry) < Math.abs(best - o.entry) ? l.price : best),
@@ -120,6 +120,14 @@ export function compareAll(orders: ManualOrder[], data: Map<string, SymbolData>,
 }
 
 // Values tried by the sweep. Everything else stays at the current settings.
+export const LADDER_GRID = {
+  entryGap: [0.16, 0.19, 0.22, 0.25, 0.28],
+  slGap: [0.1, 0.13, 0.16, 0.19, 0.22],
+  tpGap: [0.03, 0.05, 0.07, 0.1],
+  clusterAtr: [0.2, 0.3, 0.5], // only matters for pairs without manual lines
+  minTouches: [1, 2],
+};
+
 export const SWEEP_GRID = {
   clusterAtr: [0.3, 0.5, 0.8],
   minTouches: [2, 3],
@@ -136,6 +144,22 @@ export function sweep(orders: ManualOrder[], data: Map<string, SymbolData>, base
   const prepared = prepare(orders, data);
   const current = evaluate(prepared, orders, base).score;
   const results: SweepResult[] = [];
+  const rank = () => {
+    results.sort((a, b) => b.score.matched - a.score.matched || a.score.error - b.score.error);
+    return { current, best: results.slice(0, top), tried: results.length };
+  };
+  if (base.orderModel === 'ladder') {
+    const l = LADDER_GRID;
+    for (const entryGap of l.entryGap)
+      for (const slGap of l.slGap)
+        for (const tpGap of l.tpGap)
+          for (const clusterAtr of l.clusterAtr)
+            for (const minTouches of l.minTouches) {
+              const params = { entryGap, slGap, tpGap, clusterAtr, minTouches };
+              results.push({ params, score: evaluate(prepared, orders, { ...base, ...params }).score });
+            }
+    return rank();
+  }
   const g = SWEEP_GRID;
   for (const clusterAtr of g.clusterAtr)
     for (const minTouches of g.minTouches)
@@ -147,6 +171,5 @@ export function sweep(orders: ManualOrder[], data: Map<string, SymbolData>, base
                 const params = { clusterAtr, minTouches, strongBodyPct, strongAtr, strongPick, wickRatio, bufferAtr };
                 results.push({ params, score: evaluate(prepared, orders, { ...base, ...params }).score });
               }
-  results.sort((a, b) => b.score.matched - a.score.matched || a.score.error - b.score.error);
-  return { current, best: results.slice(0, top), tried: results.length };
+  return rank();
 }

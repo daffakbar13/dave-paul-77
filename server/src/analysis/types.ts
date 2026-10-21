@@ -35,9 +35,23 @@ export type SrParams = {
   bufferAtr: number;
   autoTpRr: number; // TP = entry + autoTpRr x risk when there is no next line
   maxLinesPerSide: number; // only the N lines nearest to price get an order; 0 = all
+  // 'ladder' (default, fitted to the user's own orders): entry, SL and TP are set from
+  // the distance g between a line and the next line in the trade direction.
+  // 'strong': entry beyond the nearest strong candle, SL at the nearest rebound.
+  orderModel: 'ladder' | 'strong';
+  entryGap: number; // entry = line + entryGap x g
+  slGap: number; // SL = line - slGap x g (other side of the same line)
+  tpGap: number; // TP = next line - tpGap x g
+  minDistanceAtr: number; // lines closer than this to price get no order
 };
 
-export type Line = { price: number; touches: number; low: number; high: number };
+// Per-symbol inputs that are not candles.
+export type SymbolInputs = {
+  manualLines?: number[]; // the user's own S/R lines; replace the automatic ones
+  minSlPips?: number; // SL is widened to at least this many pips
+};
+
+export type Line = { price: number; touches: number; low: number; high: number; source?: 'manual' | 'auto' };
 
 export type Candidate = {
   id: string; // `${symbol}:${side}-${line}`; stable for the same line

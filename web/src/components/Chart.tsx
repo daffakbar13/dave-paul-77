@@ -117,7 +117,8 @@ export function Chart({ analysis, colors, focusId, onlyFocused, onFocus, onCance
     const add = (price: number, color: string, style: LineStyle, axis: boolean, width: 1 | 2 = 1) =>
       created.push(series.createPriceLine({ price, color, lineStyle: style, lineWidth: width, axisLabelVisible: axis, title: '' }));
 
-    for (const line of analysis.lines) add(line.price, colors.sr, LineStyle.Solid, false, 2);
+    // the user's own lines solid, automatic ones dotted
+    for (const line of analysis.lines) add(line.price, colors.sr, line.source === 'auto' ? LineStyle.Dotted : LineStyle.Solid, false, line.source === 'auto' ? 1 : 2);
     for (const r of visible) {
       const focused = active === r.id;
       const dim = active !== null && !focused;

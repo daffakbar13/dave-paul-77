@@ -1,10 +1,10 @@
-import type { Analysis, Candidate, Candle, Line, Side, SrParams } from './types.ts';
+import type { Analysis, Candidate, Candle, Line, Side, SrParams, SymbolInputs } from './types.ts';
 
 export const DEFAULT_SR: SrParams = {
   lookback: 520,
   fractal: 2,
   atrPeriod: 14,
-  clusterAtr: 0.5,
+  clusterAtr: 0.3, // best match with the user's own lines (Sep 2026 templates)
   minTouches: 2,
   strongBodyPct: 0.6,
   strongAtr: 0.8,
@@ -14,8 +14,20 @@ export const DEFAULT_SR: SrParams = {
   reboundMaxDistanceAtr: 1.5,
   bufferAtr: 0.1,
   autoTpRr: 1.5,
-  maxLinesPerSide: 3,
+  maxLinesPerSide: 6,
+  // fitted to 3,648 of the user's manual orders against their own lines (Sep 2026):
+  // medians 0.22 / 0.16 / 0.07 of the gap, RR about 1.9 at any line spacing
+  orderModel: 'ladder',
+  entryGap: 0.22,
+  slGap: 0.16,
+  tpGap: 0.07,
+  minDistanceAtr: 0.3,
 };
+
+// 1 pip = 10 points on 5/3-digit FX and 2-digit gold (0.1).
+export function pipSize(digits: number): number {
+  return digits === 2 || digits === 3 || digits === 5 ? 10 * 10 ** -digits : 10 ** -digits;
+}
 
 export function roundTo(value: number, digits: number): number {
   const f = 10 ** digits;
@@ -80,6 +92,8 @@ export function clusterLines(prices: number[], tolerance: number, minTouches: nu
 }
 
 type Ctx = {
+  inputs: SymbolInputs;
+  ref: number;
   candles: Candle[];
   swings: Swing[];
   lines: Line[];
@@ -182,27 +196,59 @@ function candidateFor(line: Line, side: Side, ctx: Ctx): Candidate {
   };
 }
 
+// Ladder model: entry beyond the line, SL across the same line, TP just before the next
+// line, all scaled by the gap g to that next line (or the previous one at the edge).
+function ladderCandidate(line: Line, side: Side, ctx: Ctx): Candidate {
+  const id = `${ctx.symbol}:${side}-${line.price.toFixed(ctx.digits)}`;
+  const base: Candidate = { id, side, line: roundTo(line.price, ctx.digits) };
+  if (Math.abs(line.price - ctx.ref) < ctx.p.minDistanceAtr * ctx.atr) return { ...base, skipped: 'Terlalu dekat harga' };
+  const sg = side === 'buy' ? 1 : -1;
+  const beyond = ctx.lines.filter((l) => sg * (l.price - line.price) > 0).sort((a, b) => sg * (a.price - b.price));
+  const behind = ctx.lines.filter((l) => sg * (l.price - line.price) < 0).sort((a, b) => sg * (b.price - a.price));
+  const next = beyond[0];
+  const g = next ? Math.abs(next.price - line.price) : behind[0] ? Math.abs(line.price - behind[0].price) : ctx.atr;
+
+  const entry = roundTo(line.price + sg * ctx.p.entryGap * g, ctx.digits);
+  let sl = roundTo(line.price - sg * ctx.p.slGap * g, ctx.digits);
+  const minSl = (ctx.inputs.minSlPips ?? 0) * pipSize(ctx.digits);
+  if (Math.abs(entry - sl) < minSl) sl = roundTo(entry - sg * minSl, ctx.digits);
+  const risk = Math.abs(entry - sl);
+  const tp = roundTo(next ? next.price - sg * ctx.p.tpGap * g : entry + sg * ctx.p.autoTpRr * risk, ctx.digits);
+  if (sg * (tp - entry) <= 0) return { ...base, skipped: 'Garis berikutnya terlalu dekat untuk TP' };
+  return { ...base, entry, sl, tp, tpAuto: !next };
+}
+
 // Full D1 analysis of one symbol. `candles` must be closed candles in time order;
 // `price` is the current mid price (falls back to the last close).
-export function analyze(symbol: string, all: Candle[], p: SrParams, digits: number, price?: number): Analysis {
+export function analyze(symbol: string, all: Candle[], p: SrParams, digits: number, price?: number, inputs: SymbolInputs = {}): Analysis {
   const candles = all.slice(-p.lookback);
   const last = candles[candles.length - 1];
   if (!last) return { atr: 0, price: price ?? 0, lastCandleAt: 0, lines: [], candidates: [] };
   const a = atr(candles, p.atrPeriod);
   const ref = price ?? last.c;
   const swings = fractals(candles, p.fractal);
-  const lines = clusterLines(swings.map((s) => s.price), p.clusterAtr * a, p.minTouches).map((l) => ({
-    ...l,
-    price: roundTo(l.price, digits),
-  }));
-  const ctx: Ctx = { candles, swings, lines, atr: a, p, digits, symbol };
-  // All lines stay (they are TP targets); the limit only drops far lines' orders.
+  // the user's own lines win; automatic lines are the fallback for pairs without them
+  const lines: Line[] = inputs.manualLines?.length
+    ? [...new Set(inputs.manualLines.map((x) => roundTo(x, digits)))]
+        .sort((x, y) => x - y)
+        .map((x) => ({ price: x, touches: 0, low: x, high: x, source: 'manual' }))
+    : clusterLines(swings.map((s) => s.price), p.clusterAtr * a, p.minTouches).map((l) => ({
+        ...l,
+        price: roundTo(l.price, digits),
+        source: 'auto',
+      }));
+  const ctx: Ctx = { inputs, ref, candles, swings, lines, atr: a, p, digits, symbol };
+  // All lines stay (they are TP targets); the limit only drops far lines' orders. Lines
+  // too close to price are listed as skipped and do not use up the limit.
   const limit = p.maxLinesPerSide > 0 ? p.maxLinesPerSide : Infinity;
-  const below = lines.filter((l) => l.price < ref).slice(-limit);
-  const above = lines.filter((l) => l.price > ref).slice(0, limit);
+  const near = (l: Line) => Math.abs(l.price - ref) < p.minDistanceAtr * a;
+  const pick = (side: Line[]) => [...side.filter(near), ...side.filter((l) => !near(l)).slice(0, limit)];
+  const below = pick(lines.filter((l) => l.price < ref).reverse());
+  const above = pick(lines.filter((l) => l.price > ref));
+  const make = p.orderModel === 'ladder' ? ladderCandidate : candidateFor;
   const candidates = dedupeEntries([
-    ...below.map((l) => candidateFor(l, 'sell', ctx)),
-    ...above.map((l) => candidateFor(l, 'buy', ctx)),
+    ...below.reverse().map((l) => make(l, 'sell', ctx)),
+    ...above.map((l) => make(l, 'buy', ctx)),
   ]);
   return { atr: a, price: ref, lastCandleAt: last.t, lines, candidates };
 }

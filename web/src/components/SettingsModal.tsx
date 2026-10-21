@@ -6,12 +6,28 @@ import { Modal } from './Modal.tsx';
 type Props = { onClose: () => void; onChanged: () => void };
 type Tab = 'general' | 'sr' | 'pairs' | 'accounts';
 
-const SR_FIELDS: { key: keyof SrParams; label: string; hint: string; step: number }[] = [
+type Field = { key: keyof SrParams; label: string; hint: string; step: number };
+
+// Automatic lines: only used for pairs without the user's own lines.
+const LINE_FIELDS: Field[] = [
   { key: 'lookback', label: 'Jumlah candle D1', hint: 'Sekitar 2 tahun = 520', step: 1 },
   { key: 'fractal', label: 'Fraktal (candle tiap sisi)', hint: '2 = fraktal 5 candle', step: 1 },
   { key: 'atrPeriod', label: 'Periode ATR', hint: '', step: 1 },
   { key: 'clusterAtr', label: 'Penggabungan area (x ATR)', hint: 'Swing berdekatan jadi satu garis', step: 0.05 },
   { key: 'minTouches', label: 'Minimal sentuhan', hint: 'Swing per garis', step: 1 },
+];
+
+// g = jarak garis ke garis berikutnya searah order
+const LADDER_FIELDS: Field[] = [
+  { key: 'entryGap', label: 'Entry: garis + … x g', hint: 'Dari order Anda: 0,22', step: 0.01 },
+  { key: 'slGap', label: 'SL: garis − … x g', hint: 'Seberang garis yang sama. Dari order Anda: 0,16', step: 0.01 },
+  { key: 'tpGap', label: 'TP: garis berikutnya − … x g', hint: 'Dari order Anda: 0,07', step: 0.01 },
+  { key: 'minDistanceAtr', label: 'Lewati garis lebih dekat dari … x ATR ke harga', hint: '', step: 0.05 },
+  { key: 'maxLinesPerSide', label: 'Garis berorder per sisi', hint: 'Garis terdekat dari harga; 0 = semua', step: 1 },
+  { key: 'autoTpRr', label: 'RR TP di garis terakhir', hint: 'Tidak ada garis berikutnya', step: 0.1 },
+];
+
+const STRONG_FIELDS: Field[] = [
   { key: 'strongBodyPct', label: 'Candle kuat: body / range', hint: '0,6 = 60%', step: 0.05 },
   { key: 'strongAtr', label: 'Candle kuat: body / ATR', hint: '', step: 0.05 },
   { key: 'strongMaxDistanceAtr', label: 'Candle kuat: jarak maks dari garis (x ATR)', hint: '', step: 0.1 },
@@ -21,6 +37,8 @@ const SR_FIELDS: { key: keyof SrParams; label: string; hint: string; step: numbe
   { key: 'autoTpRr', label: 'RR untuk TP auto (ATH/ATL)', hint: '', step: 0.1 },
   { key: 'maxLinesPerSide', label: 'Maks garis berorder per sisi', hint: '0 = semua garis', step: 1 },
 ];
+
+const SOURCE: Record<string, string> = { mt4: 'dari chart MT4', import: 'dari template', web: 'dari web' };
 
 const parsePairs = (text: string, num: boolean) => {
   const out: Record<string, string | number> = {};
@@ -87,9 +105,28 @@ export function SettingsModal({ onClose, onChanged }: Props) {
 
   const savePairs = (list: SymbolItem[]) =>
     run(async () => {
-      await api.saveSymbols(list.map((s) => ({ name: s.name, active: s.active })));
+      await api.saveSymbols(list.map((s) => ({ name: s.name, active: s.active, minSlPips: s.minSlPips })));
       setSymbols((await api.symbols()).symbols);
     }, 'Daftar pair disimpan.');
+
+  const importTemplates = (files: FileList | null) => {
+    if (!files?.length) return;
+    void run(async () => {
+      const payload = await Promise.all([...files].map(async (f) => ({ name: f.name, content: await f.text() })));
+      const { results } = await api.importTpl(payload);
+      setSymbols((await api.symbols()).symbols);
+      const ok = results.filter((r) => !r.error);
+      const bad = results.filter((r) => r.error);
+      if (bad.length) setError(bad.map((r) => `${r.file}: ${r.error}`).join(' · '));
+      return ok;
+    }, `Garis diimport dari ${files.length} template.`);
+  };
+
+  const useAuto = (name: string) =>
+    run(async () => {
+      await api.setLines(name, []);
+      setSymbols((await api.symbols()).symbols);
+    }, `${name} kembali memakai garis otomatis.`);
 
   const move = (i: number, d: -1 | 1) => {
     const list = [...symbols];
@@ -158,16 +195,38 @@ export function SettingsModal({ onClose, onChanged }: Props) {
         <div className="form">
           <p className="muted">Semua aturan dihitung di D1 dengan candle yang sudah close. Simpan akan menghitung ulang semua pair.</p>
           <div className="grid">
-            {SR_FIELDS.map((f) => (
-              <NumberField key={f.key} label={f.label} hint={f.hint} step={f.step} value={settings.sr[f.key] as number} onChange={(v) => setSr({ [f.key]: v })} />
-            ))}
             <label className="field">
-              <span>Pilihan candle kuat</span>
-              <select value={settings.sr.strongPick} onChange={(e) => setSr({ strongPick: e.target.value as SrParams['strongPick'] })}>
-                <option value="recent">Paling baru</option>
-                <option value="nearest">Paling dekat garis</option>
+              <span>Model order</span>
+              <select value={settings.sr.orderModel} onChange={(e) => setSr({ orderModel: e.target.value as SrParams['orderModel'] })}>
+                <option value="ladder">Tangga (dari history order Anda)</option>
+                <option value="strong">Candle kuat + pantulan (konsep awal)</option>
               </select>
             </label>
+          </div>
+          <h3>{settings.sr.orderModel === 'ladder' ? 'Model tangga' : 'Model candle kuat'}</h3>
+          {settings.sr.orderModel === 'ladder' && (
+            <p className="muted">g = jarak garis ke garis berikutnya searah order. Nilai default diambil dari 3.648 order Anda di September terhadap garis Anda sendiri.</p>
+          )}
+          <div className="grid">
+            {(settings.sr.orderModel === 'ladder' ? LADDER_FIELDS : STRONG_FIELDS).map((f) => (
+              <NumberField key={f.key} label={f.label} hint={f.hint} step={f.step} value={settings.sr[f.key] as number} onChange={(v) => setSr({ [f.key]: v })} />
+            ))}
+            {settings.sr.orderModel === 'strong' && (
+              <label className="field">
+                <span>Pilihan candle kuat</span>
+                <select value={settings.sr.strongPick} onChange={(e) => setSr({ strongPick: e.target.value as SrParams['strongPick'] })}>
+                  <option value="recent">Paling baru</option>
+                  <option value="nearest">Paling dekat garis</option>
+                </select>
+              </label>
+            )}
+          </div>
+          <h3>Garis otomatis</h3>
+          <p className="muted">Hanya untuk pair yang belum punya garis manual (Pengaturan &gt; Pair).</p>
+          <div className="grid">
+            {LINE_FIELDS.map((f) => (
+              <NumberField key={f.key} label={f.label} hint={f.hint} step={f.step} value={settings.sr[f.key] as number} onChange={(v) => setSr({ [f.key]: v })} />
+            ))}
           </div>
           <div className="actions">
             <button type="button" className="primary" onClick={saveSettings}>
@@ -179,7 +238,14 @@ export function SettingsModal({ onClose, onChanged }: Props) {
 
       {tab === 'pairs' && (
         <div className="form">
-          <p className="muted">Urutan = urutan tab di bawah chart. Pair harus ada di Market Watch MT4 dengan histori D1 terunduh.</p>
+          <p className="muted">
+            Urutan = urutan tab di bawah chart. Garis S/R manual dikirim otomatis oleh EA MT4 dari garis horizontal di chart pair itu, atau
+            diimport dari template chart (.tpl). Pair tanpa garis manual memakai garis otomatis.
+          </p>
+          <label className="field import-tpl">
+            <span>Import garis dari template MT4/MT5 (.tpl, boleh banyak file)</span>
+            <input type="file" accept=".tpl" multiple onChange={(e) => importTemplates(e.target.files)} />
+          </label>
           <ul className="pairs">
             {symbols.map((s, i) => (
               <li key={s.name}>
@@ -187,7 +253,36 @@ export function SettingsModal({ onClose, onChanged }: Props) {
                   <input type="checkbox" checked={s.active} onChange={(e) => setSymbols(symbols.map((x) => (x.name === s.name ? { ...x, active: e.target.checked } : x)))} />
                   {s.name}
                 </label>
-                <span className="muted tabular">{s.lastCandleAt ? `candle terakhir ${ago(s.lastCandleAt)}` : 'belum ada candle'}</span>
+                <span className="muted tabular">
+                  {s.manualLines ? (
+                    <span className="lines-manual">
+                      {s.manualLines} garis manual {SOURCE[s.manualLinesSource ?? ''] ?? ''} · {ago(s.manualLinesAt)}
+                    </span>
+                  ) : (
+                    'garis otomatis'
+                  )}
+                  {' · '}
+                  {s.lastCandleAt ? `candle ${ago(s.lastCandleAt)}` : 'belum ada candle'}
+                </span>
+                <label className="min-sl">
+                  <span className="muted">SL min</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={s.minSlPips}
+                    aria-label={`SL minimal ${s.name} dalam pips`}
+                    onChange={(e) => setSymbols(symbols.map((x) => (x.name === s.name ? { ...x, minSlPips: e.target.valueAsNumber } : x)))}
+                  />
+                  <span className="muted">pips</span>
+                </label>
+                {s.manualLines ? (
+                  <button type="button" className="link" onClick={() => useAuto(s.name)}>
+                    Pakai otomatis
+                  </button>
+                ) : (
+                  <span />
+                )}
                 <button type="button" className="icon" aria-label={`Naikkan ${s.name}`} onClick={() => move(i, -1)}>
                   ↑
                 </button>
@@ -204,7 +299,10 @@ export function SettingsModal({ onClose, onChanged }: Props) {
               disabled={!newPair.trim()}
               onClick={() => {
                 const name = newPair.trim();
-                if (!symbols.some((s) => s.name === name)) setSymbols([...symbols, { name, active: true, order: symbols.length, digits: 5, candidates: 0, lastCandleAt: null }]);
+                if (!symbols.some((s) => s.name === name)) setSymbols([
+                    ...symbols,
+                    { name, active: true, order: symbols.length, digits: 5, candidates: 0, lastCandleAt: null, manualLines: 0, manualLinesAt: null, manualLinesSource: null, minSlPips: 15 },
+                  ]);
                 setNewPair('');
               }}
             >
