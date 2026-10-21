@@ -1,0 +1,199 @@
+// Thin client for the Render backend. Shapes mirror server/src (routes/web.ts, analysis/orders.ts).
+
+export type Side = 'buy' | 'sell';
+export type RowStatus = 'valid' | 'skipped' | 'invalid' | 'cancelled';
+
+export type OrderRow = {
+  id: string;
+  symbol: string;
+  side: Side;
+  type: 'buy stop' | 'sell stop';
+  line: number;
+  entry: number | null;
+  sl: number | null;
+  tp: number | null;
+  tpAuto: boolean;
+  lot: number | null;
+  risk: number | null;
+  rr: number | null;
+  lowRr: boolean;
+  multiplier: number;
+  status: RowStatus;
+  reason?: string;
+};
+
+export type Candle = { t: number; o: number; h: number; l: number; c: number };
+export type Line = { price: number; touches: number; low: number; high: number };
+
+export type AccountInfo = {
+  id: string;
+  name: string;
+  number: number;
+  balance: number | null;
+  currency: string | null;
+  balanceAt: string | null;
+  stale: boolean;
+  multiplier: number;
+};
+
+export type Analysis = {
+  symbol: string;
+  digits: number;
+  analyzedAt: string;
+  lastCandleAt: string;
+  atr: number;
+  price: number;
+  quote: { bid: number; ask: number; at: string } | null;
+  candles: Candle[];
+  lines: Line[];
+  rows: OrderRow[];
+  account: AccountInfo | null;
+};
+
+export type RiskSummary = { orders: number; totalRisk: number; lowRr: number; byCurrency: Record<string, number> };
+export type AccountOrders = { account: AccountInfo; rows: OrderRow[]; summary: RiskSummary };
+
+export type SymbolItem = { name: string; active: boolean; order: number; digits: number; candidates: number; lastCandleAt: string | null };
+export type Colors = { sr: string; entry: string; sltp: string };
+
+export type Account = {
+  id: string;
+  name: string;
+  number: number;
+  riskPct: number;
+  aggressiveMultiplier: number;
+  aggressiveAuto: boolean;
+  symbolMap: Record<string, string>;
+  offsets: Record<string, number>;
+  balance: number | null;
+  currency: string | null;
+  balanceAt: string | null;
+  specSymbols: string[];
+};
+
+export type SrParams = {
+  lookback: number;
+  fractal: number;
+  atrPeriod: number;
+  clusterAtr: number;
+  minTouches: number;
+  strongBodyPct: number;
+  strongAtr: number;
+  strongMaxDistanceAtr: number;
+  strongPick: 'recent' | 'nearest';
+  wickRatio: number;
+  reboundMaxDistanceAtr: number;
+  bufferAtr: number;
+  autoTpRr: number;
+  maxLinesPerSide: number;
+};
+
+export type Settings = {
+  version: number;
+  rrThreshold: number;
+  newsWindowHours: number;
+  commandTtlHours: number;
+  balanceStaleMinutes: number;
+  quoteMaxAgeMinutes: number;
+  sr: SrParams;
+  colors: Colors;
+};
+
+export type Command = {
+  id: string;
+  accountId: string;
+  accountNumber: number;
+  status: 'pending' | 'taken' | 'done' | 'failed' | 'expired' | 'superseded';
+  orders: { ref: string; symbol: string; side: Side; entry: number; sl: number; tp: number; lot: number }[];
+  createdAt: string;
+  expiresAt: string;
+  results?: { ref: string; ok: boolean; ticket?: number; error?: string }[];
+  dryRun?: boolean;
+};
+
+export type News = { id: string; at: string; currency: string; impact: string; title: string };
+
+const BASE = (import.meta.env.VITE_API_URL ?? 'http://localhost:4000').replace(/\/$/, '');
+const TOKEN_KEY = 'dp77-token';
+
+let token: string | null = null;
+try {
+  token = localStorage.getItem(TOKEN_KEY);
+} catch {
+  token = null;
+}
+
+export const hasToken = () => !!token;
+
+export function setToken(value: string | null) {
+  token = value;
+  try {
+    if (value) localStorage.setItem(TOKEN_KEY, value);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    // storage blocked: the session lasts until reload
+  }
+}
+
+export class ApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+// Fired on 401 so the app returns to the login screen.
+export const UNAUTHORIZED = 'dp77-unauthorized';
+
+async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const res = await fetch(`${BASE}/api${path}`, {
+    method,
+    headers: {
+      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  if (res.status === 204) return undefined as T;
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    if (res.status === 401 && path !== '/auth/login') {
+      setToken(null);
+      window.dispatchEvent(new Event(UNAUTHORIZED));
+    }
+    throw new ApiError(res.status, (data as { error?: string }).error ?? `HTTP ${res.status}`);
+  }
+  return data as T;
+}
+
+const q = (params: Record<string, string | boolean | undefined>) => {
+  const s = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') s.set(k, String(v === true ? 1 : v === false ? 0 : v));
+  const str = s.toString();
+  return str ? `?${str}` : '';
+};
+
+export const api = {
+  login: (password: string) => request<{ token: string; expiresAt: string }>('POST', '/auth/login', { password }),
+  symbols: () => request<{ symbols: SymbolItem[]; colors: Colors }>('GET', '/symbols'),
+  saveSymbols: (list: { name: string; active: boolean }[]) => request<{ ok: true }>('PUT', '/symbols', list),
+  analysis: (symbol: string, accountId?: string, aggressive?: boolean) =>
+    request<Analysis>('GET', `/analysis/${encodeURIComponent(symbol)}${q({ accountId, aggressive })}`),
+  cancel: (id: string) => request<{ ok: true }>('POST', `/orders/${encodeURIComponent(id)}/cancel`),
+  restore: (id: string) => request<{ ok: true }>('POST', `/orders/${encodeURIComponent(id)}/restore`),
+  orders: (accountId: string, aggressive: boolean) => request<AccountOrders>('GET', `/orders${q({ accountId, aggressive })}`),
+  preview: (accountIds: string[], aggressive: boolean) =>
+    request<{ accounts: AccountOrders[] }>('POST', '/execute/preview', { accountIds, aggressive }),
+  execute: (accountIds: string[], aggressive: boolean) =>
+    request<{ commands: Command[] }>('POST', '/execute', { accountIds, aggressive }),
+  commands: () => request<{ commands: Command[] }>('GET', '/commands'),
+  news: () => request<{ news: News[] }>('GET', '/news'),
+  settings: () => request<Settings>('GET', '/settings'),
+  saveSettings: (patch: Partial<Omit<Settings, 'version'>>) => request<Settings>('PUT', '/settings', patch),
+  accounts: () => request<{ accounts: Account[] }>('GET', '/accounts'),
+  createAccount: (a: Partial<Account>) => request<{ account: Account; key: string }>('POST', '/accounts', a),
+  updateAccount: (id: string, a: Partial<Account>) => request<{ account: Account }>('PUT', `/accounts/${id}`, a),
+  deleteAccount: (id: string) => request<void>('DELETE', `/accounts/${id}`),
+  rotateKey: (id: string) => request<{ key: string }>('POST', `/accounts/${id}/key`),
+};
