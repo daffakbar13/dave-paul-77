@@ -27,6 +27,15 @@ const LADDER_FIELDS: Field[] = [
   { key: 'autoTpRr', label: 'RR TP di garis terakhir', hint: 'Tidak ada garis berikutnya', step: 0.1 },
 ];
 
+// SL from the nearest strong D1 candle on the SL side of the line (ladder model option)
+const CANDLE_SL_FIELDS: Field[] = [
+  { key: 'strongBodyPct', label: 'Candle SL: body / range', hint: '0,6 = 60%', step: 0.05 },
+  { key: 'slStrongAtr', label: 'Candle SL: body minimal (x ATR)', hint: '', step: 0.05 },
+  { key: 'strongMaxDistanceAtr', label: 'Candle SL: jarak maks high/low ke garis (x ATR)', hint: '', step: 0.1 },
+  { key: 'bufferAtr', label: 'Buffer di luar low/high (x ATR)', hint: '0,1 = 10% ATR', step: 0.01 },
+  { key: 'slMaxRiskAtr', label: 'Risk maks entry–SL (x ATR)', hint: 'Lebih lebar: pakai SL tangga', step: 0.1 },
+];
+
 const STRONG_FIELDS: Field[] = [
   { key: 'strongBodyPct', label: 'Candle kuat: body / range', hint: '0,6 = 60%', step: 0.05 },
   { key: 'strongAtr', label: 'Candle kuat: body / ATR', hint: '', step: 0.05 },
@@ -205,10 +214,22 @@ export function SettingsModal({ onClose, onChanged }: Props) {
           </div>
           <h3>{settings.sr.orderModel === 'ladder' ? 'Model tangga' : 'Model candle kuat'}</h3>
           {settings.sr.orderModel === 'ladder' && (
-            <p className="muted">g = jarak garis ke garis berikutnya searah order. Nilai default diambil dari 3.648 order Anda di September terhadap garis Anda sendiri.</p>
+            <>
+              <p className="muted">g = jarak garis ke garis berikutnya searah order. Entry dan TP dari 3.648 order Anda di September terhadap garis Anda sendiri.</p>
+              <div className="grid">
+                <label className="field">
+                  <span>Sumber SL</span>
+                  <select value={settings.sr.slSource} onChange={(e) => setSr({ slSource: e.target.value as SrParams['slSource'] })}>
+                    <option value="ladder">Tangga: garis − slGap·g (sesuai history Anda)</option>
+                    <option value="candle">Candle kuat D1 terdekat di sisi SL garis, dibatasi</option>
+                  </select>
+                  <small className="muted">Candle: SL di low/high candle kuat terdekat ± buffer; jika lebih lebar dari batas risk, jatuh ke SL tangga (ditandai).</small>
+                </label>
+              </div>
+            </>
           )}
           <div className="grid">
-            {(settings.sr.orderModel === 'ladder' ? LADDER_FIELDS : STRONG_FIELDS).map((f) => (
+            {(settings.sr.orderModel === 'ladder' ? [...LADDER_FIELDS, ...(settings.sr.slSource === 'candle' ? CANDLE_SL_FIELDS : [])] : STRONG_FIELDS).map((f) => (
               <NumberField key={f.key} label={f.label} hint={f.hint} step={f.step} value={settings.sr[f.key] as number} onChange={(v) => setSr({ [f.key]: v })} />
             ))}
             {settings.sr.orderModel === 'strong' && (

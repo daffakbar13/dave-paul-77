@@ -43,6 +43,12 @@ export type SrParams = {
   slGap: number; // SL = line - slGap x g (other side of the same line)
   tpGap: number; // TP = next line - tpGap x g
   minDistanceAtr: number; // lines closer than this to price get no order
+  // ladder SL source: 'candle' = beyond the nearest strong D1 candle on the SL side of the
+  // line (low - buffer for buy, high + buffer for sell), falling back to the ladder SL;
+  // 'ladder' = always line - slGap x g
+  slSource: 'candle' | 'ladder';
+  slStrongAtr: number; // candle SL: minimum body in ATR (shape test uses strongBodyPct)
+  slMaxRiskAtr: number; // candle SL: wider than this from entry falls back to the ladder SL
 };
 
 // Per-symbol inputs that are not candles.
@@ -64,6 +70,7 @@ export type Candidate = {
   strongAt?: number; // candle time used for entry
   reboundAt?: number; // candle time used for SL
   skipped?: string; // reason the line has no order
+  slFrom?: 'candle' | 'ladder'; // ladder model: where the SL came from
 };
 
 export type Analysis = {

@@ -14,6 +14,7 @@ export type OrderRow = {
   sl: number | null;
   tp: number | null;
   tpAuto: boolean;
+  slFrom?: 'candle' | 'ladder';
   lot: number | null;
   risk: number | null;
   rr: number | null;
@@ -106,6 +107,9 @@ export type SrParams = {
   slGap: number;
   tpGap: number;
   minDistanceAtr: number;
+  slSource: 'candle' | 'ladder';
+  slStrongAtr: number;
+  slMaxRiskAtr: number;
 };
 
 export type Settings = {

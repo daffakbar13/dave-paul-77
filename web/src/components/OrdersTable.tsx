@@ -46,7 +46,10 @@ export function OrdersTable({ rows, onCancel, onRestore, busyId }: Props) {
                 <td>{r.symbol}</td>
                 <td>{r.type}</td>
                 <td className="num">{fmtPrice(r.entry, d)}</td>
-                <td className="num">{fmtPrice(r.sl, d)}</td>
+                <td className="num">
+                  {fmtPrice(r.sl, d)}
+                  {r.slFrom === 'ladder' && r.sl !== null && <span className="tag" title="Tidak ada candle kuat di sisi SL garis ini">SL tangga</span>}
+                </td>
                 <td className="num">
                   {fmtPrice(r.tp, d)}
                   {r.tpAuto && <span className="tag">TP auto</span>}

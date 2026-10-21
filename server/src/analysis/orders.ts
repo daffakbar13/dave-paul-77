@@ -14,6 +14,7 @@ export type OrderRow = {
   sl: number | null;
   tp: number | null;
   tpAuto: boolean;
+  slFrom?: 'candle' | 'ladder'; // ladder model only
   lot: number | null;
   risk: number | null; // account currency, after lot rounding
   rr: number | null;
@@ -71,6 +72,7 @@ export function evaluate(input: EvalInput): OrderRow {
     sl: shift(c.sl),
     tp: shift(c.tp),
     tpAuto: !!c.tpAuto,
+    ...(c.slFrom ? { slFrom: c.slFrom } : {}),
     lot: null,
     risk: null,
     rr: null,

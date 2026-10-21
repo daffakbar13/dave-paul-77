@@ -82,6 +82,9 @@ const settingsSchema = z.object({
     slGap: z.number().min(0).max(2),
     tpGap: z.number().min(0).max(1),
     minDistanceAtr: z.number().min(0).max(10),
+    slSource: z.enum(['candle', 'ladder']),
+    slStrongAtr: z.number().min(0).max(5),
+    slMaxRiskAtr: z.number().positive().max(10),
   }).partial(),
   colors: z.object({ sr: hexColor, entry: hexColor, sltp: hexColor }).partial(),
 }).partial();

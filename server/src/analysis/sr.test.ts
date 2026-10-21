@@ -197,4 +197,52 @@ describe('analyze (ladder model)', () => {
     const rr = (c.tp! - c.entry!) / (c.entry! - c.sl!);
     assert.ok(rr > 1.8 && rr < 1.95, String(rr));
   });
+
+  it('uses the ladder SL by default', () => {
+    assert.equal(buy.slFrom, 'ladder');
+  });
+
+  // candle SL with a wide cap so the test candle (risk ~2.5 ATR) qualifies
+  const CANDLE = { ...DEFAULT_SR, slSource: 'candle' as const, slMaxRiskAtr: 5 };
+
+  // a strong bullish candle just under 1.110 (close below the line, high within 1 ATR)
+  const withStrong: Candle[] = [...quiet.slice(0, 25), { t: 25 * DAY, o: 1.104, h: 1.1098, l: 1.1035, c: 1.1095 }, ...quiet.slice(26)];
+
+  it('puts the buy SL below the low of the strong candle under the resistance', () => {
+    const s = analyze('EURUSD', withStrong, CANDLE, 5, undefined, { manualLines: lines });
+    const b = s.candidates.find((c) => c.side === 'buy' && c.line === 1.11)!;
+    assert.equal(b.slFrom, 'candle');
+    assert.equal(b.reboundAt, 25 * DAY);
+    assert.equal(b.sl, roundTo(1.1035 - DEFAULT_SR.bufferAtr * s.atr, 5));
+    assert.equal(b.entry, 1.1133); // entry and TP stay on the ladder
+    assert.equal(b.tp, 1.12395);
+  });
+
+  it('ignores a strong candle that closed above the resistance', () => {
+    const broke = withStrong.map((c) => (c.t === 25 * DAY ? { ...c, h: 1.1125, c: 1.112 } : c));
+    const s = analyze('EURUSD', broke, CANDLE, 5, undefined, { manualLines: lines });
+    assert.equal(s.candidates.find((c) => c.side === 'buy' && c.line === 1.11)!.slFrom, 'ladder');
+  });
+
+  it('mirrors for a sell stop: above the high of a strong bearish candle over the support', () => {
+    const bear: Candle[] = [...quiet.slice(0, 25), { t: 25 * DAY, o: 1.106, h: 1.1065, l: 1.1002, c: 1.1005 }, ...quiet.slice(26)];
+    const s = analyze('EURUSD', bear, CANDLE, 5, undefined, { manualLines: lines });
+    const sl = s.candidates.find((c) => c.side === 'sell')!;
+    assert.equal(sl.slFrom, 'candle');
+    assert.equal(sl.sl, roundTo(1.1065 + DEFAULT_SR.bufferAtr * s.atr, 5));
+  });
+
+  it('falls back to the ladder SL when the candle SL is wider than the cap', () => {
+    const s = analyze('EURUSD', withStrong, { ...CANDLE, slMaxRiskAtr: 0.6 }, 5, undefined, { manualLines: lines });
+    const b = s.candidates.find((c) => c.side === 'buy' && c.line === 1.11)!;
+    assert.equal(b.slFrom, 'ladder');
+    assert.equal(b.sl, 1.1076);
+  });
+
+  it("slSource 'ladder' never looks at candles", () => {
+    const s = analyze('EURUSD', withStrong, { ...CANDLE, slSource: 'ladder' }, 5, undefined, { manualLines: lines });
+    const b = s.candidates.find((c) => c.side === 'buy' && c.line === 1.11)!;
+    assert.equal(b.slFrom, 'ladder');
+    assert.equal(b.sl, 1.1076);
+  });
 });

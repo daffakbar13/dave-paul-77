@@ -22,6 +22,11 @@ export const DEFAULT_SR: SrParams = {
   slGap: 0.16,
   tpGap: 0.07,
   minDistanceAtr: 0.3,
+  // the user's own SLs sit ~0.38 ATR from entry, tighter than any D1 candle low allows, so
+  // the candle SL is an option rather than the default
+  slSource: 'ladder',
+  slStrongAtr: 0.3,
+  slMaxRiskAtr: 0.6,
 };
 
 // 1 pip = 10 points on 5/3-digit FX and 2-digit gold (0.1).
@@ -209,13 +214,38 @@ function ladderCandidate(line: Line, side: Side, ctx: Ctx): Candidate {
   const g = next ? Math.abs(next.price - line.price) : behind[0] ? Math.abs(line.price - behind[0].price) : ctx.atr;
 
   const entry = roundTo(line.price + sg * ctx.p.entryGap * g, ctx.digits);
-  let sl = roundTo(line.price - sg * ctx.p.slGap * g, ctx.digits);
+  const buffer = ctx.p.bufferAtr * ctx.atr;
+  const strongI = ctx.p.slSource === 'candle' ? findStrongBehind(line.price, side, ctx) : undefined;
+  const candleSl = strongI === undefined ? undefined : roundTo(side === 'buy' ? ctx.candles[strongI]!.l - buffer : ctx.candles[strongI]!.h + buffer, ctx.digits);
+  // too wide a candle SL wrecks the RR against the ladder TP: keep the ladder SL instead
+  const strong = candleSl !== undefined && Math.abs(entry - candleSl) <= ctx.p.slMaxRiskAtr * ctx.atr ? ctx.candles[strongI!] : undefined;
+  let sl = strong ? candleSl! : roundTo(line.price - sg * ctx.p.slGap * g, ctx.digits);
   const minSl = (ctx.inputs.minSlPips ?? 0) * pipSize(ctx.digits);
   if (Math.abs(entry - sl) < minSl) sl = roundTo(entry - sg * minSl, ctx.digits);
   const risk = Math.abs(entry - sl);
   const tp = roundTo(next ? next.price - sg * ctx.p.tpGap * g : entry + sg * ctx.p.autoTpRr * risk, ctx.digits);
   if (sg * (tp - entry) <= 0) return { ...base, skipped: 'Garis berikutnya terlalu dekat untuk TP' };
-  return { ...base, entry, sl, tp, tpAuto: !next };
+  return { ...base, entry, sl, tp, tpAuto: !next, slFrom: strong ? 'candle' : 'ladder', ...(strong ? { reboundAt: strong.t } : {}) };
+}
+
+// Strong D1 candle in the order direction sitting on the SL side of the line: for a buy
+// stop a bullish candle below the resistance (close still under it, high within the band),
+// mirrored for a sell stop above the support. The nearest one wins: the highest low for a
+// buy (lowest high for a sell), i.e. the tightest SL.
+function findStrongBehind(line: number, side: Side, ctx: Ctx): number | undefined {
+  const band = ctx.p.strongMaxDistanceAtr * ctx.atr;
+  let best: number | undefined;
+  ctx.candles.forEach((c, i) => {
+    const range = c.h - c.l;
+    const body = Math.abs(c.c - c.o);
+    const directional = side === 'buy' ? c.c > c.o : c.c < c.o;
+    if (!directional || range <= 0 || body < ctx.p.strongBodyPct * range || body < ctx.p.slStrongAtr * ctx.atr) return;
+    const behind = side === 'buy' ? c.c < line && c.h >= line - band : c.c > line && c.l <= line + band;
+    if (!behind) return;
+    const prev = best === undefined ? undefined : ctx.candles[best]!;
+    if (!prev || (side === 'buy' ? c.l > prev.l : c.h < prev.h)) best = i;
+  });
+  return best;
 }
 
 // Full D1 analysis of one symbol. `candles` must be closed candles in time order;

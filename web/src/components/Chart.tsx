@@ -187,6 +187,7 @@ export function Chart({ analysis, colors, focusId, onlyFocused, onFocus, onCance
               <div key={l.key} className="chart-label sltp" style={{ top: l.y - 8, color: colors.sltp }}>
                 {l.kind}
                 {l.kind === 'tp' && r.tpAuto && <span className="tag">TP auto</span>}
+                {l.kind === 'sl' && r.slFrom === 'ladder' && <span className="tag">SL tangga</span>}
               </div>
             );
           }
