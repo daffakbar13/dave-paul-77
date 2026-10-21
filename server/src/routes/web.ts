@@ -103,6 +103,7 @@ export function webRoutes(db: Collections): Router {
         return { name: s.name, active: s.active, order: s.order, digits: s.digits, candidates: open, lastCandleAt: a?.lastCandleAt ?? null };
       }),
       colors: settings.colors,
+      mt4: await db.meta.findOne({ _id: 'mt4' }, { projection: { _id: 0 } }),
     });
   });
 

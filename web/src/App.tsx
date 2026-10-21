@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { api, hasToken, setToken, UNAUTHORIZED, type Account, type Analysis, type Colors, type News, type OrderRow, type SymbolItem } from './api.ts';
+import { api, hasToken, setToken, UNAUTHORIZED, type Account, type Analysis, type Colors, type Mt4Status, type News, type OrderRow, type SymbolItem } from './api.ts';
+import { CalibrationModal } from './components/CalibrationModal.tsx';
 import { Chart } from './components/Chart.tsx';
 import { ExecuteModal } from './components/ExecuteModal.tsx';
 import { PendingModal } from './components/PendingModal.tsx';
 import { SettingsModal } from './components/SettingsModal.tsx';
-import { ago, fmtMoney, fmtWib } from './format.ts';
+import { ago, fmtDate, fmtMoney, fmtWib } from './format.ts';
 
 const ACCOUNT_KEY = 'dp77-account';
 const SYMBOL_KEY = 'dp77-symbol';
@@ -62,7 +63,9 @@ function Login({ onDone }: { onDone: () => void }) {
   );
 }
 
-type ModalKind = 'pending' | 'execute' | 'settings' | null;
+type ModalKind = 'pending' | 'execute' | 'settings' | 'calibration' | null;
+
+const MT4_STALE_MINUTES = 10;
 
 function Main({ onLogout }: { onLogout: () => void }) {
   const [symbols, setSymbols] = useState<SymbolItem[]>([]);
@@ -73,6 +76,7 @@ function Main({ onLogout }: { onLogout: () => void }) {
   const [aggressive, setAggressive] = useState(false);
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [news, setNews] = useState<News[]>([]);
+  const [mt4, setMt4] = useState<Mt4Status>(null);
   const [focusId, setFocusId] = useState<string | null>(null);
   const [onlyFocused, setOnlyFocused] = useState(false);
   const [modal, setModal] = useState<ModalKind>(null);
@@ -87,6 +91,7 @@ function Main({ onLogout }: { onLogout: () => void }) {
       const active = s.symbols.filter((x) => x.active);
       setSymbols(active);
       setColors(s.colors);
+      setMt4(s.mt4);
       setAccounts(a.accounts);
       setNews(n.news);
       setSymbol((cur) => (cur && active.some((x) => x.name === cur) ? cur : active[0]?.name ?? null));
@@ -173,6 +178,9 @@ function Main({ onLogout }: { onLogout: () => void }) {
           <button type="button" className="primary" onClick={() => setModal('execute')}>
             Execute
           </button>
+          <button type="button" onClick={() => setModal('calibration')}>
+            Kalibrasi
+          </button>
           <button type="button" className="icon" aria-label="Pengaturan" title="Pengaturan" onClick={() => setModal('settings')}>
             ⚙
           </button>
@@ -201,7 +209,11 @@ function Main({ onLogout }: { onLogout: () => void }) {
             <div className="chart-tools">
               <span className="muted tabular">
                 {analysis.lines.length} garis · {analysis.rows.filter((r) => r.status === 'valid').length} order valid · candle terakhir{' '}
-                {ago(analysis.lastCandleAt)}
+                {fmtDate(new Date(analysis.lastCandleAt).getTime())} ·{' '}
+                <span className={mt4 && Date.now() - new Date(mt4.lastSeenAt).getTime() < MT4_STALE_MINUTES * 60_000 ? '' : 'warn'}>
+                  MT4 {mt4 ? `terakhir kirim ${ago(mt4.lastSeenAt)}` : 'belum pernah kirim data'}
+                  {mt4?.brokerOffsetMinutes !== undefined && ` (server broker UTC${mt4.brokerOffsetMinutes >= 0 ? '+' : ''}${mt4.brokerOffsetMinutes / 60})`}
+                </span>
               </span>
               <div className="seg">
                 <button type="button" aria-pressed={!onlyFocused} onClick={() => setOnlyFocused(false)}>
@@ -232,6 +244,7 @@ function Main({ onLogout }: { onLogout: () => void }) {
         <ExecuteModal accounts={accounts} initialAccountId={accountId} aggressive={aggressive} onClose={() => setModal(null)} onChanged={refresh} />
       )}
       {modal === 'settings' && <SettingsModal onClose={() => setModal(null)} onChanged={refresh} />}
+      {modal === 'calibration' && <CalibrationModal symbols={symbols.map((s) => s.name)} onClose={() => setModal(null)} onChanged={refresh} />}
     </div>
   );
 }

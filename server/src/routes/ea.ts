@@ -12,17 +12,20 @@ const DAY = 86_400_000;
 const symbolName = z.string().trim().toUpperCase().regex(/^[A-Z0-9._-]{3,20}$/);
 const price = z.number().positive().finite();
 
-// Candle time from MQL is seconds; a candle is only accepted once its day is over.
+// Times from MQL are seconds in broker server time (D1 opens at broker midnight). A candle
+// is only accepted once its day is over by the broker clock the EA sends as `now`.
 const candleSchema = z.object({ t: z.number().int().positive(), o: price, h: price, l: price, c: price })
   .refine((c) => c.h >= Math.max(c.o, c.c, c.l) && c.l <= Math.min(c.o, c.c), 'OHLC tidak konsisten');
 
 const candlesSchema = z.object({
   symbol: symbolName,
   digits: z.number().int().min(0).max(8).optional(),
+  now: z.number().int().positive().optional(), // TimeCurrent(); without it UTC is assumed
   candles: z.array(candleSchema).min(1).max(5000),
 });
 
 const quotesSchema = z.object({
+  now: z.number().int().positive().optional(),
   quotes: z.array(z.object({ symbol: symbolName, bid: price, ask: price })).min(1).max(100),
 });
 
@@ -60,10 +63,27 @@ export function eaRoutes(db: Collections, config: Config): Router {
   const dataKey = requireDataKey(config);
   const accountKey = requireAccountKey(db);
 
+  // Last contact and broker clock offset (rounded to 30 minutes), shown in the web so the
+  // daily check "is MT4 running" is one glance.
+  async function seen(now: number | undefined) {
+    const brokerOffsetMinutes = now ? Math.round((now * 1000 - Date.now()) / 1_800_000) * 30 : null;
+    await db.meta.updateOne(
+      { _id: 'mt4' },
+      { $set: { lastSeenAt: new Date(), ...(brokerOffsetMinutes !== null ? { brokerOffsetMinutes } : {}) } },
+      { upsert: true },
+    );
+  }
+
   // --- MT4 data EA -----------------------------------------------------------
+  // Active pairs from the web settings, so the tab list is managed in one place.
+  router.get('/mt4/symbols', dataKey, async (_req, res) => {
+    const symbols = await db.symbols.find({ active: true }).sort({ order: 1 }).toArray();
+    res.json({ symbols: symbols.map((s) => s.name) });
+  });
+
   router.post('/mt4/candles', dataKey, async (req, res) => {
     const input = parse(candlesSchema, req.body);
-    const now = Date.now();
+    const now = input.now ? input.now * 1000 : Date.now();
     const closed = input.candles.filter((c) => c.t * 1000 + DAY <= now);
     if (closed.length) {
       await db.candles.bulkWrite(
@@ -86,12 +106,14 @@ export function eaRoutes(db: Collections, config: Config): Router {
       await db.symbols.updateOne({ _id: exists._id }, { $set: { digits } });
     }
     if (closed.length) await refreshAnalysis(db, input.symbol, await getSettings(db));
+    await seen(input.now);
     res.json({ stored: closed.length, ignoredOpen: input.candles.length - closed.length });
   });
 
   router.post('/mt4/quotes', dataKey, async (req, res) => {
-    const { quotes } = parse(quotesSchema, req.body);
+    const { quotes, now } = parse(quotesSchema, req.body);
     const at = new Date();
+    await seen(now);
     await db.quotes.bulkWrite(
       quotes.map((q) => ({ replaceOne: { filter: { _id: q.symbol }, replacement: { bid: q.bid, ask: q.ask, at }, upsert: true } })),
     );

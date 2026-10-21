@@ -92,6 +92,21 @@ export type CommandDoc = {
 
 export type NewsDoc = { _id: ObjectId; at: Date; currency: string; impact: 'high' | 'medium' | 'low'; title: string };
 
+export type MetaDoc = { _id: 'mt4'; lastSeenAt: Date; brokerOffsetMinutes?: number };
+
+// Manual orders the user placed by hand, used to calibrate the S/R parameters.
+export type ManualOrderDoc = {
+  _id: ObjectId;
+  symbol: string;
+  side: Side;
+  entry: number;
+  sl: number;
+  tp: number | null;
+  asOf: Date; // trading day the order was placed (candles before it are used)
+  note: string;
+  createdAt: Date;
+};
+
 export type Collections = {
   settings: Collection<Settings>;
   symbols: Collection<SymbolDoc>;
@@ -101,6 +116,8 @@ export type Collections = {
   accounts: Collection<AccountDoc>;
   commands: Collection<CommandDoc>;
   news: Collection<NewsDoc>;
+  meta: Collection<MetaDoc>;
+  manualOrders: Collection<ManualOrderDoc>;
 };
 
 export function collections(db: Db): Collections {
@@ -113,6 +130,8 @@ export function collections(db: Db): Collections {
     accounts: db.collection<AccountDoc>('accounts'),
     commands: db.collection<CommandDoc>('commands'),
     news: db.collection<NewsDoc>('news'),
+    meta: db.collection<MetaDoc>('meta'),
+    manualOrders: db.collection<ManualOrderDoc>('manual_orders'),
   };
 }
 
@@ -124,6 +143,7 @@ export async function ensureIndexes(c: Collections): Promise<void> {
   await c.commands.createIndex({ accountId: 1, status: 1 });
   await c.commands.createIndex({ purgeAt: 1 }, { expireAfterSeconds: 0 });
   await c.news.createIndex({ at: 1 });
+  await c.manualOrders.createIndex({ symbol: 1, asOf: 1 });
 }
 
 export async function getSettings(c: Collections): Promise<Settings> {

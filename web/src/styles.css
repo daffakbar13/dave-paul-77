@@ -499,7 +499,7 @@ table.orders {
 .orders .num {
   text-align: right;
 }
-.orders .status .reason {
+.orders .reason {
   display: block;
   font-size: 11px;
 }
@@ -628,4 +628,35 @@ table.orders {
   .chart-labels {
     right: 56px;
   }
+}
+
+/* --- calibration ---------------------------------------------------------- */
+.manual-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px 12px;
+  align-items: end;
+  margin-bottom: 12px;
+}
+.manual-form .note {
+  grid-column: span 2;
+}
+.orders tbody.cal-match + tbody,
+.orders tbody.cal-miss + tbody {
+  border-top: 2px solid var(--border);
+}
+.cal-match .status {
+  color: var(--candle);
+}
+.cal-miss .status {
+  color: var(--aggr);
+}
+.cal-diff td {
+  color: var(--muted);
+}
+.orders td[rowspan] {
+  vertical-align: top;
+}
+.sweep-actions {
+  margin: 12px 0;
 }

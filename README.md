@@ -7,9 +7,9 @@ lalu eksekusi ke MT5 lewat EA setelah Confirm. Konsep: dokumen konsep versi 1, 2
 | --------- | ------------------------------------------------------------------- | ------- |
 | `server/` | Node.js + Express + MongoDB: analisa, order, antrean perintah, API EA | Render  |
 | `web/`    | React + Vite + lightweight-charts: chart, Pending Orders, Execute     | Vercel  |
-| `ea/`     | (tahap 2 dan 4) EA MT4 data dan EA MT5 eksekutor                       | MT4/MT5 |
+| `ea/`     | EA MT4 data (tahap 2), EA MT5 eksekutor (tahap 4); lihat `ea/README.md` | MT4/MT5 |
 
-## Status: tahap 1 (backend dan web, data contoh)
+## Tahap 1: backend dan web (data contoh)
 
 - Engine S/R: `server/src/analysis/sr.ts` (fraktal, cluster ATR, candle kuat, pantulan, entry/SL/TP, TP auto, dedup entry).
 - Lot dan validasi: `server/src/analysis/orders.ts` (lot dibulatkan ke bawah, stops level, harga lewat entry, lot minimum, risk per mata uang).
@@ -43,7 +43,16 @@ Environment: `MONGODB_URI`, `MONGODB_DB`, `JWT_SECRET`, `ADMIN_PASSWORD_HASH` (`
 
 **MT4/MT5**: Tools, Options, Expert Advisors: centang Allow WebRequest, daftarkan URL Render.
 
-## Catatan kalibrasi (tahap 2)
+## Tahap 2: data MT4 dan kalibrasi
+
+- **EA MT4**: `ea/DavePaul77Data.mq4`, cara pasang di `ea/README.md`. Daftar pair diambil dari Pengaturan > Pair.
+- **Kalibrasi** (tombol Kalibrasi di toolbar): masukkan order manual (pair, tipe, entry, SL, TP, tanggal pasang).
+  Aplikasi menghitung analisa dengan candle sebelum tanggal itu dan menampilkan selisih entry/SL/TP dalam ATR.
+  Cocok jika entry ≤ 0,2 ATR dan SL ≤ 0,3 ATR. **Cari parameter terbaik** mencoba 972 kombinasi
+  (penggabungan area, sentuhan, candle kuat, wick, buffer, pilihan candle kuat) dan bisa langsung diterapkan.
+- Logika: `server/src/analysis/calibrate.ts` (dengan test).
+
+## Catatan kalibrasi
 
 Dengan aturan default, data 2 tahun menghasilkan banyak garis (20 sampai 30 per pair), dan TP = garis berikutnya
 sering memberi RR di bawah 1:1,5. Karena itu ada pengaturan **Maks garis berorder per sisi** (default 3: hanya 3 garis

@@ -111,6 +111,34 @@ export type Command = {
   dryRun?: boolean;
 };
 
+export type Mt4Status = { lastSeenAt: string; brokerOffsetMinutes?: number } | null;
+
+export type CalibrationScore = { matched: number; total: number; error: number };
+
+export type ManualOrder = {
+  id: string;
+  symbol: string;
+  side: Side;
+  entry: number;
+  sl: number;
+  tp: number | null;
+  asOf: number;
+  note: string;
+  digits: number;
+  comparison: {
+    atr: number;
+    auto: { line: number; entry?: number; sl?: number; tp?: number; tpAuto?: boolean } | null;
+    nearestLine: number | null;
+    dEntry: number | null;
+    dSl: number | null;
+    dTp: number | null;
+    match: boolean;
+    reason?: string;
+  };
+};
+
+export type SweepResult = { current: CalibrationScore; best: { params: Partial<SrParams>; score: CalibrationScore }[]; tried: number };
+
 export type News = { id: string; at: string; currency: string; impact: string; title: string };
 
 const BASE = (import.meta.env.VITE_API_URL ?? 'http://localhost:4000').replace(/\/$/, '');
@@ -176,7 +204,7 @@ const q = (params: Record<string, string | boolean | undefined>) => {
 
 export const api = {
   login: (password: string) => request<{ token: string; expiresAt: string }>('POST', '/auth/login', { password }),
-  symbols: () => request<{ symbols: SymbolItem[]; colors: Colors }>('GET', '/symbols'),
+  symbols: () => request<{ symbols: SymbolItem[]; colors: Colors; mt4: Mt4Status }>('GET', '/symbols'),
   saveSymbols: (list: { name: string; active: boolean }[]) => request<{ ok: true }>('PUT', '/symbols', list),
   analysis: (symbol: string, accountId?: string, aggressive?: boolean) =>
     request<Analysis>('GET', `/analysis/${encodeURIComponent(symbol)}${q({ accountId, aggressive })}`),
@@ -195,5 +223,10 @@ export const api = {
   createAccount: (a: Partial<Account>) => request<{ account: Account; key: string }>('POST', '/accounts', a),
   updateAccount: (id: string, a: Partial<Account>) => request<{ account: Account }>('PUT', `/accounts/${id}`, a),
   deleteAccount: (id: string) => request<void>('DELETE', `/accounts/${id}`),
+  calibration: () => request<{ orders: ManualOrder[]; score: CalibrationScore; sr: SrParams }>('GET', '/calibration'),
+  addManual: (o: { symbol: string; side: Side; entry: number; sl: number; tp: number | null; asOf: string; note: string }) =>
+    request<{ id: string }>('POST', '/calibration/orders', o),
+  deleteManual: (id: string) => request<void>('DELETE', `/calibration/orders/${id}`),
+  sweep: () => request<SweepResult>('POST', '/calibration/sweep'),
   rotateKey: (id: string) => request<{ key: string }>('POST', `/accounts/${id}/key`),
 };
