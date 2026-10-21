@@ -37,13 +37,7 @@ Dengan MongoDB sungguhan: salin `server/.env.example` ke `server/.env`, isi, lal
 
 ## Deploy
 
-**Render** (web service, Root Directory `server`): build `npm ci && npm run build`, start `npm start`, health check `/api/health`.
-Environment: `MONGODB_URI`, `MONGODB_DB`, `JWT_SECRET`, `ADMIN_PASSWORD_HASH` (`npm run hash-password -- 'password'`),
-`EA_DATA_KEY`, `CORS_ORIGIN` (domain Vercel).
-
-**Vercel** (Root Directory `web`): framework Vite, environment `VITE_API_URL` = URL Render.
-
-**MT4/MT5**: Tools, Options, Expert Advisors: centang Allow WebRequest, daftarkan URL Render.
+Panduan langkah demi langkah lewat website (Render, Vercel, Atlas, lalu arahkan EA): [DEPLOY.md](DEPLOY.md).
 
 ## Tahap 2: data MT4 dan kalibrasi
 
