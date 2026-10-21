@@ -5,7 +5,7 @@ import type { SymbolInputs } from './analysis/types.ts';
 import { getSettings, type Collections, type SymbolDoc } from './db.ts';
 import { refreshAnalysis } from './service.ts';
 
-// Minimum SL in pips per pair, from the user's previous order tool (alat order sebelumnya).
+// Minimum SL in pips per pair, from the user's previous order tool.
 const MIN_SL_PIPS: Record<string, number> = {
   NZDUSD: 10, AUDUSD: 10, EURGBP: 10, USDCHF: 10,
   USDCAD: 15, EURUSD: 15, GBPUSD: 15, NZDJPY: 15, CADJPY: 15, AUDJPY: 15,
