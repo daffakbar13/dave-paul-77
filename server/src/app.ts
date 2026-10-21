@@ -6,6 +6,7 @@ import { errorHandler, unknownRoute } from './http.ts';
 import { calibrationRoutes } from './routes/calibration.ts';
 import { eaRoutes } from './routes/ea.ts';
 import { webRoutes } from './routes/web.ts';
+import { providerFromEnv } from './news.ts';
 
 export function createApp(db: Collections, config: Config): Express {
   const app = express();
@@ -39,7 +40,7 @@ export function createApp(db: Collections, config: Config): Express {
   app.use('/api', rateLimit({ windowMs: 60_000, max: 300 }), express.json({ limit: '100kb' }));
   app.use('/api/auth', authRoutes(config));
   app.use('/api/calibration', requireAdmin(config), calibrationRoutes(db));
-  app.use('/api', requireAdmin(config), webRoutes(db));
+  app.use('/api', requireAdmin(config), webRoutes(db, providerFromEnv(config.newsSource)));
 
   app.use(unknownRoute);
   app.use(errorHandler);

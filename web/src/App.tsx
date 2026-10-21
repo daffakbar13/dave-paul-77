@@ -1,14 +1,27 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { api, hasToken, setToken, UNAUTHORIZED, type Account, type Analysis, type Colors, type Mt4Status, type News, type OrderRow, type SymbolItem } from './api.ts';
+import { api, hasToken, setToken, UNAUTHORIZED, type Account, type Analysis, type Colors, type AggressiveMode, type Mt4Status, type NewsFeed, type OrderRow, type SymbolItem } from './api.ts';
 import { CalibrationModal } from './components/CalibrationModal.tsx';
 import { Chart } from './components/Chart.tsx';
 import { ExecuteModal } from './components/ExecuteModal.tsx';
 import { PendingModal } from './components/PendingModal.tsx';
 import { SettingsModal } from './components/SettingsModal.tsx';
-import { ago, fmtDate, fmtMoney, fmtWib } from './format.ts';
+import { ago, fmtDate, fmtMoney, fmtNewsTime } from './format.ts';
 
 const ACCOUNT_KEY = 'dp77-account';
+const AGGRESSIVE_KEY = 'dp77-aggressive';
 const SYMBOL_KEY = 'dp77-symbol';
+
+// Aggressive lasts for the browser session: it starts on auto every time the app is opened.
+function sessionMode(value?: AggressiveMode): AggressiveMode {
+  try {
+    if (value) sessionStorage.setItem(AGGRESSIVE_KEY, value);
+    const v = sessionStorage.getItem(AGGRESSIVE_KEY);
+    if (v === 'auto' || v === 'on' || v === 'off') return v;
+  } catch {
+    // storage blocked: memory only
+  }
+  return value ?? 'auto';
+}
 
 function remember(key: string, value?: string): string | null {
   try {
@@ -73,9 +86,10 @@ function Main({ onLogout }: { onLogout: () => void }) {
   const [symbol, setSymbol] = useState<string | null>(remember(SYMBOL_KEY));
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [accountId, setAccountId] = useState<string | null>(remember(ACCOUNT_KEY));
-  const [aggressive, setAggressive] = useState(false);
+  const [aggressive, setAggressiveState] = useState<AggressiveMode>(() => sessionMode());
+  const setAggressive = (m: AggressiveMode) => setAggressiveState(sessionMode(m));
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
-  const [news, setNews] = useState<News[]>([]);
+  const [feed, setFeed] = useState<NewsFeed | null>(null);
   const [mt4, setMt4] = useState<Mt4Status>(null);
   const [focusId, setFocusId] = useState<string | null>(null);
   const [onlyFocused, setOnlyFocused] = useState(false);
@@ -93,7 +107,7 @@ function Main({ onLogout }: { onLogout: () => void }) {
       setColors(s.colors);
       setMt4(s.mt4);
       setAccounts(a.accounts);
-      setNews(n.news);
+      setFeed(n);
       setSymbol((cur) => (cur && active.some((x) => x.name === cur) ? cur : active[0]?.name ?? null));
       setAccountId((cur) => (cur && a.accounts.some((x) => x.id === cur) ? cur : a.accounts[0]?.id ?? null));
       setReady(true);
@@ -145,6 +159,27 @@ function Main({ onLogout }: { onLogout: () => void }) {
   };
 
   const account = accounts.find((a) => a.id === accountId) ?? null;
+
+  // auto: on for pairs with red news ahead (accounts with auto enabled); a click turns
+  // the feature off for the session, another click turns it on for every pair.
+  const affected = feed?.affected ?? [];
+  const newsPairs = new Set(symbols.filter((s) => affected.some((c) => s.name.includes(c))).map((s) => s.name));
+  const autoActive = aggressive === 'auto' && affected.length > 0 && !!account?.aggressiveAuto;
+  const aggrActive = aggressive === 'on' || autoActive;
+  const mult = account ? `${account.aggressiveMultiplier}x` : '';
+  const aggrLabel =
+    aggressive === 'on' ? `Aggressive ${mult} semua pair` : autoActive ? `Aggressive ${mult} auto (${affected.join(', ')})` : aggressive === 'off' ? 'Aggressive mati' : 'Aggressive';
+  const aggrTitle = aggrActive ? 'Klik untuk mematikan Aggressive selama sesi ini' : 'Klik untuk menyalakan Aggressive di semua pair';
+  const newsNote =
+    aggressive === 'off'
+      ? 'Aggressive dimatikan untuk sesi ini.'
+      : aggressive === 'on'
+        ? 'Aggressive manual aktif untuk semua pair.'
+        : autoActive
+          ? 'Aggressive aktif untuk pair terkait.'
+          : account && !account.aggressiveAuto
+            ? 'Aggressive otomatis nonaktif untuk akun ini.'
+            : '';
   const stale = account && (!account.balanceAt || analysis?.account?.stale);
 
   return (
@@ -169,8 +204,14 @@ function Main({ onLogout }: { onLogout: () => void }) {
           )}
         </div>
         <div className="tool-actions">
-          <button type="button" className={aggressive ? 'aggr-on' : ''} aria-pressed={aggressive} onClick={() => setAggressive((v) => !v)}>
-            Aggressive{aggressive && account ? ` ${account.aggressiveMultiplier}x` : ''}
+          <button
+            type="button"
+            className={aggrActive ? 'aggr-on' : aggressive === 'off' ? 'aggr-off' : ''}
+            aria-pressed={aggrActive}
+            title={aggrTitle}
+            onClick={() => setAggressive(aggrActive ? 'off' : 'on')}
+          >
+            {aggrLabel}
           </button>
           <button type="button" onClick={() => setModal('pending')}>
             Pending Orders
@@ -190,14 +231,15 @@ function Main({ onLogout }: { onLogout: () => void }) {
         </div>
       </header>
 
-      {news.length > 0 && (
+      {feed && (feed.news.length > 0 || feed.status.error) && (
         <div className="news" role="status">
-          {news.map((n) => (
-            <span key={n.id}>
-              Berita merah {n.currency} {fmtWib(n.at)}: {n.title}
+          {feed.news.map((n) => (
+            <span key={n.id} className={new Date(n.at).getTime() < Date.now() ? 'past' : ''}>
+              Berita merah {n.currency} {fmtNewsTime(n.at)}: {n.title}
             </span>
           ))}
-          {aggressive ? ' Aggressive aktif.' : ''}
+          {feed.news.length > 0 && <span className="news-note">{newsNote}</span>}
+          {feed.status.error && <span className="error">Kalender gagal diambil ({feed.status.error}); data terakhir dipakai.</span>}
         </div>
       )}
       {error && <div className="error-bar">{error}</div>}
@@ -235,6 +277,11 @@ function Main({ onLogout }: { onLogout: () => void }) {
           <button key={s.name} type="button" className={s.name === symbol ? 'active' : ''} aria-current={s.name === symbol} onClick={() => setSymbol(s.name)}>
             {s.name}
             {s.candidates > 0 && <span className="dot" aria-label={`${s.candidates} kandidat`}>•</span>}
+            {newsPairs.has(s.name) && (
+              <span className="news-mark" title="Ada berita merah untuk mata uang pair ini" aria-label="berita merah">
+                !
+              </span>
+            )}
           </button>
         ))}
       </nav>

@@ -6,6 +6,16 @@ export const fmtDate = (ms: number) => dateFmt.format(new Date(ms)).replace('.',
 
 export const fmtWib = (iso: string) => `${timeFmt.format(new Date(iso)).replace('.', ':')} WIB`;
 
+const dayFmt = new Intl.DateTimeFormat('id-ID', { weekday: 'short', timeZone: 'Asia/Jakarta' });
+const wibDay = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(d);
+
+// "19:30 WIB" today, "Kam 19:30 WIB" on another day
+export function fmtNewsTime(iso: string): string {
+  const d = new Date(iso);
+  const day = wibDay(d) === wibDay(new Date()) ? '' : `${dayFmt.format(d)} `;
+  return `${day}${fmtWib(iso)}`;
+}
+
 export const fmtPrice = (v: number | null | undefined, digits: number) => (v === null || v === undefined ? '–' : v.toFixed(digits));
 
 export const fmtMoney = (v: number | null | undefined) =>

@@ -4,11 +4,12 @@ import { z } from 'zod';
 import { newAccountKey } from '../auth.ts';
 import { getSettings, type AccountDoc, type AnalysisDoc, type CommandDoc, type Collections, type Settings } from '../db.ts';
 import { HttpError, notFound, parse, parseId } from '../http.ts';
+import { aggressiveContext, isAffected, newsStatus, refreshNews, upcomingRed, type NewsProvider } from '../news.ts';
 import { accountInfo, freshQuote, getAnalysis, loadCandles, ordersForAccount, refreshAnalysis, rowsFor } from '../service.ts';
 
 const HOUR = 3_600_000;
 const symbolName = z.string().trim().toUpperCase().regex(/^[A-Z0-9._-]{3,20}$/, 'Nama simbol tidak valid');
-const bool01 = z.enum(['0', '1', 'true', 'false']).transform((v) => v === '1' || v === 'true');
+const aggressiveMode = z.enum(['auto', 'on', 'off']);
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 
 function publicAccount(a: AccountDoc) {
@@ -81,11 +82,18 @@ const settingsSchema = z.object({
 
 const executeSchema = z.object({
   accountIds: z.array(z.string()).min(1).max(20),
-  aggressive: z.boolean(),
+  aggressive: aggressiveMode,
 });
 
-export function webRoutes(db: Collections): Router {
+export function webRoutes(db: Collections, news: NewsProvider | null): Router {
   const router = Router();
+
+  // Aggressive for this request; refreshes the calendar first when its cache is stale.
+  async function aggressiveFor(mode: z.infer<typeof aggressiveMode>) {
+    const settings = await getSettings(db);
+    if (mode === 'auto') await refreshNews(db, news);
+    return aggressiveContext(db, settings, mode);
+  }
 
   // --- symbols ---------------------------------------------------------------
   router.get('/symbols', async (_req, res) => {
@@ -123,8 +131,9 @@ export function webRoutes(db: Collections): Router {
   // --- analysis --------------------------------------------------------------
   router.get('/analysis/:symbol', async (req, res) => {
     const symbol = parse(symbolName, req.params.symbol);
-    const q = parse(z.object({ accountId: z.string().optional(), aggressive: bool01.optional() }), req.query);
+    const q = parse(z.object({ accountId: z.string().optional(), aggressive: aggressiveMode.default('off') }), req.query);
     const settings = await getSettings(db);
+    const aggressive = await aggressiveFor(q.aggressive);
     const analysis = await getAnalysis(db, symbol, settings);
     if (!analysis) throw notFound('Belum ada data candle untuk simbol ini');
     const account = q.accountId ? await findAccount(db, q.accountId) : null;
@@ -140,8 +149,9 @@ export function webRoutes(db: Collections): Router {
       quote: quote ? { bid: quote.bid, ask: quote.ask, at: quote.at } : null,
       candles,
       lines: analysis.lines,
-      rows: rowsFor(analysis, account, quote, settings, q.aggressive ?? false),
-      account: account ? accountInfo(account, settings, q.aggressive ?? false) : null,
+      rows: rowsFor(analysis, account, quote, settings, aggressive),
+      account: account ? accountInfo(account, settings) : null,
+      newsAffected: aggressive.mode === 'auto' && isAffected(symbol, aggressive.affected),
     });
   });
 
@@ -158,15 +168,16 @@ export function webRoutes(db: Collections): Router {
   }
 
   router.get('/orders', async (req, res) => {
-    const q = parse(z.object({ accountId: z.string(), aggressive: bool01.optional() }), req.query);
-    res.json(await ordersForAccount(db, await findAccount(db, q.accountId), q.aggressive ?? false));
+    const q = parse(z.object({ accountId: z.string(), aggressive: aggressiveMode.default('off') }), req.query);
+    res.json(await ordersForAccount(db, await findAccount(db, q.accountId), await aggressiveFor(q.aggressive)));
   });
 
   // --- execute ---------------------------------------------------------------
   router.post('/execute/preview', async (req, res) => {
     const { accountIds, aggressive } = parse(executeSchema, req.body);
     const accounts = await Promise.all(accountIds.map((id) => findAccount(db, id)));
-    res.json({ accounts: await Promise.all(accounts.map((a) => ordersForAccount(db, a, aggressive))) });
+    const ctx = await aggressiveFor(aggressive);
+    res.json({ accounts: await Promise.all(accounts.map((a) => ordersForAccount(db, a, ctx))) });
   });
 
   // One command per account. The rows are recomputed here, never taken from the client.
@@ -175,9 +186,10 @@ export function webRoutes(db: Collections): Router {
     const { accountIds, aggressive } = parse(executeSchema, req.body);
     const settings = await getSettings(db);
     const accounts = await Promise.all([...new Set(accountIds)].map((id) => findAccount(db, id)));
+    const ctx = await aggressiveFor(aggressive);
     const created: CommandDoc[] = [];
     for (const account of accounts) {
-      const { rows } = await ordersForAccount(db, account, aggressive);
+      const { rows } = await ordersForAccount(db, account, ctx);
       const now = new Date();
       await db.commands.updateMany({ accountId: account._id, status: 'pending' }, { $set: { status: 'superseded', finishedAt: now } });
       const command: CommandDoc = {
@@ -215,15 +227,28 @@ export function webRoutes(db: Collections): Router {
     res.json({ commands: commands.map(publicCommand) });
   });
 
-  // --- news (filled in stage 3) ------------------------------------------------
-  router.get('/news', async (_req, res) => {
+  // --- news ------------------------------------------------------------------
+  // Red news in the window plus the currencies that switch automatic Aggressive on.
+  async function newsPayload() {
     const settings = await getSettings(db);
-    const now = Date.now();
-    const news = await db.news
-      .find({ impact: 'high', at: { $gte: new Date(now - HOUR), $lte: new Date(now + settings.newsWindowHours * HOUR) } })
-      .sort({ at: 1 })
-      .toArray();
-    res.json({ news: news.map(({ _id, ...n }) => ({ id: _id.toHexString(), ...n })) });
+    const items = await upcomingRed(db, settings);
+    const ctx = await aggressiveContext(db, settings, 'auto');
+    return {
+      news: items.map(({ _id, ...n }) => ({ id: _id.toHexString(), ...n })),
+      affected: [...ctx.affected].sort(),
+      windowHours: settings.newsWindowHours,
+      status: await newsStatus(db),
+    };
+  }
+
+  router.get('/news', async (_req, res) => {
+    await refreshNews(db, news);
+    res.json(await newsPayload());
+  });
+
+  router.post('/news/refresh', async (_req, res) => {
+    await refreshNews(db, news, true);
+    res.json(await newsPayload());
   });
 
   // --- settings --------------------------------------------------------------

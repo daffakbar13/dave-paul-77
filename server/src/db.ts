@@ -79,7 +79,7 @@ export type CommandDoc = {
   accountId: ObjectId;
   accountNumber: number;
   orders: CommandOrder[];
-  aggressive: boolean;
+  aggressive: 'auto' | 'on' | 'off';
   status: CommandStatus;
   createdAt: Date;
   expiresAt: Date;
@@ -92,7 +92,15 @@ export type CommandDoc = {
 
 export type NewsDoc = { _id: ObjectId; at: Date; currency: string; impact: 'high' | 'medium' | 'low'; title: string };
 
-export type MetaDoc = { _id: 'mt4'; lastSeenAt: Date; brokerOffsetMinutes?: number };
+// Small status documents: 'mt4' (last contact, broker clock) and 'news' (calendar fetch).
+export type MetaDoc = {
+  _id: 'mt4' | 'news';
+  lastSeenAt?: Date;
+  brokerOffsetMinutes?: number;
+  source?: string;
+  fetchedAt?: Date;
+  error?: string | null;
+};
 
 // Manual orders the user placed by hand, used to calibrate the S/R parameters.
 export type ManualOrderDoc = {

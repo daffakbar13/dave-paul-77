@@ -660,3 +660,23 @@ table.orders {
 .sweep-actions {
   margin: 12px 0;
 }
+
+/* --- news / Aggressive ---------------------------------------------------- */
+.news .past {
+  opacity: 0.6;
+}
+.news .news-note {
+  font-weight: 600;
+}
+.news .error {
+  color: var(--sltp);
+}
+button.aggr-off {
+  color: var(--muted);
+  border-style: dashed;
+}
+.tabs .news-mark {
+  margin-left: 4px;
+  color: var(--aggr);
+  font-weight: 700;
+}

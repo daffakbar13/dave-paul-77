@@ -1,6 +1,7 @@
 import { evaluate, summarize, type OrderRow, type RiskSummary } from './analysis/orders.ts';
 import { analyze } from './analysis/sr.ts';
 import type { Candle } from './analysis/types.ts';
+import { isAffected, type Aggressive } from './news.ts';
 import { getSettings, type AccountDoc, type AnalysisDoc, type Collections, type QuoteDoc, type Settings } from './db.ts';
 
 const MINUTE = 60_000;
@@ -55,8 +56,10 @@ export async function getAnalysis(db: Collections, symbol: string, settings: Set
   return refreshAnalysis(db, symbol, settings);
 }
 
-export function multiplierFor(account: AccountDoc | null, aggressive: boolean): number {
-  return aggressive && account ? account.aggressiveMultiplier : 1;
+export function multiplierFor(account: AccountDoc | null, symbol: string, aggressive: Aggressive): number {
+  if (!account || aggressive.mode === 'off') return 1;
+  if (aggressive.mode === 'on') return account.aggressiveMultiplier;
+  return account.aggressiveAuto && isAffected(symbol, aggressive.affected) ? account.aggressiveMultiplier : 1;
 }
 
 export function rowsFor(
@@ -64,7 +67,7 @@ export function rowsFor(
   account: AccountDoc | null,
   quote: QuoteDoc | null,
   settings: Settings,
-  aggressive: boolean,
+  aggressive: Aggressive,
 ): OrderRow[] {
   const symbol = analysis._id;
   const cancelled = new Set(analysis.cancelled);
@@ -77,7 +80,7 @@ export function rowsFor(
       quote: quote ?? undefined,
       balance: account?.balance ?? 0,
       riskPct: account?.riskPct ?? 0,
-      multiplier: multiplierFor(account, aggressive),
+      multiplier: multiplierFor(account, symbol, aggressive),
       rrThreshold: settings.rrThreshold,
       offset: account?.offsets[symbol] ?? 0,
     }),
@@ -85,12 +88,12 @@ export function rowsFor(
 }
 
 export type AccountOrders = {
-  account: { id: string; name: string; number: number; balance: number | null; currency: string | null; balanceAt: Date | null; stale: boolean; multiplier: number };
+  account: { id: string; name: string; number: number; balance: number | null; currency: string | null; balanceAt: Date | null; stale: boolean; multiplier: number; aggressiveAuto: boolean };
   rows: OrderRow[];
   summary: RiskSummary;
 };
 
-export function accountInfo(account: AccountDoc, settings: Settings, aggressive: boolean): AccountOrders['account'] {
+export function accountInfo(account: AccountDoc, settings: Settings): AccountOrders['account'] {
   const stale = !account.balanceAt || Date.now() - account.balanceAt.getTime() > settings.balanceStaleMinutes * MINUTE;
   return {
     id: account._id.toHexString(),
@@ -100,12 +103,13 @@ export function accountInfo(account: AccountDoc, settings: Settings, aggressive:
     currency: account.currency,
     balanceAt: account.balanceAt,
     stale,
-    multiplier: multiplierFor(account, aggressive),
+    multiplier: account.aggressiveMultiplier,
+    aggressiveAuto: account.aggressiveAuto,
   };
 }
 
 // All active symbols for one account: the Pending Orders table and the Execute modal.
-export async function ordersForAccount(db: Collections, account: AccountDoc, aggressive: boolean): Promise<AccountOrders> {
+export async function ordersForAccount(db: Collections, account: AccountDoc, aggressive: Aggressive): Promise<AccountOrders> {
   const settings = await getSettings(db);
   const symbols = await db.symbols.find({ active: true }).sort({ order: 1 }).toArray();
   const rows: OrderRow[] = [];
@@ -115,5 +119,5 @@ export async function ordersForAccount(db: Collections, account: AccountDoc, agg
     const quote = freshQuote(await db.quotes.findOne({ _id: s.name }), settings);
     rows.push(...rowsFor(analysis, account, quote, settings, aggressive));
   }
-  return { account: accountInfo(account, settings, aggressive), rows, summary: summarize(rows) };
+  return { account: accountInfo(account, settings), rows, summary: summarize(rows) };
 }

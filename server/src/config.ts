@@ -14,6 +14,7 @@ export type Config = {
   adminPasswordHash: string; // bcrypt
   eaDataKey: string; // shared by the MT4 data EA
   corsOrigins: string[];
+  newsSource: string; // forexfactory | none
 };
 
 export function loadConfig(): Config {
@@ -24,6 +25,7 @@ export function loadConfig(): Config {
     jwtSecret: required('JWT_SECRET'),
     adminPasswordHash: required('ADMIN_PASSWORD_HASH'),
     eaDataKey: required('EA_DATA_KEY'),
+    newsSource: process.env.NEWS_SOURCE ?? 'forexfactory',
     corsOrigins: (process.env.CORS_ORIGIN ?? '').split(',').map((s) => s.trim()).filter(Boolean),
   };
 }

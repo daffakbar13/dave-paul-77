@@ -52,6 +52,19 @@ Environment: `MONGODB_URI`, `MONGODB_DB`, `JWT_SECRET`, `ADMIN_PASSWORD_HASH` (`
   (penggabungan area, sentuhan, candle kuat, wick, buffer, pilihan candle kuat) dan bisa langsung diterapkan.
 - Logika: `server/src/analysis/calibrate.ts` (dengan test).
 
+## Tahap 3: kalender ekonomi dan Aggressive otomatis
+
+- **Sumber**: feed mingguan ForexFactory (`nfs.faireconomy.media/ff_calendar_thisweek.json`). Gratis, tanpa key, hanya
+  minggu berjalan, jam dalam ISO dengan offset New York (ditampilkan dalam WIB). Diambil paling sering sekali per jam
+  (10 menit setelah gagal), saat web dibuka; jika gagal, data terakhir tetap dipakai dan banner menampilkan errornya.
+  Bisa diganti lewat `NEWS_SOURCE` (`forexfactory` atau `none`); provider ada di `server/src/news.ts`.
+- **Banner**: berita merah (High) dari 1 jam lalu sampai jendela ke depan (default 24 jam), dengan jam rilis WIB.
+- **Aggressive**, tiga mode per sesi browser:
+  - *auto* (setiap aplikasi dibuka): pengali akun berlaku untuk pair yang mata uangnya punya berita merah di jendela,
+    hanya untuk akun dengan "Aggressive otomatis" menyala. Pair terkait diberi tanda `!` di tab.
+  - klik saat aktif: *mati* untuk sesi itu; klik lagi: *manual* untuk semua pair.
+- Batasan: feed tidak memuat minggu depan, jadi berita Senin baru muncul setelah feed berganti minggu (akhir pekan).
+
 ## Catatan kalibrasi
 
 Dengan aturan default, data 2 tahun menghasilkan banyak garis (20 sampai 30 per pair), dan TP = garis berikutnya

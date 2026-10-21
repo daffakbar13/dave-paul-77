@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, type Account, type AccountOrders, type Command, type OrderRow } from '../api.ts';
+import { api, type Account, type AggressiveMode, type AccountOrders, type Command, type OrderRow } from '../api.ts';
 import { ago, fmtWib } from '../format.ts';
 import { Modal } from './Modal.tsx';
 import { OrdersTable } from './OrdersTable.tsx';
@@ -8,7 +8,7 @@ import { Summary } from './Summary.tsx';
 type Props = {
   account: Account | null;
   accounts: Account[];
-  aggressive: boolean;
+  aggressive: AggressiveMode;
   onClose: () => void;
   onChanged: () => void;
 };

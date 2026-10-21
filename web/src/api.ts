@@ -1,6 +1,7 @@
 // Thin client for the Render backend. Shapes mirror server/src (routes/web.ts, analysis/orders.ts).
 
 export type Side = 'buy' | 'sell';
+export type AggressiveMode = 'auto' | 'on' | 'off';
 export type RowStatus = 'valid' | 'skipped' | 'invalid' | 'cancelled';
 
 export type OrderRow = {
@@ -33,7 +34,8 @@ export type AccountInfo = {
   currency: string | null;
   balanceAt: string | null;
   stale: boolean;
-  multiplier: number;
+  multiplier: number; // the account's Aggressive multiplier
+  aggressiveAuto: boolean;
 };
 
 export type Analysis = {
@@ -48,6 +50,7 @@ export type Analysis = {
   lines: Line[];
   rows: OrderRow[];
   account: AccountInfo | null;
+  newsAffected: boolean;
 };
 
 export type RiskSummary = { orders: number; totalRisk: number; lowRr: number; byCurrency: Record<string, number> };
@@ -140,6 +143,12 @@ export type ManualOrder = {
 export type SweepResult = { current: CalibrationScore; best: { params: Partial<SrParams>; score: CalibrationScore }[]; tried: number };
 
 export type News = { id: string; at: string; currency: string; impact: string; title: string };
+export type NewsFeed = {
+  news: News[];
+  affected: string[]; // currencies with red news ahead in the window
+  windowHours: number;
+  status: { source: string | null; fetchedAt: string | null; error: string | null };
+};
 
 const BASE = (import.meta.env.VITE_API_URL ?? 'http://localhost:4000').replace(/\/$/, '');
 const TOKEN_KEY = 'dp77-token';
@@ -206,17 +215,18 @@ export const api = {
   login: (password: string) => request<{ token: string; expiresAt: string }>('POST', '/auth/login', { password }),
   symbols: () => request<{ symbols: SymbolItem[]; colors: Colors; mt4: Mt4Status }>('GET', '/symbols'),
   saveSymbols: (list: { name: string; active: boolean }[]) => request<{ ok: true }>('PUT', '/symbols', list),
-  analysis: (symbol: string, accountId?: string, aggressive?: boolean) =>
+  analysis: (symbol: string, accountId?: string, aggressive?: AggressiveMode) =>
     request<Analysis>('GET', `/analysis/${encodeURIComponent(symbol)}${q({ accountId, aggressive })}`),
   cancel: (id: string) => request<{ ok: true }>('POST', `/orders/${encodeURIComponent(id)}/cancel`),
   restore: (id: string) => request<{ ok: true }>('POST', `/orders/${encodeURIComponent(id)}/restore`),
-  orders: (accountId: string, aggressive: boolean) => request<AccountOrders>('GET', `/orders${q({ accountId, aggressive })}`),
-  preview: (accountIds: string[], aggressive: boolean) =>
+  orders: (accountId: string, aggressive: AggressiveMode) => request<AccountOrders>('GET', `/orders${q({ accountId, aggressive })}`),
+  preview: (accountIds: string[], aggressive: AggressiveMode) =>
     request<{ accounts: AccountOrders[] }>('POST', '/execute/preview', { accountIds, aggressive }),
-  execute: (accountIds: string[], aggressive: boolean) =>
+  execute: (accountIds: string[], aggressive: AggressiveMode) =>
     request<{ commands: Command[] }>('POST', '/execute', { accountIds, aggressive }),
   commands: () => request<{ commands: Command[] }>('GET', '/commands'),
-  news: () => request<{ news: News[] }>('GET', '/news'),
+  news: () => request<NewsFeed>('GET', '/news'),
+  refreshNews: () => request<NewsFeed>('POST', '/news/refresh'),
   settings: () => request<Settings>('GET', '/settings'),
   saveSettings: (patch: Partial<Omit<Settings, 'version'>>) => request<Settings>('PUT', '/settings', patch),
   accounts: () => request<{ accounts: Account[] }>('GET', '/accounts'),

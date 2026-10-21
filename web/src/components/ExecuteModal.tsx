@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, type Account, type AccountOrders, type Command, type OrderRow } from '../api.ts';
+import { api, type Account, type AggressiveMode, type AccountOrders, type Command, type OrderRow } from '../api.ts';
 import { ago } from '../format.ts';
 import { Modal } from './Modal.tsx';
 import { OrdersTable } from './OrdersTable.tsx';
@@ -8,7 +8,7 @@ import { Summary } from './Summary.tsx';
 type Props = {
   accounts: Account[];
   initialAccountId: string | null;
-  aggressive: boolean;
+  aggressive: AggressiveMode;
   onClose: () => void;
   onChanged: () => void;
 };
@@ -125,7 +125,10 @@ export function ExecuteModal({ accounts, initialAccountId, aggressive, onClose, 
         ))}
         {!accounts.length && <span className="muted">Belum ada akun. Tambahkan di Pengaturan.</span>}
       </fieldset>
-      {aggressive && <p className="aggr">Aggressive aktif: risk dikali pengali tiap akun.</p>}
+      {aggressive === 'on' && <p className="aggr">Aggressive manual: risk semua pair dikali pengali tiap akun.</p>}
+      {aggressive === 'auto' && preview?.some((p) => p.rows.some((r) => r.multiplier > 1)) && (
+        <p className="aggr">Aggressive otomatis: risk dikali untuk pair yang mata uangnya ada berita merah (lihat penanda di kolom risk).</p>
+      )}
       {error && <p className="error">{error}</p>}
       {preview?.map((p) => (
         <section key={p.account.id} className="exec-account">

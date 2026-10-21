@@ -4,6 +4,7 @@ import { ago, fmtMoney } from '../format.ts';
 // Bottom of the Pending Orders / Execute modal: counts and risk per account and currency.
 export function Summary({ data, named }: { data: AccountOrders; named?: boolean }) {
   const { account, summary } = data;
+  const aggressiveRows = data.rows.filter((r) => r.status === 'valid' && r.multiplier > 1).length;
   const pct = account.balance ? (summary.totalRisk / account.balance) * 100 : null;
   return (
     <div className="summary tabular">
@@ -23,7 +24,11 @@ export function Summary({ data, named }: { data: AccountOrders; named?: boolean 
           .join(' · ') || '–'}
       </span>
       <span className={summary.lowRr ? 'low-rr-text' : 'muted'}>{summary.lowRr} baris RR rendah</span>
-      {account.multiplier > 1 && <span className="aggr">Aggressive {account.multiplier}x</span>}
+      {aggressiveRows > 0 && (
+        <span className="aggr">
+          Aggressive {account.multiplier}x di {aggressiveRows} order
+        </span>
+      )}
       {account.stale && <span className="warn">Balance terakhir sinkron {ago(account.balanceAt)}</span>}
     </div>
   );
