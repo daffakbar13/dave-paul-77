@@ -113,6 +113,7 @@ export type MetaDoc = {
   source?: string;
   fetchedAt?: Date;
   error?: string | null;
+  retryAt?: Date | null; // news: no fetch before this (rate limit backoff)
 };
 
 // Manual orders the user placed by hand, used to calibrate the S/R parameters.

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { describe, it } from 'node:test';
+import { after, describe, it } from 'node:test';
 import { ObjectId } from 'mongodb';
 import type { AccountDoc } from './db.ts';
 import { isAffected, parseForexFactory, type Aggressive } from './news.ts';
@@ -48,5 +48,57 @@ describe('Aggressive multiplier', () => {
 
   it('matches broker-suffixed symbols', () => {
     assert.equal(isAffected('XAUUSD.m', new Set(['USD'])), true);
+  });
+});
+
+describe('refreshNews', async () => {
+  const { MongoMemoryServer } = await import('mongodb-memory-server');
+  const { collections } = await import('./db.ts');
+  const { MongoClient } = await import('mongodb');
+  const { RateLimitError, refreshNews } = await import('./news.ts');
+  const mongo = await MongoMemoryServer.create();
+  const client = await MongoClient.connect(mongo.getUri());
+  const db = collections(client.db('news_test'));
+  after(async () => {
+    await client.close();
+    await mongo.stop();
+  });
+
+  let calls = 0;
+  let fail: Error | null = null;
+  const provider = {
+    name: 'fake',
+    async fetch() {
+      calls++;
+      await new Promise((r) => setTimeout(r, 20));
+      if (fail) throw fail;
+      return [{ at: new Date(), currency: 'USD', impact: 'high' as const, title: 'NFP' }];
+    },
+  };
+
+  it('shares one fetch between concurrent requests on a stale cache', async () => {
+    await Promise.all([refreshNews(db, provider), refreshNews(db, provider), refreshNews(db, provider)]);
+    assert.equal(calls, 1);
+    await refreshNews(db, provider);
+    assert.equal(calls, 1); // fresh cache
+  });
+
+  it('backs off after a rate limit, also for the manual button', async () => {
+    await db.meta.deleteMany({});
+    calls = 0;
+    fail = new RateLimitError(30 * 60_000);
+    const s = await refreshNews(db, provider);
+    assert.match(s.error ?? '', /rate limit/);
+    assert.ok(s.retryAt && s.retryAt.getTime() > Date.now() + 29 * 60_000);
+    fail = null;
+    await db.meta.updateOne({ _id: 'news' }, { $set: { fetchedAt: new Date(Date.now() - 20 * 60_000) } });
+    await refreshNews(db, provider);
+    await refreshNews(db, provider, true);
+    assert.equal(calls, 1);
+    await db.meta.updateOne({ _id: 'news' }, { $set: { retryAt: new Date(Date.now() - 1) } });
+    const ok = await refreshNews(db, provider);
+    assert.equal(calls, 2);
+    assert.equal(ok.error, null);
+    assert.equal(ok.retryAt, null);
   });
 });

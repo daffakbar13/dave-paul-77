@@ -169,7 +169,7 @@ export type NewsFeed = {
   news: News[];
   affected: string[]; // currencies with red news ahead in the window
   windowHours: number;
-  status: { source: string | null; fetchedAt: string | null; error: string | null };
+  status: { source: string | null; fetchedAt: string | null; error: string | null; retryAt: string | null };
 };
 
 const BASE = (import.meta.env.VITE_API_URL ?? 'http://localhost:4000').replace(/\/$/, '');
