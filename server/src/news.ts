@@ -5,6 +5,7 @@ import type { Collections, NewsDoc, Settings } from './db.ts';
 
 const HOUR = 3_600_000;
 const REFRESH_EVERY = HOUR; // the ForexFactory feed itself updates about hourly
+const REFRESH_EVERY_WEEKEND = 12 * HOUR; // market closed: nothing new is urgent
 const RETRY_AFTER_ERROR = 10 * 60_000;
 const RETRY_AFTER_LIMIT = HOUR; // when the feed rate-limits without saying for how long
 const FORCE_MIN_GAP = 5 * 60_000; // the feed allows only a couple of requests per few minutes
@@ -64,10 +65,31 @@ export const forexFactory: NewsProvider = {
   },
 };
 
+// Fixed red news relative to now, for local development: exercises the banner and
+// automatic Aggressive without calling the real feed (each in-memory restart would).
+export const sampleNews: NewsProvider = {
+  name: 'sample',
+  async fetch() {
+    const now = Date.now();
+    return [
+      { at: new Date(now + 3 * HOUR), currency: 'USD', impact: 'high', title: 'Non-Farm Employment Change (contoh)' },
+      { at: new Date(now + 20 * HOUR), currency: 'EUR', impact: 'high', title: 'Main Refinancing Rate (contoh)' },
+      { at: new Date(now + 6 * HOUR), currency: 'GBP', impact: 'medium', title: 'CPI y/y (contoh)' },
+    ];
+  },
+};
+
 export function providerFromEnv(name = process.env.NEWS_SOURCE ?? 'forexfactory'): NewsProvider | null {
   if (name === 'none') return null;
   if (name === 'forexfactory') return forexFactory;
-  throw new Error(`NEWS_SOURCE tidak dikenal: ${name} (forexfactory atau none)`);
+  if (name === 'sample') return sampleNews;
+  throw new Error(`NEWS_SOURCE tidak dikenal: ${name} (forexfactory, sample atau none)`);
+}
+
+// Saturday, or Sunday before the week opens (~21:00 UTC), when FX is closed.
+export function isWeekend(at = new Date()): boolean {
+  const day = at.getUTCDay();
+  return day === 6 || (day === 0 && at.getUTCHours() < 21);
 }
 
 export type NewsStatus = { source: string | null; fetchedAt: Date | null; error: string | null; retryAt: Date | null };
@@ -81,7 +103,7 @@ export async function newsStatus(db: Collections): Promise<NewsStatus> {
 // hitting the feed (that burst is what got us rate-limited).
 let inflight: Promise<NewsStatus> | null = null;
 
-// Fetches when the cache is older than an hour (10 minutes after a failure, or after
+// Fetches when the cache is older than an hour, 12 hours on the weekend (10 minutes after a failure, or after
 // the feed's own retry time when rate-limited). Called lazily from requests, so a
 // sleeping Render instance refreshes when it wakes up. The manual button skips the
 // hour but never the rate-limit backoff. A failed fetch keeps the old items and
@@ -94,7 +116,7 @@ export async function refreshNews(db: Collections, provider: NewsProvider | null
   const now = Date.now();
   const last = status.fetchedAt?.getTime() ?? 0;
   if (status.retryAt && now < status.retryAt.getTime()) return status;
-  const wait = force ? FORCE_MIN_GAP : status.error ? RETRY_AFTER_ERROR : REFRESH_EVERY;
+  const wait = force ? FORCE_MIN_GAP : status.error ? RETRY_AFTER_ERROR : isWeekend() ? REFRESH_EVERY_WEEKEND : REFRESH_EVERY;
   if (now - last < wait) return status;
   inflight = fetchAndStore(db, provider).finally(() => {
     inflight = null;

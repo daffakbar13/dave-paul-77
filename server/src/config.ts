@@ -14,7 +14,7 @@ export type Config = {
   adminPasswordHash: string; // bcrypt
   eaDataKey: string; // shared by the MT4 data EA
   corsOrigins: string[];
-  newsSource: string; // forexfactory | none
+  newsSource: string; // forexfactory | sample | none
 };
 
 export function loadConfig(): Config {

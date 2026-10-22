@@ -1,6 +1,8 @@
 // Local development without MongoDB installed: starts an in-memory MongoDB, fills it
 // with sample data and runs the API. Data is lost when the process stops.
 // --empty skips the sample data (testing with the real MT4 EA, e.g. through ngrok).
+// The calendar uses fixed sample news, since every restart starts with an empty cache
+// and would call the real feed again (that got us rate-limited); --live-news uses .env.
 // Values from .env are used when present; otherwise web password `admin`,
 // EA_DATA_KEY `dev-data-key`, sample EA keys in SAMPLE_KEYS (src/sample.ts).
 import bcrypt from 'bcryptjs';
@@ -12,6 +14,7 @@ process.env.JWT_SECRET ||= 'dev-only-secret';
 process.env.ADMIN_PASSWORD_HASH ||= bcrypt.hashSync('admin', 10);
 process.env.EA_DATA_KEY ||= 'dev-data-key';
 process.env.CORS_ORIGIN ||= 'http://localhost:5173';
+if (!process.argv.includes('--live-news')) process.env.NEWS_SOURCE = 'sample';
 
 const { connect } = await import('../src/db.ts');
 const { seedSample } = await import('../src/sample.ts');

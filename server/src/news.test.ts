@@ -2,8 +2,17 @@ import assert from 'node:assert/strict';
 import { after, describe, it } from 'node:test';
 import { ObjectId } from 'mongodb';
 import type { AccountDoc } from './db.ts';
-import { isAffected, parseForexFactory, type Aggressive } from './news.ts';
+import { isAffected, isWeekend, parseForexFactory, type Aggressive } from './news.ts';
 import { multiplierFor } from './service.ts';
+
+describe('isWeekend', () => {
+  it('covers Saturday and Sunday until the week opens at 21:00 UTC', () => {
+    assert.equal(isWeekend(new Date('2026-10-23T20:59:00Z')), false); // Friday
+    assert.equal(isWeekend(new Date('2026-10-24T12:00:00Z')), true); // Saturday
+    assert.equal(isWeekend(new Date('2026-10-25T20:59:00Z')), true); // Sunday before open
+    assert.equal(isWeekend(new Date('2026-10-25T21:00:00Z')), false); // Sunday open
+  });
+});
 
 describe('parseForexFactory', () => {
   const raw = [

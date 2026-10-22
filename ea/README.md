@@ -38,7 +38,8 @@ terakhir); chart tanpa garis mengembalikan pair itu ke garis otomatis.
 
 **Uji lokal lewat ngrok**
 
-1. Di laptop: `cd server && npm run dev:memory -- --empty` (DB in-memory kosong, memakai `server/.env`), lalu
+1. Di laptop: `cd server && npm run dev:memory -- --empty` (DB in-memory kosong, memakai `server/.env`,
+   kalender berita contoh; tambah `--live-news` untuk ForexFactory), lalu
    `ngrok http --url=nama-anda.ngrok-free.dev 4000`.
 2. Isi `DavePaul77.ini` seperti di atas dan daftarkan URL yang sama di Allow WebRequest.
 3. EA mengirim header `ngrok-skip-browser-warning` agar ngrok gratis tidak membalas dengan halaman peringatan.

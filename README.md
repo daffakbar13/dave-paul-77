@@ -52,8 +52,10 @@ Panduan langkah demi langkah lewat website (Render, Vercel, Atlas, lalu arahkan 
 
 - **Sumber**: feed mingguan ForexFactory (`nfs.faireconomy.media/ff_calendar_thisweek.json`). Gratis, tanpa key, hanya
   minggu berjalan, jam dalam ISO dengan offset New York (ditampilkan dalam WIB). Diambil paling sering sekali per jam
-  (10 menit setelah gagal), saat web dibuka; jika gagal, data terakhir tetap dipakai dan banner menampilkan errornya.
-  Bisa diganti lewat `NEWS_SOURCE` (`forexfactory` atau `none`); provider ada di `server/src/news.ts`.
+  hari kerja, 12 jam saat akhir pekan (10 menit setelah gagal), saat web dibuka; jika gagal, data terakhir tetap dipakai dan banner menampilkan errornya.
+  Bisa diganti lewat `NEWS_SOURCE` (`forexfactory`, `sample` atau `none`); provider ada di `server/src/news.ts`.
+  `npm run dev:memory` selalu memakai `sample` (berita contoh tetap) agar restart lokal tidak kena rate limit
+  feed; tambahkan `-- --live-news` untuk memakai feed sungguhan.
 - **Banner**: berita merah (High) dari 1 jam lalu sampai jendela ke depan (default 24 jam), dengan jam rilis WIB.
 - **Aggressive**, tiga mode per sesi browser:
   - *auto* (setiap aplikasi dibuka): pengali akun berlaku untuk pair yang mata uangnya punya berita merah di jendela,
