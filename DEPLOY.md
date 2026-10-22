@@ -64,7 +64,7 @@ Database `dave_paul_77` yang dipakai lokal ikut dipakai Render: candle, garis ma
 | `ADMIN_PASSWORD_HASH` | dari langkah 0 (tempel apa adanya, termasuk tanda `$`) |
 | `EA_DATA_KEY` | dari langkah 0 |
 | `CORS_ORIGIN` | sementara `http://localhost:5173`; diganti di langkah 4 |
-| `NEWS_SOURCE` | `forexfactory` |
+| `NEWS_SOURCE` | `forexfactory`; setelah worker berita jalan: `worker` + `NEWS_WORKER_URL` (lihat `worker/README.md`) |
 | `MONGOMS_DISABLE_POSTINSTALL` | `1` (melewati unduhan MongoDB uji ~100 MB saat build) |
 
 `PORT` tidak perlu diisi; Render mengisinya sendiri.

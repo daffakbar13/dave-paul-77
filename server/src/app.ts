@@ -40,7 +40,7 @@ export function createApp(db: Collections, config: Config): Express {
   app.use('/api', rateLimit({ windowMs: 60_000, max: 300 }), express.json({ limit: '100kb' }));
   app.use('/api/auth', authRoutes(config));
   app.use('/api/calibration', requireAdmin(config), calibrationRoutes(db));
-  app.use('/api', requireAdmin(config), webRoutes(db, providerFromEnv(config.newsSource)));
+  app.use('/api', requireAdmin(config), webRoutes(db, providerFromEnv(config.newsSource, config.newsWorkerUrl)));
 
   app.use(unknownRoute);
   app.use(errorHandler);

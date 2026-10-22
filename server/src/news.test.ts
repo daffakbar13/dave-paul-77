@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { after, describe, it } from 'node:test';
 import { ObjectId } from 'mongodb';
 import type { AccountDoc } from './db.ts';
-import { isAffected, isWeekend, parseForexFactory, type Aggressive } from './news.ts';
+import { isAffected, isWeekend, parseForexFactory, parseWorkerCalendar, type Aggressive } from './news.ts';
 import { multiplierFor } from './service.ts';
 
 describe('isWeekend', () => {
@@ -11,6 +11,27 @@ describe('isWeekend', () => {
     assert.equal(isWeekend(new Date('2026-10-24T12:00:00Z')), true); // Saturday
     assert.equal(isWeekend(new Date('2026-10-25T20:59:00Z')), true); // Sunday before open
     assert.equal(isWeekend(new Date('2026-10-25T21:00:00Z')), false); // Sunday open
+  });
+});
+
+describe('parseWorkerCalendar', () => {
+  const now = Date.parse('2026-10-23T05:00:00Z');
+  const items = [
+    { at: '2026-10-23T12:30:00.000Z', currency: 'USD', impact: 'high', title: 'Non-Farm Employment Change' },
+    { at: 'bad', currency: 'EUR', impact: 'high', title: 'Broken' },
+  ];
+
+  it('reads the worker items as dates', () => {
+    const out = parseWorkerCalendar({ items, fetchedAt: '2026-10-23T03:00:00.000Z', error: null }, now);
+    assert.deepEqual(out, [{ at: new Date('2026-10-23T12:30:00Z'), currency: 'USD', impact: 'high', title: 'Non-Farm Employment Change' }]);
+  });
+
+  it('a copy older than 12 hours fails like a fetch, with the worker error', () => {
+    assert.throws(
+      () => parseWorkerCalendar({ items, fetchedAt: '2026-10-22T15:00:00.000Z', error: 'rate limit' }, now),
+      /terakhir berhasil 14 jam lalu \(rate limit\)/,
+    );
+    assert.throws(() => parseWorkerCalendar({ items: [], fetchedAt: null, error: 'HTTP 503' }, now), /belum pernah berhasil/);
   });
 });
 

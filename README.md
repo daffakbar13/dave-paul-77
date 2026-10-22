@@ -53,7 +53,8 @@ Panduan langkah demi langkah lewat website (Render, Vercel, Atlas, lalu arahkan 
 - **Sumber**: feed mingguan ForexFactory (`nfs.faireconomy.media/ff_calendar_thisweek.json`). Gratis, tanpa key, hanya
   minggu berjalan, jam dalam ISO dengan offset New York (ditampilkan dalam WIB). Diambil paling sering sekali per jam
   hari kerja, 12 jam saat akhir pekan (10 menit setelah gagal), saat web dibuka; jika gagal, data terakhir tetap dipakai dan banner menampilkan errornya.
-  Bisa diganti lewat `NEWS_SOURCE` (`forexfactory`, `sample` atau `none`); provider ada di `server/src/news.ts`.
+  Bisa diganti lewat `NEWS_SOURCE` (`forexfactory`, `worker`, `sample` atau `none`); provider ada di `server/src/news.ts`.
+  Produksi memakai `worker`: salinan kalender dari Cloudflare Worker (`worker/`), jadi Render tidak kena rate limit feed.
   `npm run dev:memory` selalu memakai `sample` (berita contoh tetap) agar restart lokal tidak kena rate limit
   feed; tambahkan `-- --live-news` untuk memakai feed sungguhan.
 - **Banner**: berita merah (High) dari 1 jam lalu sampai jendela ke depan (default 24 jam), dengan jam rilis WIB.
@@ -62,6 +63,12 @@ Panduan langkah demi langkah lewat website (Render, Vercel, Atlas, lalu arahkan 
     hanya untuk akun dengan "Aggressive otomatis" menyala. Pair terkait diberi tanda `!` di tab.
   - klik saat aktif: *mati* untuk sesi itu; klik lagi: *manual* untuk semua pair.
 - Batasan: feed tidak memuat minggu depan, jadi berita Senin baru muncul setelah feed berganti minggu (akhir pekan).
+
+## Alert berita Telegram (Cloudflare Worker)
+
+`worker/` jalan setiap 5 menit di Cloudflare (tanpa laptop/Render): alert berita high impact ke topik **News Alert**
+(24 jam, 4 jam, 1 jam, 30 menit sebelum rilis, masing-masing sekali) dan **Daily Outlook** 05:00 WIB. Setup dan
+deploy: `worker/README.md`.
 
 ## Tahap 4: EA MT5 eksekutor
 

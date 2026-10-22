@@ -1,0 +1,23 @@
+# DavePaul77 news worker. Secrets (never in this file, the repo is public):
+#   npx wrangler secret put TELEGRAM_BOT_TOKEN
+#   npx wrangler secret put TELEGRAM_CHAT_ID
+#   npx wrangler secret put TOPIC_NEWS_ALERT
+#   npx wrangler secret put TOPIC_DAILY_OUTLOOK
+name = "dave-paul-77-news"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+
+[triggers]
+crons = ["*/5 * * * *"]
+
+# Created with: npx wrangler kv namespace create NEWS (paste the id it prints)
+[[kv_namespaces]]
+binding = "NEWS"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+[vars]
+# Pairs listed under an alert when one of their currencies has news.
+PAIRS = "AUDJPY,AUDUSD,CADJPY,CHFJPY,EURGBP,EURNZD,EURUSD,GBPJPY,NZDJPY,NZDUSD,USDCAD,USDCHF,USDJPY"
+
+[observability]
+enabled = true

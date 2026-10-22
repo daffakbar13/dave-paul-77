@@ -79,11 +79,50 @@ export const sampleNews: NewsProvider = {
   },
 };
 
-export function providerFromEnv(name = process.env.NEWS_SOURCE ?? 'forexfactory'): NewsProvider | null {
+// The Cloudflare news worker (worker/): it fetches ForexFactory every 4 hours and serves its
+// kept copy, so this server never calls the feed itself and is never rate-limited by it.
+const WORKER_STALE_AFTER = 12 * HOUR;
+
+export function parseWorkerCalendar(raw: unknown, now = Date.now()): NewsItem[] {
+  const cal = raw as { items?: unknown; fetchedAt?: string | null; error?: string | null };
+  if (!cal || !Array.isArray(cal.items)) throw new Error('Format kalender worker tidak dikenal');
+  const fetchedAt = cal.fetchedAt ? Date.parse(cal.fetchedAt) : 0;
+  // A stale copy is reported like a failed fetch: the server keeps its items and shows the error.
+  if (now - fetchedAt > WORKER_STALE_AFTER) {
+    const age = fetchedAt ? `terakhir berhasil ${Math.round((now - fetchedAt) / HOUR)} jam lalu` : 'belum pernah berhasil';
+    throw new Error(`Kalender worker ${age}${cal.error ? ` (${cal.error})` : ''}`);
+  }
+  const out: NewsItem[] = [];
+  for (const r of cal.items as Record<string, unknown>[]) {
+    const impact = IMPACT[String(r.impact).replace(/^./, (c) => c.toUpperCase())];
+    const at = new Date(String(r.at));
+    const currency = String(r.currency ?? '');
+    if (!impact || !/^[A-Z]{3}$/.test(currency) || Number.isNaN(at.getTime())) continue;
+    out.push({ at, currency, impact, title: String(r.title ?? '').slice(0, 200) });
+  }
+  return out;
+}
+
+export function workerCalendar(baseUrl: string): NewsProvider {
+  return {
+    name: 'worker',
+    async fetch() {
+      const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/calendar`, { signal: AbortSignal.timeout(10_000) });
+      if (!res.ok) throw new Error(`Kalender worker HTTP ${res.status}`);
+      return parseWorkerCalendar(await res.json());
+    },
+  };
+}
+
+export function providerFromEnv(name = process.env.NEWS_SOURCE ?? 'forexfactory', workerUrl = process.env.NEWS_WORKER_URL): NewsProvider | null {
   if (name === 'none') return null;
   if (name === 'forexfactory') return forexFactory;
   if (name === 'sample') return sampleNews;
-  throw new Error(`NEWS_SOURCE tidak dikenal: ${name} (forexfactory, sample atau none)`);
+  if (name === 'worker') {
+    if (!workerUrl) throw new Error('NEWS_SOURCE=worker butuh NEWS_WORKER_URL');
+    return workerCalendar(workerUrl);
+  }
+  throw new Error(`NEWS_SOURCE tidak dikenal: ${name} (forexfactory, worker, sample atau none)`);
 }
 
 // Saturday, or Sunday before the week opens (~21:00 UTC), when FX is closed.

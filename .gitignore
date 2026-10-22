@@ -9,3 +9,5 @@ ea/local/
 *.pdf
 ReportHistory*
 Statement*
+.wrangler/
+.dev.vars
