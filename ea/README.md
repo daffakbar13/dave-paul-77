@@ -47,7 +47,7 @@ terakhir); chart tanpa garis mengembalikan pair itu ke garis otomatis.
 
 **Cara kerja**
 
-- Daftar pair diambil dari Pengaturan > Pair di web (`GET /api/ea/mt4/symbols`) tiap 30 menit, jadi tab dan EA selalu sama.
+- Daftar pair diambil dari Pengaturan > Pair di web (`GET /api/ea/mt4/symbols`) tiap 5 menit, jadi tab dan EA selalu sama.
 - Saat pertama jalan, tiap pair mengirim 520 candle D1 tertutup. Setelah itu hanya candle baru setiap pergantian hari broker.
   Histori yang belum terunduh (error 4066) dicoba lagi tiap 60 detik.
 - Waktu candle memakai jam server broker. EA ikut mengirim `TimeCurrent()`, jadi server tahu candle sudah close

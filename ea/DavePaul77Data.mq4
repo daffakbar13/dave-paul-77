@@ -18,10 +18,10 @@
 input string ServerUrl       = "";      // URL server (kosong = dari DavePaul77.ini)
 input string DataKey         = "";      // Data key (kosong = dari DavePaul77.ini)
 input string SymbolSuffix    = "";      // Akhiran simbol broker, mis. "m" untuk EURUSDm
-input string FallbackSymbols = "AUDJPY,AUDUSD,CADJPY,CHFJPY,EURGBP,EURNZD,EURUSD,GBPJPY,NZDJPY,NZDUSD,USDCAD,USDCHF,USDJPY"; // used when the server list cannot be read
+input string FallbackSymbols = "AUDJPY,AUDUSD,CADJPY,CHFJPY,EURGBP,EURNZD,EURUSD,GBPJPY,GBPUSD,NZDJPY,NZDUSD,USDCAD,USDCHF,USDJPY,XAUUSD"; // used when the server list cannot be read
 input int    HistoryBars     = 520;     // closed D1 candles sent on the first run (about 2 years)
 input int    QuoteSeconds    = 60;      // bid/ask interval
-input int    ListMinutes     = 30;      // refresh the pair list from the web settings
+input int    ListMinutes     = 5;       // refresh the pair list from the web settings
 input int    RetrySeconds    = 60;      // wait after a failed send or history not ready
 input int    TimeoutMs       = 30000;   // a sleeping Render free instance can take ~30-50 s to wake
 input bool   SendChartLines  = true;    // kirim garis horizontal di chart sebagai garis S/R manual
