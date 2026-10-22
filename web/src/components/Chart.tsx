@@ -26,8 +26,10 @@ type Props = {
 
 type Label = { key: string; rowId: string; kind: 'entry' | 'sl' | 'tp'; y: number; row: OrderRow };
 
-const CANDLE = '#3BD16F';
-const CANDLE_BODY_UP = '#EAFBEF';
+// MT4 look: lime outline + wick, bull body hollow, bear body white
+const CANDLE = '#00FF00';
+const CANDLE_BODY_UP = 'rgba(0, 0, 0, 0)';
+const CANDLE_BODY_DOWN = '#FFFFFF';
 const REFERENCE = 'rgba(154, 163, 173, 0.45)';
 
 function alpha(hex: string, a: number): string {
@@ -58,7 +60,7 @@ export function Chart({ analysis, colors, focusId, onlyFocused, onFocus, onCance
     const chart = createChart(box.current!, {
       autoSize: true,
       layout: { background: { type: ColorType.Solid, color: '#000000' }, textColor: '#9AA3AD', fontFamily: 'system-ui, -apple-system, sans-serif', fontSize: 12 },
-      grid: { vertLines: { color: '#15181C' }, horzLines: { color: '#15181C' } },
+      grid: { vertLines: { visible: false }, horzLines: { visible: false } },
       rightPriceScale: { borderColor: '#2A2F36' },
       timeScale: {
         borderColor: '#2A2F36',
@@ -70,7 +72,7 @@ export function Chart({ analysis, colors, focusId, onlyFocused, onFocus, onCance
     });
     const series = chart.addSeries(CandlestickSeries, {
       upColor: CANDLE_BODY_UP,
-      downColor: CANDLE,
+      downColor: CANDLE_BODY_DOWN,
       borderUpColor: CANDLE,
       borderDownColor: CANDLE,
       wickUpColor: CANDLE,
