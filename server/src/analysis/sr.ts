@@ -1,6 +1,7 @@
 import type { Analysis, Candidate, Candle, Line, Side, SrParams, SymbolInputs } from './types.ts';
 
 export const DEFAULT_SR: SrParams = {
+  lineSource: 'auto',
   lookback: 520,
   fractal: 2,
   atrPeriod: 14,
@@ -250,6 +251,15 @@ function findStrongBehind(line: number, side: Side, ctx: Ctx): number | undefine
 
 // Full D1 analysis of one symbol. `candles` must be closed candles in time order;
 // `price` is the current mid price (falls back to the last close).
+// The engine's own lines: swing highs and lows grouped by `clusterAtr`, kept with `minTouches`.
+export function engineLines(swings: Swing[], atrValue: number, p: SrParams, digits: number): Line[] {
+  return clusterLines(swings.map((s) => s.price), p.clusterAtr * atrValue, p.minTouches).map((l) => ({
+    ...l,
+    price: roundTo(l.price, digits),
+    source: 'auto',
+  }));
+}
+
 export function analyze(symbol: string, all: Candle[], p: SrParams, digits: number, price?: number, inputs: SymbolInputs = {}): Analysis {
   const candles = all.slice(-p.lookback);
   const last = candles[candles.length - 1];
@@ -257,16 +267,12 @@ export function analyze(symbol: string, all: Candle[], p: SrParams, digits: numb
   const a = atr(candles, p.atrPeriod);
   const ref = price ?? last.c;
   const swings = fractals(candles, p.fractal);
-  // the user's own lines win; automatic lines are the fallback for pairs without them
-  const lines: Line[] = inputs.manualLines?.length
+  // the engine's lines by default; the user's lines replace them only when asked to
+  const lines: Line[] = p.lineSource === 'manual' && inputs.manualLines?.length
     ? [...new Set(inputs.manualLines.map((x) => roundTo(x, digits)))]
         .sort((x, y) => x - y)
         .map((x) => ({ price: x, touches: 0, low: x, high: x, source: 'manual' }))
-    : clusterLines(swings.map((s) => s.price), p.clusterAtr * a, p.minTouches).map((l) => ({
-        ...l,
-        price: roundTo(l.price, digits),
-        source: 'auto',
-      }));
+    : engineLines(swings, a, p, digits);
   const ctx: Ctx = { inputs, ref, candles, swings, lines, atr: a, p, digits, symbol };
   // All lines stay (they are TP targets); the limit only drops far lines' orders. Lines
   // too close to price are listed as skipped and do not use up the limit.

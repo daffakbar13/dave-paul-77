@@ -85,9 +85,10 @@ terbuka, dan Unduh CSV (bahan audit bulanan).
 Dianalisa dari history MT5 akun 12345678 (4.622 pending order, September 2026) terhadap garis S/R yang digambar user
 sendiri (template `.tpl` di folder template chart user):
 
-- **Garis**: garis manual menang (import `.tpl` di Pengaturan > Pair, atau dikirim EA MT4 dari garis horizontal di chart).
-  Pair tanpa garis manual memakai garis otomatis (fraktal 2, gabung 0,3 ATR, minimal 2 sentuhan: paling mirip garis user,
-  F1 sekitar 0,5).
+- **Garis**: mesin yang menentukan garis (fraktal 2, gabung 0,3 ATR, minimal 2 sentuhan). Garis user (import `.tpl` di
+  Pengaturan > Pair, atau dikirim EA MT4 dari garis horizontal di chart) hanya **referensi**: tampil samar di chart dan
+  dipakai di **Kalibrasi > Garis** (presisi, recall, F1 per pair dengan toleransi 0,25 ATR, plus pencarian fraktal /
+  penggabungan / sentuhan). Pengaturan > Analisa S/R > *Garis untuk order* bisa dikembalikan ke garis user.
 - **Order per garis** (g = jarak ke garis berikutnya searah order): entry = garis + 0,22·g, SL = garis − 0,16·g (seberang
   garis yang sama), TP = garis berikutnya − 0,07·g; garis terakhir: TP = RR 1,5. RR sekitar 1,9 di semua jarak garis.
 - **SL minimal** per pair dalam pips (10/15/20/30, dari alat order lama), bisa diubah di Pengaturan > Pair.

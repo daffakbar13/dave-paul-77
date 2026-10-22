@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { candlesAsOf, compareAll, sweep, type ManualOrder, type SymbolData } from './calibrate.ts';
+import { candlesAsOf, compareAll, lineFit, lineSweep, matchLines, sweep, type ManualOrder, type SymbolData } from './calibrate.ts';
 import { analyze, DEFAULT_SR } from './sr.ts';
 import type { Candle, SrParams } from './types.ts';
 
@@ -61,5 +61,30 @@ describe('sweep', () => {
     assert.equal(result.best[0]!.score.matched, 1);
     assert.equal(result.best[0]!.params.bufferAtr, 0.1);
     assert.ok(result.tried > 100);
+  });
+});
+
+describe('engine lines vs reference lines', () => {
+  it('pairs lines one to one, closest first', () => {
+    assert.equal(matchLines([1, 2, 3], [1.05, 2.4, 3.01], 0.1), 2);
+    // two engine lines near one reference line count once
+    assert.equal(matchLines([1, 1.02], [1.01], 0.1), 1);
+  });
+
+  it('scores the engine against the user lines inside the candle range', () => {
+    const engine = analyze('TEST', SERIES, { ...STRONG, lineSource: 'auto' }, 3).lines.map((l) => l.price);
+    assert.ok(engine.length > 0);
+    // one line the engine finds, one it does not, one far outside the candles (ignored)
+    const fit = lineFit('TEST', { candles: SERIES, digits: 3, inputs: { manualLines: [engine[0]!, 98.6, 150] } }, STRONG)!;
+    assert.equal(fit.reference, 2);
+    assert.equal(fit.matched, 1);
+    assert.equal(fit.recall, 0.5);
+  });
+
+  it('skips pairs without reference lines and sweeps the line parameters', () => {
+    assert.equal(lineFit('TEST', { candles: SERIES, digits: 3 }, STRONG), null);
+    const r = lineSweep(new Map([['TEST', { candles: SERIES, digits: 3, inputs: { manualLines: [100.2, 97.5] } }]]), STRONG);
+    assert.equal(r.tried, 54);
+    assert.ok(r.best[0]!.score.f1 >= r.current.f1);
   });
 });

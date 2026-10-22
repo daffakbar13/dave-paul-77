@@ -28,6 +28,7 @@ type Label = { key: string; rowId: string; kind: 'entry' | 'sl' | 'tp'; y: numbe
 
 const CANDLE = '#3BD16F';
 const CANDLE_BODY_UP = '#EAFBEF';
+const REFERENCE = 'rgba(154, 163, 173, 0.45)';
 
 function alpha(hex: string, a: number): string {
   const n = parseInt(hex.slice(1), 16);
@@ -117,8 +118,10 @@ export function Chart({ analysis, colors, focusId, onlyFocused, onFocus, onCance
     const add = (price: number, color: string, style: LineStyle, axis: boolean, width: 1 | 2 = 1) =>
       created.push(series.createPriceLine({ price, color, lineStyle: style, lineWidth: width, axisLabelVisible: axis, title: '' }));
 
-    // the user's own lines solid, automatic ones dotted
-    for (const line of analysis.lines) add(line.price, colors.sr, line.source === 'auto' ? LineStyle.Dotted : LineStyle.Solid, false, line.source === 'auto' ? 1 : 2);
+    // the lines orders are built on, solid; the user's reference lines faint and dashed
+    const used = new Set(analysis.lines.map((l) => l.price));
+    for (const price of analysis.referenceLines) if (!used.has(price)) add(price, REFERENCE, LineStyle.LargeDashed, false);
+    for (const line of analysis.lines) add(line.price, colors.sr, LineStyle.Solid, false, line.source === 'manual' ? 2 : 1);
     for (const r of visible) {
       const focused = active === r.id;
       const dim = active !== null && !focused;
@@ -131,7 +134,7 @@ export function Chart({ analysis, colors, focusId, onlyFocused, onFocus, onCance
       add(r.tp!, sltp, LineStyle.Dashed, focused);
     }
     linesRef.current = created;
-  }, [analysis.lines, visible, active, colors]);
+  }, [analysis.lines, analysis.referenceLines, visible, active, colors]);
 
   // Left-edge labels follow the price scale; recomputed every frame, state updated only
   // when a position changed. Overlapping labels are pushed down.

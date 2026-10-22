@@ -50,6 +50,7 @@ export type Analysis = {
   quote: { bid: number; ask: number; at: string } | null;
   candles: Candle[];
   lines: Line[];
+  referenceLines: number[];
   rows: OrderRow[];
   account: AccountInfo | null;
   newsAffected: boolean;
@@ -65,7 +66,7 @@ export type SymbolItem = {
   digits: number;
   candidates: number;
   lastCandleAt: string | null;
-  manualLines: number; // 0 = automatic lines
+  manualLines: number; // the user's reference lines; 0 = none
   manualLinesAt: string | null;
   manualLinesSource: 'import' | 'mt4' | 'web' | null;
   minSlPips: number;
@@ -87,7 +88,11 @@ export type Account = {
   specSymbols: string[];
 };
 
+export type LineFit = { symbol: string; atr: number; engine: number; reference: number; matched: number; precision: number; recall: number; f1: number };
+export type LineScore = { pairs: number; f1: number; precision: number; recall: number };
+
 export type SrParams = {
+  lineSource: 'auto' | 'manual';
   lookback: number;
   fractal: number;
   atrPeriod: number;
@@ -345,5 +350,7 @@ export const api = {
     request<{ id: string }>('POST', '/calibration/orders', o),
   deleteManual: (id: string) => request<void>('DELETE', `/calibration/orders/${id}`),
   sweep: () => request<SweepResult>('POST', '/calibration/sweep'),
+  lineFit: () => request<{ fits: LineFit[]; score: LineScore; sr: SrParams }>('GET', '/calibration/lines'),
+  lineSweep: () => request<{ current: LineScore; best: { params: Partial<SrParams>; score: LineScore }[]; tried: number }>('POST', '/calibration/lines/sweep'),
   rotateKey: (id: string) => request<{ key: string }>('POST', `/accounts/${id}/key`),
 };

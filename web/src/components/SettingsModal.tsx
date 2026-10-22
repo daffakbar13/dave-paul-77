@@ -8,7 +8,7 @@ type Tab = 'general' | 'sr' | 'pairs' | 'accounts';
 
 type Field = { key: keyof SrParams; label: string; hint: string; step: number };
 
-// Automatic lines: only used for pairs without the user's own lines.
+// The engine's lines (the default source for orders).
 const LINE_FIELDS: Field[] = [
   { key: 'lookback', label: 'Jumlah candle D1', hint: 'Sekitar 2 tahun = 520', step: 1 },
   { key: 'fractal', label: 'Fraktal (candle tiap sisi)', hint: '2 = fraktal 5 candle', step: 1 },
@@ -135,7 +135,7 @@ export function SettingsModal({ onClose, onChanged }: Props) {
     run(async () => {
       await api.setLines(name, []);
       setSymbols((await api.symbols()).symbols);
-    }, `${name} kembali memakai garis otomatis.`);
+    }, `Garis referensi ${name} dihapus.`);
 
   const move = (i: number, d: -1 | 1) => {
     const list = [...symbols];
@@ -242,9 +242,19 @@ export function SettingsModal({ onClose, onChanged }: Props) {
               </label>
             )}
           </div>
-          <h3>Garis otomatis</h3>
-          <p className="muted">Hanya untuk pair yang belum punya garis manual (Pengaturan &gt; Pair).</p>
+          <h3>Garis S/R</h3>
+          <p className="muted">
+            Garis Anda (Pengaturan &gt; Pair) hanya referensi: tampil samar di chart dan dipakai di Kalibrasi &gt; Garis untuk menyetel
+            mesin.
+          </p>
           <div className="grid">
+            <label className="field">
+              <span>Garis untuk order</span>
+              <select value={settings.sr.lineSource} onChange={(e) => setSr({ lineSource: e.target.value as SrParams['lineSource'] })}>
+                <option value="auto">Mesin (garis Anda hanya referensi)</option>
+                <option value="manual">Garis Anda, mesin untuk pair tanpa garis</option>
+              </select>
+            </label>
             {LINE_FIELDS.map((f) => (
               <NumberField key={f.key} label={f.label} hint={f.hint} step={f.step} value={settings.sr[f.key] as number} onChange={(v) => setSr({ [f.key]: v })} />
             ))}
@@ -261,7 +271,7 @@ export function SettingsModal({ onClose, onChanged }: Props) {
         <div className="form">
           <p className="muted">
             Urutan = urutan tab di bawah chart. Garis S/R manual dikirim otomatis oleh EA MT4 dari garis horizontal di chart pair itu, atau
-            diimport dari template chart (.tpl). Pair tanpa garis manual memakai garis otomatis.
+            diimport dari template chart (.tpl). Garis Anda adalah referensi untuk menyetel mesin; order memakai garis mesin.
           </p>
           <label className="field import-tpl">
             <span>Import garis dari template MT4/MT5 (.tpl, boleh banyak file)</span>
@@ -277,10 +287,10 @@ export function SettingsModal({ onClose, onChanged }: Props) {
                 <span className="muted tabular">
                   {s.manualLines ? (
                     <span className="lines-manual">
-                      {s.manualLines} garis manual {SOURCE[s.manualLinesSource ?? ''] ?? ''} · {ago(s.manualLinesAt)}
+                      {s.manualLines} garis referensi {SOURCE[s.manualLinesSource ?? ''] ?? ''} · {ago(s.manualLinesAt)}
                     </span>
                   ) : (
-                    'garis otomatis'
+                    'tanpa referensi'
                   )}
                   {' · '}
                   {s.lastCandleAt ? `candle ${ago(s.lastCandleAt)}` : 'belum ada candle'}
@@ -299,7 +309,7 @@ export function SettingsModal({ onClose, onChanged }: Props) {
                 </label>
                 {s.manualLines ? (
                   <button type="button" className="link" onClick={() => useAuto(s.name)}>
-                    Pakai otomatis
+                    Hapus referensi
                   </button>
                 ) : (
                   <span />

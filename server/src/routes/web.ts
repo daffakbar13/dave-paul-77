@@ -64,6 +64,7 @@ const settingsSchema = z.object({
   balanceStaleMinutes: z.number().int().min(1).max(10_080),
   quoteMaxAgeMinutes: z.number().int().min(1).max(10_080),
   sr: z.object({
+    lineSource: z.enum(['auto', 'manual']),
     lookback: z.number().int().min(50).max(5000),
     fractal: z.number().int().min(1).max(10),
     atrPeriod: z.number().int().min(2).max(100),
@@ -216,9 +217,10 @@ export function webRoutes(db: Collections, news: NewsProvider | null): Router {
     const account = q.accountId ? await findAccount(db, q.accountId) : null;
     const quote = freshQuote(await db.quotes.findOne({ _id: symbol }), settings);
     const candles = await loadCandles(db, symbol, settings.sr.lookback);
+    const sym = await db.symbols.findOne({ name: symbol });
     res.json({
       symbol,
-      digits: (await db.symbols.findOne({ name: symbol }))?.digits ?? 5,
+      digits: sym?.digits ?? 5,
       analyzedAt: analysis.analyzedAt,
       lastCandleAt: analysis.lastCandleAt,
       atr: analysis.atr,
@@ -226,6 +228,7 @@ export function webRoutes(db: Collections, news: NewsProvider | null): Router {
       quote: quote ? { bid: quote.bid, ask: quote.ask, at: quote.at } : null,
       candles,
       lines: analysis.lines,
+      referenceLines: sym?.manualLines ?? [], // the user's own lines, drawn for comparison
       rows: rowsFor(analysis, account, quote, settings, aggressive),
       account: account ? accountInfo(account, settings) : null,
       newsAffected: aggressive.mode === 'auto' && isAffected(symbol, aggressive.affected),

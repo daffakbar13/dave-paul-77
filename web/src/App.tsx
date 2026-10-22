@@ -264,7 +264,7 @@ function Main({ onLogout }: { onLogout: () => void }) {
             <Chart analysis={analysis} colors={colors} focusId={focusId} onlyFocused={onlyFocused} onFocus={setFocusId} onCancel={cancel} />
             <div className="chart-tools">
               <span className="muted tabular">
-                {analysis.lines.length} garis {analysis.lines[0]?.source === 'manual' ? 'manual' : 'otomatis'} · {analysis.rows.filter((r) => r.status === 'valid').length} order valid · candle terakhir{' '}
+                {analysis.lines.length} garis {analysis.lines[0]?.source === 'manual' ? 'manual' : 'mesin'}{analysis.referenceLines.length > 0 && analysis.lines[0]?.source !== 'manual' ? ` (+${analysis.referenceLines.length} referensi Anda)` : ''} · {analysis.rows.filter((r) => r.status === 'valid').length} order valid · candle terakhir{' '}
                 {fmtDate(new Date(analysis.lastCandleAt).getTime())} ·{' '}
                 <span className={mt4 && Date.now() - new Date(mt4.lastSeenAt).getTime() < MT4_STALE_MINUTES * 60_000 ? '' : 'warn'}>
                   MT4 {mt4 ? `terakhir kirim ${ago(mt4.lastSeenAt)}` : 'belum pernah kirim data'}

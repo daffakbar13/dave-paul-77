@@ -1,6 +1,6 @@
 // The user's own S/R lines: imported from MT4 chart templates (.tpl) or sent by the MT4
-// EA from the horizontal lines on the charts. A symbol with manual lines uses them
-// instead of the automatic ones.
+// EA from the horizontal lines on the charts. They are a reference for tuning the engine
+// (lineFit); orders use them only when settings.sr.lineSource is 'manual'.
 import type { SymbolInputs } from './analysis/types.ts';
 import { getSettings, type Collections, type SymbolDoc } from './db.ts';
 import { refreshAnalysis } from './service.ts';
@@ -40,7 +40,7 @@ export function parseTpl(content: string): TplLines | null {
   return { symbol: symbol.toUpperCase(), period, lines: [...new Set(lines)].sort((a, b) => a - b) };
 }
 
-// Saves the lines (an empty list goes back to automatic lines) and recomputes the symbol.
+// Saves the lines (an empty list removes them) and recomputes the symbol.
 export async function setManualLines(db: Collections, symbol: string, lines: number[], source: 'import' | 'mt4' | 'web'): Promise<void> {
   const clean = [...new Set(lines.filter((x) => Number.isFinite(x) && x > 0))].sort((a, b) => a - b);
   await db.symbols.updateOne(

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { ObjectId } from 'mongodb';
 import { z } from 'zod';
-import { compareAll, sweep, type ManualOrder, type SymbolData } from '../analysis/calibrate.ts';
+import { compareAll, lineFitAll, lineSweep, sweep, type ManualOrder, type SymbolData } from '../analysis/calibrate.ts';
 import { getSettings, type Collections, type ManualOrderDoc } from '../db.ts';
 import { notFound, parse, parseId } from '../http.ts';
 import { symbolInputs } from '../lines.ts';
@@ -30,7 +30,7 @@ const toManual = (d: ManualOrderDoc): ManualOrder => ({
   asOf: d.asOf.getTime(),
 });
 
-// All stored candles of the symbols that have manual orders (the engine slices per day).
+// All stored candles of the given symbols (the engine slices per day).
 async function loadData(db: Collections, symbols: string[]): Promise<Map<string, SymbolData>> {
   const map = new Map<string, SymbolData>();
   for (const symbol of new Set(symbols)) {
@@ -94,6 +94,20 @@ export function calibrationRoutes(db: Collections): Router {
       return;
     }
     res.json(sweep(orders, data, settings.sr));
+  });
+
+  // Engine lines vs the user's reference lines, per pair that has reference lines.
+  const referenceData = async () =>
+    loadData(db, (await db.symbols.find({ 'manualLines.0': { $exists: true } }, { projection: { name: 1 } }).toArray()).map((s) => s.name));
+
+  router.get('/lines', async (_req, res) => {
+    const settings = await getSettings(db);
+    res.json({ ...lineFitAll(await referenceData(), settings.sr), sr: settings.sr });
+  });
+
+  router.post('/lines/sweep', async (_req, res) => {
+    const settings = await getSettings(db);
+    res.json(lineSweep(await referenceData(), settings.sr));
   });
 
   return router;

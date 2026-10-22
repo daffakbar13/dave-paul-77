@@ -1,7 +1,7 @@
 // Compares the user's manual orders with what the engine would have produced on the same
 // day, and searches the S/R parameters that reproduce them best. Differences are in ATR
 // units so pairs with different price scales can be averaged.
-import { analyze, roundTo } from './sr.ts';
+import { analyze, atr, engineLines, fractals, roundTo } from './sr.ts';
 import type { Candidate, Candle, Side, SrParams, SymbolInputs } from './types.ts';
 
 const DAY = 86_400_000;
@@ -124,7 +124,7 @@ export const LADDER_GRID = {
   entryGap: [0.16, 0.19, 0.22, 0.25, 0.28],
   slGap: [0.1, 0.13, 0.16, 0.19, 0.22],
   tpGap: [0.03, 0.05, 0.07, 0.1],
-  clusterAtr: [0.2, 0.3, 0.5], // only matters for pairs without manual lines
+  clusterAtr: [0.2, 0.3, 0.5],
   minTouches: [1, 2],
 };
 
@@ -172,4 +172,98 @@ export function sweep(orders: ManualOrder[], data: Map<string, SymbolData>, base
                 results.push({ params, score: evaluate(prepared, orders, { ...base, ...params }).score });
               }
   return rank();
+}
+
+// --- engine lines vs the user's reference lines ----------------------------------------
+// The user's lines are a reference, not the truth: the score shows how close the engine
+// gets to them, and the sweep looks for line parameters that reproduce them better.
+
+export const LINE_MATCH_ATR = 0.25; // an engine line within this of a reference line finds it
+
+export type LineFit = {
+  symbol: string;
+  atr: number;
+  engine: number; // engine lines inside the candle range
+  reference: number; // reference lines inside the candle range
+  matched: number;
+  precision: number; // matched / engine
+  recall: number; // matched / reference
+  f1: number;
+};
+
+export type LineScore = { pairs: number; f1: number; precision: number; recall: number };
+
+// One-to-one pairs, closest first, each within `tolerance`.
+export function matchLines(engine: number[], reference: number[], tolerance: number): number {
+  const pairs: [number, number, number][] = [];
+  engine.forEach((e, i) => reference.forEach((r, j) => {
+    const d = Math.abs(e - r);
+    if (d <= tolerance) pairs.push([d, i, j]);
+  }));
+  pairs.sort((a, b) => a[0] - b[0]);
+  const usedE = new Set<number>();
+  const usedR = new Set<number>();
+  for (const [, i, j] of pairs) {
+    if (usedE.has(i) || usedR.has(j)) continue;
+    usedE.add(i);
+    usedR.add(j);
+  }
+  return usedE.size;
+}
+
+export function lineFit(symbol: string, d: SymbolData, p: SrParams): LineFit | null {
+  const reference = d.inputs?.manualLines ?? [];
+  const candles = d.candles.slice(-p.lookback);
+  if (!reference.length || candles.length < 10) return null;
+  const a = atr(candles, p.atrPeriod);
+  const tolerance = LINE_MATCH_ATR * a;
+  // lines beyond the candles' range have no swings to find, so neither side counts them
+  const low = Math.min(...candles.map((c) => c.l)) - tolerance;
+  const high = Math.max(...candles.map((c) => c.h)) + tolerance;
+  const inside = (x: number) => x >= low && x <= high;
+  const engine = engineLines(fractals(candles, p.fractal), a, p, d.digits).map((l) => l.price).filter(inside);
+  const ref = reference.filter(inside);
+  const matched = matchLines(engine, ref, tolerance);
+  const precision = engine.length ? matched / engine.length : 0;
+  const recall = ref.length ? matched / ref.length : 0;
+  return {
+    symbol,
+    atr: a,
+    engine: engine.length,
+    reference: ref.length,
+    matched,
+    precision: roundTo(precision, 3),
+    recall: roundTo(recall, 3),
+    f1: precision + recall ? roundTo((2 * precision * recall) / (precision + recall), 3) : 0,
+  };
+}
+
+const mean = (xs: number[]) => (xs.length ? roundTo(xs.reduce((s, x) => s + x, 0) / xs.length, 3) : 0);
+
+export function lineFitAll(data: Map<string, SymbolData>, p: SrParams): { fits: LineFit[]; score: LineScore } {
+  const fits = [...data].map(([symbol, d]) => lineFit(symbol, d, p)).filter((f): f is LineFit => f !== null);
+  return {
+    fits,
+    score: { pairs: fits.length, f1: mean(fits.map((f) => f.f1)), precision: mean(fits.map((f) => f.precision)), recall: mean(fits.map((f) => f.recall)) },
+  };
+}
+
+export const LINE_GRID = {
+  fractal: [1, 2, 3],
+  clusterAtr: [0.15, 0.2, 0.25, 0.3, 0.4, 0.5],
+  minTouches: [1, 2, 3],
+};
+
+export type LineSweepResult = { params: Partial<SrParams>; score: LineScore };
+
+export function lineSweep(data: Map<string, SymbolData>, base: SrParams, top = 5): { current: LineScore; best: LineSweepResult[]; tried: number } {
+  const results: LineSweepResult[] = [];
+  for (const fractal of LINE_GRID.fractal)
+    for (const clusterAtr of LINE_GRID.clusterAtr)
+      for (const minTouches of LINE_GRID.minTouches) {
+        const params = { fractal, clusterAtr, minTouches };
+        results.push({ params, score: lineFitAll(data, { ...base, ...params }).score });
+      }
+  results.sort((a, b) => b.score.f1 - a.score.f1);
+  return { current: lineFitAll(data, base).score, best: results.slice(0, top), tried: results.length };
 }

@@ -21,6 +21,9 @@ export type SymbolSpec = {
 
 // Every value has a default in settings and can be changed from the web.
 export type SrParams = {
+  // 'auto' (default): the engine draws the lines; the user's lines are only a reference
+  // to compare against. 'manual': the user's lines replace the engine's where present.
+  lineSource: 'auto' | 'manual';
   lookback: number; // closed D1 candles used (about 2 years)
   fractal: number; // candles on each side of a swing
   atrPeriod: number;
@@ -53,7 +56,7 @@ export type SrParams = {
 
 // Per-symbol inputs that are not candles.
 export type SymbolInputs = {
-  manualLines?: number[]; // the user's own S/R lines; replace the automatic ones
+  manualLines?: number[]; // the user's own S/R lines: a reference, used for orders only with lineSource 'manual'
   minSlPips?: number; // SL is widened to at least this many pips
 };
 

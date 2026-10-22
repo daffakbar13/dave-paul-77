@@ -149,16 +149,24 @@ describe('analyze (strong model)', () => {
 });
 
 describe('analyze (ladder model)', () => {
+  // these tests fix the lines by hand, so they ask for the manual lines explicitly
+  const MANUAL = { ...DEFAULT_SR, lineSource: 'manual' as const };
   // 30 quiet bars around 1.105 (ATR about 0.004); the user's lines at 1.100, 1.110, 1.125
   const quiet: Candle[] = Array.from({ length: 30 }, (_, i) => ({ t: i * DAY, o: 1.105, h: 1.107, l: 1.103, c: 1.105 }));
   const lines = [1.1, 1.11, 1.125];
-  const a = analyze('EURUSD', quiet, DEFAULT_SR, 5, undefined, { manualLines: lines });
+  const a = analyze('EURUSD', quiet, MANUAL, 5, undefined, { manualLines: lines });
   const buy = a.candidates.find((c) => c.side === 'buy' && c.line === 1.11)!;
   const sell = a.candidates.find((c) => c.side === 'sell')!;
 
-  it('uses the manual lines instead of automatic ones', () => {
+  it('uses the manual lines when lineSource is manual', () => {
     assert.deepEqual(a.lines.map((l) => l.price), lines);
     assert.ok(a.lines.every((l) => l.source === 'manual'));
+  });
+
+  it('keeps the engine lines by default; manual lines are only a reference', () => {
+    const auto = analyze('EURUSD', quiet, DEFAULT_SR, 5, undefined, { manualLines: lines });
+    assert.ok(auto.lines.every((l) => l.source === 'auto'));
+    assert.ok(!auto.candidates.some((c) => c.line === 1.125));
   });
 
   it('places entry, SL and TP by the gap to the next line', () => {
@@ -178,13 +186,13 @@ describe('analyze (ladder model)', () => {
   });
 
   it('widens SL to the minimum pips of the pair', () => {
-    const wide = analyze('EURUSD', quiet, DEFAULT_SR, 5, undefined, { manualLines: lines, minSlPips: 100 });
+    const wide = analyze('EURUSD', quiet, MANUAL, 5, undefined, { manualLines: lines, minSlPips: 100 });
     const b = wide.candidates.find((c) => c.side === 'buy' && c.line === 1.11)!;
     assert.equal(b.sl, roundTo(1.1133 - 0.01, 5));
   });
 
   it('skips lines too close to price without using up the per-side limit', () => {
-    const close = analyze('EURUSD', quiet, { ...DEFAULT_SR, maxLinesPerSide: 1 }, 5, 1.1095, { manualLines: lines });
+    const close = analyze('EURUSD', quiet, { ...MANUAL, maxLinesPerSide: 1 }, 5, 1.1095, { manualLines: lines });
     const buys = close.candidates.filter((c) => c.side === 'buy');
     assert.equal(buys[0]!.skipped, 'Terlalu dekat harga');
     assert.equal(buys.filter((c) => !c.skipped).length, 1);
@@ -192,7 +200,7 @@ describe('analyze (ladder model)', () => {
   });
 
   it('gives about 1.9 RR on evenly spaced lines', () => {
-    const even = analyze('EURUSD', quiet, DEFAULT_SR, 5, undefined, { manualLines: [1.09, 1.1, 1.11, 1.12, 1.13] });
+    const even = analyze('EURUSD', quiet, MANUAL, 5, undefined, { manualLines: [1.09, 1.1, 1.11, 1.12, 1.13] });
     const c = even.candidates.find((x) => x.side === 'buy' && x.line === 1.11)!;
     const rr = (c.tp! - c.entry!) / (c.entry! - c.sl!);
     assert.ok(rr > 1.8 && rr < 1.95, String(rr));
@@ -203,7 +211,7 @@ describe('analyze (ladder model)', () => {
   });
 
   // candle SL with a wide cap so the test candle (risk ~2.5 ATR) qualifies
-  const CANDLE = { ...DEFAULT_SR, slSource: 'candle' as const, slMaxRiskAtr: 5 };
+  const CANDLE = { ...MANUAL, slSource: 'candle' as const, slMaxRiskAtr: 5 };
 
   // a strong bullish candle just under 1.110 (close below the line, high within 1 ATR)
   const withStrong: Candle[] = [...quiet.slice(0, 25), { t: 25 * DAY, o: 1.104, h: 1.1098, l: 1.1035, c: 1.1095 }, ...quiet.slice(26)];
@@ -213,7 +221,7 @@ describe('analyze (ladder model)', () => {
     const b = s.candidates.find((c) => c.side === 'buy' && c.line === 1.11)!;
     assert.equal(b.slFrom, 'candle');
     assert.equal(b.reboundAt, 25 * DAY);
-    assert.equal(b.sl, roundTo(1.1035 - DEFAULT_SR.bufferAtr * s.atr, 5));
+    assert.equal(b.sl, roundTo(1.1035 - MANUAL.bufferAtr * s.atr, 5));
     assert.equal(b.entry, 1.1133); // entry and TP stay on the ladder
     assert.equal(b.tp, 1.12395);
   });
@@ -229,7 +237,7 @@ describe('analyze (ladder model)', () => {
     const s = analyze('EURUSD', bear, CANDLE, 5, undefined, { manualLines: lines });
     const sl = s.candidates.find((c) => c.side === 'sell')!;
     assert.equal(sl.slFrom, 'candle');
-    assert.equal(sl.sl, roundTo(1.1065 + DEFAULT_SR.bufferAtr * s.atr, 5));
+    assert.equal(sl.sl, roundTo(1.1065 + MANUAL.bufferAtr * s.atr, 5));
   });
 
   it('falls back to the ladder SL when the candle SL is wider than the cap', () => {
