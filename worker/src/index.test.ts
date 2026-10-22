@@ -32,6 +32,7 @@ describe('run', () => {
     let feedCalls = 0;
     const telegram: Record<string, unknown>[] = [];
     const fetcher = (async (url: string, init?: RequestInit) => {
+      if (url.endsWith('.xml')) return new Response('', { status: 503 });
       if (url.includes('faireconomy')) {
         feedCalls++;
         return new Response(JSON.stringify(feed));
@@ -91,7 +92,7 @@ describe('run', () => {
     const env = { NEWS: kv, TELEGRAM_BOT_TOKEN: 't', TELEGRAM_CHAT_ID: '-100' } as unknown as Env;
     await run(env, now, fetcher);
     await run(env, now + 5 * 60_000, fetcher);
-    assert.equal(feedCalls, 1); // retry-after 10 minutes
+    assert.equal(feedCalls, 2); // XML and JSON once each, then retry-after 10 minutes
     assert.equal(texts.length, 1);
     assert.match(texts[0]!, /belum pernah berhasil diambil \(rate limit/);
   });

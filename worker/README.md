@@ -2,7 +2,8 @@
 
 Cloudflare Worker gratis yang jalan **setiap 5 menit**, tanpa laptop dan tanpa Render:
 
-- Mengambil feed ForexFactory paling sering 4 jam sekali (1 jam sebelum Daily Outlook) dan menyimpannya di KV.
+- Mengambil feed ForexFactory paling sering 4 jam sekali (1 jam sebelum Daily Outlook) dan menyimpannya di KV. Versi
+  XML dulu (JSON hampir selalu kena rate limit dari IP Cloudflare yang dipakai bersama), JSON sebagai cadangan.
 - **News Alert** (topik grup Telegram): setiap berita *high impact* (semua mata uang) dikirim saat masuk jendela
   24 jam, lalu 4 jam, 1 jam dan 30 menit sebelum rilis. Berita di jam yang sama digabung dalam satu pesan. Tiap tahap
   hanya sekali; jika run telat, hanya tahap terdekat yang dikirim. Jadwal berubah = berita baru, alert mulai lagi.
@@ -57,7 +58,7 @@ Deploy:
 npx wrangler deploy
 ```
 
-Wrangler mencetak URL, mis. `https://dave-paul-77-news.<akun>.workers.dev`.
+Wrangler mencetak URL: `https://dave-paul-77-news.davepaul77.workers.dev` (deploy pertama meminta subdomain `workers.dev` akun; di sini `davepaul77`).
 
 ### 3. Cek
 

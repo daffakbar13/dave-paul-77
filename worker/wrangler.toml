@@ -6,6 +6,9 @@
 name = "dave-paul-77-news"
 main = "src/index.ts"
 compatibility_date = "2026-10-01"
+# https://dave-paul-77-news.davepaul77.workers.dev (GET /calendar); no preview URLs needed
+workers_dev = true
+preview_urls = false
 
 [triggers]
 crons = ["*/5 * * * *"]
