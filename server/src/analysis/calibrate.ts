@@ -221,7 +221,7 @@ export function lineFit(symbol: string, d: SymbolData, p: SrParams): LineFit | n
   const low = Math.min(...candles.map((c) => c.l)) - tolerance;
   const high = Math.max(...candles.map((c) => c.h)) + tolerance;
   const inside = (x: number) => x >= low && x <= high;
-  const engine = engineLines(fractals(candles, p.fractal), a, p, d.digits).map((l) => l.price).filter(inside);
+  const engine = engineLines(candles, fractals(candles, p.fractal), a, p, d.digits).map((l) => l.price).filter(inside);
   const ref = reference.filter(inside);
   const matched = matchLines(engine, ref, tolerance);
   const precision = engine.length ? matched / engine.length : 0;
@@ -249,9 +249,12 @@ export function lineFitAll(data: Map<string, SymbolData>, p: SrParams): { fits: 
 }
 
 export const LINE_GRID = {
-  fractal: [1, 2, 3],
-  clusterAtr: [0.15, 0.2, 0.25, 0.3, 0.4, 0.5],
-  minTouches: [1, 2, 3],
+  fractal: [2, 3],
+  clusterAtr: [0.3, 0.4, 0.5],
+  minTouches: [2, 3],
+  rangeWeight: [0, 2, 3],
+  minSpacingAtr: [0, 0.4, 0.5],
+  zoneMergeAtr: [0, 0.2],
 };
 
 export type LineSweepResult = { params: Partial<SrParams>; score: LineScore };
@@ -260,10 +263,13 @@ export function lineSweep(data: Map<string, SymbolData>, base: SrParams, top = 5
   const results: LineSweepResult[] = [];
   for (const fractal of LINE_GRID.fractal)
     for (const clusterAtr of LINE_GRID.clusterAtr)
-      for (const minTouches of LINE_GRID.minTouches) {
-        const params = { fractal, clusterAtr, minTouches };
-        results.push({ params, score: lineFitAll(data, { ...base, ...params }).score });
-      }
+      for (const minTouches of LINE_GRID.minTouches)
+        for (const rangeWeight of LINE_GRID.rangeWeight)
+          for (const minSpacingAtr of LINE_GRID.minSpacingAtr)
+            for (const zoneMergeAtr of LINE_GRID.zoneMergeAtr) {
+              const params = { fractal, clusterAtr, minTouches, rangeWeight, minSpacingAtr, zoneMergeAtr };
+              results.push({ params, score: lineFitAll(data, { ...base, ...params }).score });
+            }
   results.sort((a, b) => b.score.f1 - a.score.f1);
   return { current: lineFitAll(data, base).score, best: results.slice(0, top), tried: results.length };
 }

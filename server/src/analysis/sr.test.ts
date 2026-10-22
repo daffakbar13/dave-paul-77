@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { analyze, atr, clusterLines, DEFAULT_SR, fractals, roundTo } from './sr.ts';
+import { analyze, atr, atrSeries, bodiesBetween, clusterLines, DEFAULT_SR, engineLines, fractals, mergeClose, rangeEdge, ranges, roundTo } from './sr.ts';
 import type { Candle, SrParams } from './types.ts';
 
-// The original concept model (strong candle + rebound) with its original line settings.
-const STRONG: SrParams = { ...DEFAULT_SR, orderModel: 'strong', clusterAtr: 0.5, maxLinesPerSide: 0, minDistanceAtr: 0 };
+// The original concept model (strong candle + rebound) with its original line settings:
+// swing lines only, no range edges, no spacing filter.
+const STRONG: SrParams = {
+  ...DEFAULT_SR, orderModel: 'strong', clusterAtr: 0.5, rangeWeight: 0, minSpacingAtr: 0, zoneMergeAtr: 0, maxLinesPerSide: 0, minDistanceAtr: 0,
+};
 
 const DAY = 86_400_000;
 const bars = (rows: [number, number, number, number][]): Candle[] =>
@@ -69,6 +72,78 @@ describe('clusterLines', () => {
   it('does not chain close prices into one wide area', () => {
     const lines = clusterLines([1, 1.6, 1.9, 2.5], 1, 1);
     assert.deepEqual(lines.map((l) => l.touches), [3, 1]);
+  });
+});
+
+describe('ranges', () => {
+  // 8 sideways bars between 100 and 101 between two trends; ATR is about 1
+  const trendUp = (from: number, n: number) => Array.from({ length: n }, (_, i) => [from + i, from + i + 1, from + i - 0.2, from + i + 0.8] as [number, number, number, number]);
+  const box: [number, number, number, number][] = [
+    [100.2, 101, 100, 100.8], [100.8, 100.95, 100.1, 100.2], [100.2, 100.9, 100.05, 100.85], [100.85, 100.98, 100.2, 100.3],
+    [100.3, 100.9, 100, 100.8], [100.8, 100.96, 100.1, 100.15], [100.15, 100.9, 100.02, 100.85], [100.85, 101, 100.2, 100.3],
+  ];
+  const series = bars([...trendUp(90, 10), ...box, ...trendUp(102, 10)]);
+  const atrs = atrSeries(series, 14);
+
+  it('finds the sideways area and not the trends', () => {
+    const found = ranges(series, atrs, { ...DEFAULT_SR, rangeMaxAtr: 1.2 });
+    const r = found.find((x) => x.from <= 10 && x.to >= 17);
+    assert.ok(r, `expected a range over bars 10-17, got ${JSON.stringify(found)}`);
+    assert.ok(found.every((x) => x.to - x.from + 1 >= DEFAULT_SR.rangeMinBars));
+  });
+
+  it('puts each edge where most candles turned', () => {
+    const r = { from: 10, to: 17, top: 101, bottom: 100 };
+    const top = rangeEdge(series, r, 'top', 0.03);
+    const bottom = rangeEdge(series, r, 'bottom', 0.03);
+    // every upper wick spans 100.85-100.98: the top sits there, not on the 101 spikes alone
+    assert.ok(top.price >= 100.85 && top.price <= 101, `top ${top.price}`);
+    assert.ok(top.turns >= 6);
+    assert.ok(bottom.price >= 100 && bottom.price <= 100.2, `bottom ${bottom.price}`);
+  });
+
+  it('turns range edges into lines that outweigh single swings', () => {
+    const p = { ...DEFAULT_SR, rangeMaxAtr: 1.2, minTouches: 2 };
+    const lines = engineLines(series, fractals(series, p.fractal), atr(series, 14), p, 2);
+    const top = lines.find((l) => l.price > 100.6 && l.price < 101.2);
+    assert.ok(top && (top.ranges ?? 0) >= 1 && (top.strength ?? 0) >= p.rangeWeight, JSON.stringify(lines));
+    const swingsOnly = engineLines(series, fractals(series, p.fractal), atr(series, 14), { ...p, rangeWeight: 0 }, 2);
+    assert.ok(swingsOnly.every((l) => !l.ranges));
+  });
+
+  it('merges lines closer than minSpacingAtr', () => {
+    const p = { ...DEFAULT_SR, rangeMaxAtr: 1.2, minTouches: 1, clusterAtr: 0.05, zoneMergeAtr: 0 };
+    const a = atr(series, 14);
+    const loose = engineLines(series, fractals(series, p.fractal), a, { ...p, minSpacingAtr: 0 }, 2);
+    const spaced = engineLines(series, fractals(series, p.fractal), a, { ...p, minSpacingAtr: 0.5 }, 2);
+    assert.ok(spaced.length < loose.length);
+    for (let i = 1; i < spaced.length; i++) assert.ok(spaced[i]!.price - spaced[i - 1]!.price >= 0.5 * a - 1e-9);
+  });
+});
+
+describe('mergeClose', () => {
+  const line = (price: number, strength: number, low = price, high = price) => ({ price, touches: strength, strength, low, high });
+  // price only pokes into 99.0-99.6 from above (wicks), bodies stay above it
+  const pokes = bars(Array.from({ length: 10 }, () => [100.2, 100.4, 99.1, 99.9] as [number, number, number, number]));
+  // price trades inside 99.0-99.6
+  const box = bars(Array.from({ length: 10 }, () => [99.15, 99.5, 99.05, 99.45] as [number, number, number, number]));
+
+  it('averages two close lines by strength', () => {
+    const [m] = mergeClose([line(100, 1), line(100.3, 2)], pokes, 0.5, 0, 2, 3);
+    assert.equal(m!.price, 100.2);
+    assert.equal(m!.strength, 3);
+  });
+
+  it('makes one line of a zone price only poked into', () => {
+    assert.ok(bodiesBetween(pokes, 99, 99.6) < 0.1);
+    const out = mergeClose([line(99, 2, 98.9, 99.1), line(99.6, 2, 99.5, 99.7)], pokes, 0.3, 0.5, 2, 3);
+    assert.deepEqual(out.map((l) => l.price), [99.3]);
+  });
+
+  it('keeps both edges of a box price traded in', () => {
+    assert.ok(bodiesBetween(box, 99, 99.6) > 0.5);
+    const out = mergeClose([line(99, 2, 98.9, 99.1), line(99.6, 2, 99.5, 99.7)], box, 0.3, 0.5, 2, 3);
+    assert.equal(out.length, 2);
   });
 });
 

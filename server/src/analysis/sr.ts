@@ -5,8 +5,15 @@ export const DEFAULT_SR: SrParams = {
   lookback: 520,
   fractal: 2,
   atrPeriod: 14,
-  clusterAtr: 0.3, // best match with the user's own lines (Sep 2026 templates)
+  // fitted to the user's lines on 13 pairs (Oct 2026): swings alone gave F1 0.51
+  clusterAtr: 0.4,
   minTouches: 2,
+  rangeMinBars: 5,
+  rangeMaxAtr: 2,
+  rangeWeight: 2,
+  // one reaction area = one line (the user's CHFJPY 198-199.4 zone, Oct 2026); F1 0.58
+  minSpacingAtr: 0.4,
+  zoneMergeAtr: 0.2,
   strongBodyPct: 0.6,
   strongAtr: 0.8,
   strongMaxDistanceAtr: 1,
@@ -249,17 +256,157 @@ function findStrongBehind(line: number, side: Side, ctx: Ctx): number | undefine
   return best;
 }
 
-// Full D1 analysis of one symbol. `candles` must be closed candles in time order;
-// `price` is the current mid price (falls back to the last close).
-// The engine's own lines: swing highs and lows grouped by `clusterAtr`, kept with `minTouches`.
-export function engineLines(swings: Swing[], atrValue: number, p: SrParams, digits: number): Line[] {
-  return clusterLines(swings.map((s) => s.price), p.clusterAtr * atrValue, p.minTouches).map((l) => ({
-    ...l,
-    price: roundTo(l.price, digits),
-    source: 'auto',
-  }));
+// ATR at every candle (Wilder), so an old range is measured against the volatility of its time.
+export function atrSeries(candles: Candle[], period: number): number[] {
+  const out: number[] = [];
+  let value = 0;
+  candles.forEach((c, i) => {
+    const prev = candles[i - 1];
+    const tr = prev ? Math.max(c.h - c.l, Math.abs(c.h - prev.c), Math.abs(c.l - prev.c)) : c.h - c.l;
+    value = i < period ? (value * i + tr) / (i + 1) : (value * (period - 1) + tr) / period;
+    out.push(value);
+  });
+  return out;
 }
 
+export type Range = { from: number; to: number; top: number; bottom: number };
+
+// Sideways areas: at least `rangeMinBars` candles whose highs and lows stay within
+// `rangeMaxAtr` x ATR. Scanned left to right, each range as long as it can grow.
+export function ranges(candles: Candle[], atrs: number[], p: SrParams): Range[] {
+  const out: Range[] = [];
+  let i = 0;
+  while (i < candles.length) {
+    const limit = p.rangeMaxAtr * atrs[i]!;
+    let top = candles[i]!.h;
+    let bottom = candles[i]!.l;
+    let j = i + 1;
+    for (; j < candles.length; j++) {
+      const t = Math.max(top, candles[j]!.h);
+      const b = Math.min(bottom, candles[j]!.l);
+      if (t - b > limit) break;
+      top = t;
+      bottom = b;
+    }
+    if (j - i >= p.rangeMinBars) {
+      out.push({ from: i, to: j - 1, top, bottom });
+      i = j;
+    } else i++;
+  }
+  return out;
+}
+
+// The price on one edge of a range where most candles turned: the level that lies between
+// the body edge and the wick tip (± tolerance) of the most candles. Many bodies stopping at
+// one price put it on the bodies; wicks poking to one price put it on the wicks.
+export function rangeEdge(candles: Candle[], r: Range, kind: 'top' | 'bottom', tolerance: number): { price: number; turns: number } {
+  const box = candles.slice(r.from, r.to + 1);
+  const zone = (r.top - r.bottom) / 3;
+  const tip = (c: Candle) => (kind === 'top' ? c.h : c.l);
+  const bodyEdge = (c: Candle) => (kind === 'top' ? Math.max(c.o, c.c) : Math.min(c.o, c.c));
+  const inZone = (x: number) => (kind === 'top' ? x >= r.top - zone : x <= r.bottom + zone);
+  const levels = box.flatMap((c) => [tip(c), bodyEdge(c)]).filter(inZone);
+  let best = { price: kind === 'top' ? r.top : r.bottom, turns: 0 };
+  for (const x of levels) {
+    const turns = box.filter((c) => {
+      const lo = Math.min(tip(c), bodyEdge(c)) - tolerance;
+      const hi = Math.max(tip(c), bodyEdge(c)) + tolerance;
+      return x >= lo && x <= hi;
+    }).length;
+    // ties go to the price further out, the edge price had to break
+    const further = kind === 'top' ? x > best.price : x < best.price;
+    if (turns > best.turns || (turns === best.turns && further)) best = { price: x, turns };
+  }
+  return best;
+}
+
+// The engine's own lines. Swing highs/lows count 1 each and range edges `rangeWeight`
+// each; prices within `clusterAtr` form one line, kept when its weight reaches
+// `minTouches`. Lines of one reaction area are then merged (mergeClose).
+export function engineLines(candles: Candle[], swings: Swing[], atrValue: number, p: SrParams, digits: number): Line[] {
+  const atrs = atrSeries(candles, p.atrPeriod);
+  const points = swings.map((s) => ({ price: s.price, weight: 1, range: false }));
+  for (const r of p.rangeWeight > 0 ? ranges(candles, atrs, p) : []) {
+    const tolerance = 0.1 * atrs[r.from]!;
+    for (const kind of ['top', 'bottom'] as const) {
+      const edge = rangeEdge(candles, r, kind, tolerance);
+      if (edge.turns >= 2) points.push({ price: edge.price, weight: p.rangeWeight, range: true });
+    }
+  }
+  points.sort((a, b) => a.price - b.price);
+  const tolerance = p.clusterAtr * atrValue;
+  const lines: Line[] = [];
+  let group: typeof points = [];
+  const flush = () => {
+    const weight = group.reduce((s, x) => s + x.weight, 0);
+    if (group.length && weight >= p.minTouches) {
+      const price = group.reduce((s, x) => s + x.price * x.weight, 0) / weight;
+      lines.push({
+        price: roundTo(price, digits),
+        touches: group.filter((x) => !x.range).length,
+        ranges: group.filter((x) => x.range).length,
+        strength: weight,
+        low: group[0]!.price,
+        high: group[group.length - 1]!.price,
+        source: 'auto',
+      });
+    }
+    group = [];
+  };
+  for (const x of points) {
+    if (group.length && x.price - group[0]!.price > tolerance) flush();
+    group.push(x);
+  }
+  flush();
+  if (!(p.minSpacingAtr > 0) && !(p.zoneMergeAtr > 0)) return lines;
+  return mergeClose(lines, candles, p.minSpacingAtr * atrValue, p.zoneMergeAtr * atrValue, p.rangeMaxAtr * atrValue, digits);
+}
+
+// Of the candles touching the band between two lines, the share whose whole body sits
+// inside it. A box price traded in scores high; a zone price only poked into scores low.
+export function bodiesBetween(candles: Candle[], low: number, high: number): number {
+  const touching = candles.filter((c) => c.h >= low && c.l <= high);
+  if (!touching.length) return 0;
+  return touching.filter((c) => Math.min(c.o, c.c) >= low && Math.max(c.o, c.c) <= high).length / touching.length;
+}
+
+export const ZONE_BODY_SHARE = 0.1;
+
+// One reaction area should give one line: two neighbouring lines become one line at their
+// strength-weighted average when closer than `spacing`, or when their nearest swings are
+// closer than `zone` while price never traded between them (bodiesBetween below
+// ZONE_BODY_SHARE). Closest pair first; a merged zone stays within `maxZone`.
+export function mergeClose(lines: Line[], candles: Candle[], spacing: number, zone: number, maxZone: number, digits: number): Line[] {
+  const out = [...lines].sort((a, b) => a.price - b.price);
+  const joins = (a: Line, b: Line) => {
+    if (b.price - a.price < spacing) return true;
+    return b.low - a.high < zone && b.high - a.low <= maxZone && bodiesBetween(candles, a.price, b.price) < ZONE_BODY_SHARE;
+  };
+  for (;;) {
+    let at = -1;
+    for (let i = 1; i < out.length; i++) {
+      const gap = out[i]!.price - out[i - 1]!.price;
+      if ((at < 0 || gap < out[at]!.price - out[at - 1]!.price) && joins(out[i - 1]!, out[i]!)) at = i;
+    }
+    if (at < 0) return out;
+    const a = out[at - 1]!;
+    const b = out[at]!;
+    const sa = a.strength ?? 1;
+    const sb = b.strength ?? 1;
+    out.splice(at - 1, 2, {
+      price: roundTo((a.price * sa + b.price * sb) / (sa + sb), digits),
+      touches: a.touches + b.touches,
+      ranges: (a.ranges ?? 0) + (b.ranges ?? 0),
+      strength: sa + sb,
+      low: Math.min(a.low, b.low),
+      high: Math.max(a.high, b.high),
+      source: a.source,
+    });
+  }
+}
+
+// Full D1 analysis of one symbol. `candles` must be closed candles in time order;
+// `price` is the current mid price (falls back to the last close).
 export function analyze(symbol: string, all: Candle[], p: SrParams, digits: number, price?: number, inputs: SymbolInputs = {}): Analysis {
   const candles = all.slice(-p.lookback);
   const last = candles[candles.length - 1];
@@ -272,7 +419,7 @@ export function analyze(symbol: string, all: Candle[], p: SrParams, digits: numb
     ? [...new Set(inputs.manualLines.map((x) => roundTo(x, digits)))]
         .sort((x, y) => x - y)
         .map((x) => ({ price: x, touches: 0, low: x, high: x, source: 'manual' }))
-    : engineLines(swings, a, p, digits);
+    : engineLines(candles, swings, a, p, digits);
   const ctx: Ctx = { inputs, ref, candles, swings, lines, atr: a, p, digits, symbol };
   // All lines stay (they are TP targets); the limit only drops far lines' orders. Lines
   // too close to price are listed as skipped and do not use up the limit.

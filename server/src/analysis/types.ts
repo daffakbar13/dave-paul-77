@@ -28,7 +28,12 @@ export type SrParams = {
   fractal: number; // candles on each side of a swing
   atrPeriod: number;
   clusterAtr: number; // swings closer than this x ATR join one line
-  minTouches: number;
+  minTouches: number; // line weight needed: each swing counts 1, each range edge rangeWeight
+  rangeMinBars: number; // a sideways area lasts at least this many candles
+  rangeMaxAtr: number; // ... with highs and lows within this x ATR
+  rangeWeight: number; // weight of one range edge against one swing
+  minSpacingAtr: number; // two lines closer than this x ATR merge into their average; 0 = off
+  zoneMergeAtr: number; // ... also when their nearest swings are within this x ATR and price never traded between them; 0 = off
   strongBodyPct: number; // body / range
   strongAtr: number; // body / ATR
   strongMaxDistanceAtr: number; // how far beyond the line a strong candle may sit
@@ -60,7 +65,8 @@ export type SymbolInputs = {
   minSlPips?: number; // SL is widened to at least this many pips
 };
 
-export type Line = { price: number; touches: number; low: number; high: number; source?: 'manual' | 'auto' };
+// touches = swings in the line, ranges = range edges in it, strength = their total weight
+export type Line = { price: number; touches: number; ranges?: number; strength?: number; low: number; high: number; source?: 'manual' | 'auto' };
 
 export type Candidate = {
   id: string; // `${symbol}:${side}-${line}`; stable for the same line

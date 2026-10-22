@@ -13,8 +13,13 @@ const LINE_FIELDS: Field[] = [
   { key: 'lookback', label: 'Jumlah candle D1', hint: 'Sekitar 2 tahun = 520', step: 1 },
   { key: 'fractal', label: 'Fraktal (candle tiap sisi)', hint: '2 = fraktal 5 candle', step: 1 },
   { key: 'atrPeriod', label: 'Periode ATR', hint: '', step: 1 },
-  { key: 'clusterAtr', label: 'Penggabungan area (x ATR)', hint: 'Swing berdekatan jadi satu garis', step: 0.05 },
-  { key: 'minTouches', label: 'Minimal sentuhan', hint: 'Swing per garis', step: 1 },
+  { key: 'rangeMinBars', label: 'Area ranging: minimal candle', hint: 'Sideways sekurangnya … candle', step: 1 },
+  { key: 'rangeMaxAtr', label: 'Area ranging: tinggi maks (x ATR)', hint: 'High–low area ranging', step: 0.1 },
+  { key: 'rangeWeight', label: 'Bobot tepi ranging', hint: 'Satu tepi ranging = … swing; 0 = swing saja', step: 1 },
+  { key: 'clusterAtr', label: 'Penggabungan area (x ATR)', hint: 'Swing dan tepi ranging berdekatan jadi satu garis', step: 0.05 },
+  { key: 'minTouches', label: 'Minimal bobot garis', hint: 'Swing = 1, tepi ranging = bobotnya', step: 1 },
+  { key: 'minSpacingAtr', label: 'Jarak min antar garis (x ATR)', hint: 'Lebih dekat: digabung jadi rata-ratanya; 0 = mati', step: 0.05 },
+  { key: 'zoneMergeAtr', label: 'Gabung zona sampai (x ATR)', hint: 'Jarak tepi dua garis tanpa body candle di antaranya: jadi satu; 0 = mati', step: 0.05 },
 ];
 
 // g = jarak garis ke garis berikutnya searah order

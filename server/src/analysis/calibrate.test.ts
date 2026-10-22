@@ -84,7 +84,7 @@ describe('engine lines vs reference lines', () => {
   it('skips pairs without reference lines and sweeps the line parameters', () => {
     assert.equal(lineFit('TEST', { candles: SERIES, digits: 3 }, STRONG), null);
     const r = lineSweep(new Map([['TEST', { candles: SERIES, digits: 3, inputs: { manualLines: [100.2, 97.5] } }]]), STRONG);
-    assert.equal(r.tried, 54);
+    assert.equal(r.tried, 216);
     assert.ok(r.best[0]!.score.f1 >= r.current.f1);
   });
 });

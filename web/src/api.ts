@@ -26,7 +26,7 @@ export type OrderRow = {
 };
 
 export type Candle = { t: number; o: number; h: number; l: number; c: number };
-export type Line = { price: number; touches: number; low: number; high: number; source?: 'manual' | 'auto' };
+export type Line = { price: number; touches: number; ranges?: number; strength?: number; low: number; high: number; source?: 'manual' | 'auto' };
 
 export type AccountInfo = {
   id: string;
@@ -98,6 +98,11 @@ export type SrParams = {
   atrPeriod: number;
   clusterAtr: number;
   minTouches: number;
+  rangeMinBars: number;
+  rangeMaxAtr: number;
+  rangeWeight: number;
+  minSpacingAtr: number;
+  zoneMergeAtr: number;
   strongBodyPct: number;
   strongAtr: number;
   strongMaxDistanceAtr: number;

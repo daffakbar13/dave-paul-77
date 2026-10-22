@@ -8,7 +8,10 @@ type Props = { symbols: string[]; onClose: () => void; onChanged: () => void };
 const PARAM_LABEL: Partial<Record<keyof SrParams, string>> = {
   fractal: 'Fraktal',
   clusterAtr: 'Penggabungan',
-  minTouches: 'Sentuhan',
+  minTouches: 'Bobot min',
+  rangeWeight: 'Bobot ranging',
+  minSpacingAtr: 'Jarak garis',
+  zoneMergeAtr: 'Gabung zona',
   strongBodyPct: 'Body/range',
   strongAtr: 'Body/ATR',
   strongPick: 'Candle kuat',
