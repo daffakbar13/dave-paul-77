@@ -40,7 +40,7 @@ npx wrangler login
 npx wrangler kv namespace create NEWS
 ```
 
-Salin `id` yang dicetak ke `wrangler.toml` (ganti `REPLACE_WITH_KV_NAMESPACE_ID`). Id ini bukan rahasia.
+Id yang dicetak sudah terisi di `wrangler.toml` (bukan rahasia); di akun Cloudflare lain, ganti dengan id baru.
 
 Isi rahasia (diminta satu per satu di terminal, tidak masuk repo):
 
