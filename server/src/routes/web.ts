@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { newAccountKey } from '../auth.ts';
 import { getSettings, type AccountDoc, type AnalysisDoc, type CommandDoc, type Collections, type Settings } from '../db.ts';
 import { HttpError, notFound, parse, parseId } from '../http.ts';
+import { journalFor } from '../journal.ts';
 import { defaultMinSlPips, parseTpl, setManualLines } from '../lines.ts';
 import { aggressiveContext, isAffected, newsStatus, refreshNews, upcomingRed, type NewsProvider } from '../news.ts';
 import { accountInfo, freshQuote, getAnalysis, loadCandles, ordersForAccount, refreshAnalysis, rowsFor } from '../service.ts';
@@ -31,7 +32,7 @@ function publicAccount(a: AccountDoc) {
 }
 
 function publicCommand(c: CommandDoc) {
-  const { _id, accountId, purgeAt: _purge, ...rest } = c;
+  const { _id, accountId, purgeAt: _purge, plans: _plans, ...rest } = c;
   return { id: _id.toHexString(), accountId: accountId.toHexString(), ...rest };
 }
 
@@ -276,6 +277,8 @@ export function webRoutes(db: Collections, news: NewsProvider | null): Router {
     const created: CommandDoc[] = [];
     for (const account of accounts) {
       const { rows } = await ordersForAccount(db, account, ctx);
+      const valid = rows.filter((r) => r.status === 'valid');
+      const analyses = new Map((await db.analyses.find({ _id: { $in: [...new Set(valid.map((r) => r.symbol))] } }).toArray()).map((a) => [a._id, a]));
       const now = new Date();
       await db.commands.updateMany({ accountId: account._id, status: 'pending' }, { $set: { status: 'superseded', finishedAt: now } });
       const command: CommandDoc = {
@@ -283,9 +286,7 @@ export function webRoutes(db: Collections, news: NewsProvider | null): Router {
         accountId: account._id,
         accountNumber: account.number,
         aggressive,
-        orders: rows
-          .filter((r) => r.status === 'valid')
-          .map((r) => ({
+        orders: valid.map((r) => ({
             ref: r.id,
             symbol: account.symbolMap[r.symbol] ?? r.symbol,
             side: r.side,
@@ -294,6 +295,26 @@ export function webRoutes(db: Collections, news: NewsProvider | null): Router {
             tp: r.tp!,
             lot: r.lot!,
           })),
+        plans: valid.map((r) => {
+          const a = analyses.get(r.symbol);
+          return {
+            ref: r.id,
+            aggressive,
+            line: r.line,
+            lineSource: a?.lines.find((l) => l.price === r.line)?.source ?? 'auto',
+            entry: r.entry!,
+            sl: r.sl!,
+            tp: r.tp!,
+            tpAuto: r.tpAuto,
+            ...(r.slFrom ? { slFrom: r.slFrom } : {}),
+            lot: r.lot!,
+            risk: r.risk,
+            rr: r.rr,
+            multiplier: r.multiplier,
+            atr: a?.atr ?? null,
+            newsAffected: ctx.mode === 'auto' && isAffected(r.symbol, ctx.affected),
+          };
+        }),
         status: 'pending',
         createdAt: now,
         expiresAt: new Date(now.getTime() + settings.commandTtlHours * HOUR),
@@ -311,6 +332,18 @@ export function webRoutes(db: Collections, news: NewsProvider | null): Router {
     await db.commands.updateMany({ status: 'pending', expiresAt: { $lt: new Date() } }, { $set: { status: 'expired' } });
     const commands = await db.commands.find(filter).sort({ createdAt: -1 }).limit(30).toArray();
     res.json({ commands: commands.map(publicCommand) });
+  });
+
+  // --- trade journal ---------------------------------------------------------
+  // Closed trades of one account in [from, to) with the audit; the web sends the month
+  // bounds in WIB.
+  router.get('/journal', async (req, res) => {
+    const q = parse(z.object({ accountId: z.string(), from: z.iso.datetime({ offset: true }), to: z.iso.datetime({ offset: true }) }), req.query);
+    const account = await findAccount(db, q.accountId);
+    const from = new Date(q.from);
+    const to = new Date(q.to);
+    if (!(to > from)) throw new HttpError(400, 'Periode tidak valid');
+    res.json({ currency: account.currency, ...(await journalFor(db, account._id, from, to)) });
   });
 
   // --- news ------------------------------------------------------------------

@@ -4,7 +4,8 @@
 //| the command of the logged-in account, deletes the app's pending  |
 //| orders (magic number) and places the new buy/sell stops. Open    |
 //| positions with the magic are reported so their levels are not    |
-//| placed again while they run.                                     |
+//| placed again while they run. Deals of those positions (fill, SL, |
+//| TP, closed by hand) are reported for the trade journal.          |
 //| Open positions and manual orders are never touched.              |
 //|                                                                  |
 //| DryRun is ON by default: it only logs what it would do and       |
@@ -19,7 +20,7 @@
 //| so switching accounts in this terminal needs no input changes.   |
 //+------------------------------------------------------------------+
 #property copyright "DavePaul77"
-#property version   "1.00"
+#property version   "1.10"
 
 #include <Trade/Trade.mqh>
 
@@ -30,6 +31,7 @@ input long   MagicNumber   = 77077;  // Magic number order aplikasi
 input int    PollSeconds   = 5;      // jeda ambil perintah
 input int    StatusSeconds = 60;     // jeda lapor balance dan spesifikasi simbol
 input int    TimeoutMs     = 30000;  // Render gratis bisa butuh 30-50 detik untuk bangun
+input int    DealDays      = 40;     // histori deal yang dibaca untuk jurnal (hari)
 
 CTrade   g_trade;
 string   g_url = "";
@@ -41,6 +43,7 @@ bool     g_warnedTrade = false;
 string   g_unsentPath = "";  // result that could not be delivered; retried before new work
 string   g_unsentBody = "";
 string   g_posSig = "";   // tickets of the app's open positions at the last status
+ulong    g_lastDeal = 0;  // highest deal ticket the server accepted (kept in a global variable)
 
 //+------------------------------------------------------------------+
 //| Config: inputs win over the ini file                             |
@@ -99,6 +102,7 @@ void OnTimer()
       g_lastStatus = 0;
       g_warnedConfig = false;
       g_warnedTrade = false;
+      g_lastDeal = GlobalVariableCheck(DealVar()) ? (ulong)GlobalVariableGet(DealVar()) : 0;
       Print("DavePaul77: akun ", login, ", server ", g_url);
      }
    if(StringLen(g_url) == 0 || StringLen(g_key) == 0)
@@ -130,6 +134,7 @@ void OnTimer()
          return;
       g_lastStatus = TimeLocal();
       g_posSig = sig;
+      SendDeals(); // a failure is retried at the next status, it never blocks commands
      }
 
    // a live command must not be taken when this terminal cannot trade: it would be lost
@@ -310,6 +315,111 @@ bool SendStatus()
                  + ",\"symbols\":{" + specs + "}"
                  + ",\"positions\":" + PositionsJson() + "}";
    return(Http("POST", "/api/ea/mt5/status", body, response) == 200);
+  }
+
+//+------------------------------------------------------------------+
+//| Trade journal: deals of positions opened by the app's orders.     |
+//| An exit deal (SL, TP, closed by hand) can carry another magic, so |
+//| a deal counts when any deal of its position has the app's magic.  |
+//| The server ignores deals it already has, so a resend is harmless. |
+//+------------------------------------------------------------------+
+string DealVar() { return("DavePaul77.deal." + IntegerToString(g_login)); }
+
+string DealEntry(const long entry)
+  {
+   if(entry == DEAL_ENTRY_IN)
+      return("in");
+   if(entry == DEAL_ENTRY_OUT)
+      return("out");
+   if(entry == DEAL_ENTRY_INOUT)
+      return("inout");
+   return("out_by");
+  }
+
+string DealReason(const long reason)
+  {
+   if(reason == DEAL_REASON_SL)
+      return("sl");
+   if(reason == DEAL_REASON_TP)
+      return("tp");
+   if(reason == DEAL_REASON_SO)
+      return("so");
+   if(reason == DEAL_REASON_EXPERT)
+      return("expert");
+   return("manual"); // client, mobile, web terminal
+  }
+
+void SendDeals()
+  {
+   datetime now = TimeCurrent();
+   if(!HistorySelect(now - (datetime)DealDays * 86400, now + 86400))
+      return;
+   int total = HistoryDealsTotal();
+   long ids[];
+   int nIds = 0;
+   for(int i = 0; i < total; i++)
+     {
+      ulong t = HistoryDealGetTicket(i);
+      if(t > 0 && HistoryDealGetInteger(t, DEAL_MAGIC) == MagicNumber)
+        {
+         ArrayResize(ids, nIds + 1);
+         ids[nIds++] = HistoryDealGetInteger(t, DEAL_POSITION_ID);
+        }
+     }
+   if(nIds == 0)
+      return;
+
+   string items = "";
+   int count = 0;
+   ulong maxTicket = g_lastDeal;
+   for(int i = 0; i < total && count < 100; i++) // the rest goes at the next status
+     {
+      ulong t = HistoryDealGetTicket(i);
+      if(t == 0 || t <= g_lastDeal)
+         continue;
+      long type = HistoryDealGetInteger(t, DEAL_TYPE);
+      if(type != DEAL_TYPE_BUY && type != DEAL_TYPE_SELL)
+         continue; // balance, credit, ...
+      long pid = HistoryDealGetInteger(t, DEAL_POSITION_ID);
+      bool app = false;
+      for(int k = 0; k < nIds && !app; k++)
+         app = ids[k] == pid;
+      if(!app)
+         continue;
+      string symbol = HistoryDealGetString(t, DEAL_SYMBOL);
+      int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+      if(StringLen(items) > 0)
+         items += ",";
+      items += "{\"ticket\":" + IntegerToString((long)t)
+               + ",\"order\":" + IntegerToString(HistoryDealGetInteger(t, DEAL_ORDER))
+               + ",\"position\":" + IntegerToString(pid)
+               + ",\"time\":" + IntegerToString(HistoryDealGetInteger(t, DEAL_TIME))
+               + ",\"symbol\":\"" + symbol + "\""
+               + ",\"side\":\"" + (type == DEAL_TYPE_BUY ? "buy" : "sell") + "\""
+               + ",\"entry\":\"" + DealEntry(HistoryDealGetInteger(t, DEAL_ENTRY)) + "\""
+               + ",\"reason\":\"" + DealReason(HistoryDealGetInteger(t, DEAL_REASON)) + "\""
+               + ",\"volume\":" + DoubleToString(HistoryDealGetDouble(t, DEAL_VOLUME), 2)
+               + ",\"price\":" + DoubleToString(HistoryDealGetDouble(t, DEAL_PRICE), digits)
+               + ",\"sl\":" + DoubleToString(HistoryDealGetDouble(t, DEAL_SL), digits)
+               + ",\"tp\":" + DoubleToString(HistoryDealGetDouble(t, DEAL_TP), digits)
+               + ",\"profit\":" + DoubleToString(HistoryDealGetDouble(t, DEAL_PROFIT), 2)
+               + ",\"commission\":" + DoubleToString(HistoryDealGetDouble(t, DEAL_COMMISSION), 2)
+               + ",\"swap\":" + DoubleToString(HistoryDealGetDouble(t, DEAL_SWAP), 2)
+               + ",\"fee\":" + DoubleToString(HistoryDealGetDouble(t, DEAL_FEE), 2)
+               + ",\"comment\":\"" + Escape(HistoryDealGetString(t, DEAL_COMMENT)) + "\"}";
+      count++;
+      if(t > maxTicket)
+         maxTicket = t;
+     }
+   if(count == 0)
+      return;
+   string body = "{\"account\":" + IntegerToString(g_login) + ",\"now\":" + IntegerToString((long)now) + ",\"deals\":[" + items + "]}";
+   string r;
+   if(Http("POST", "/api/ea/mt5/deals", body, r) != 200)
+      return;
+   g_lastDeal = maxTicket;
+   GlobalVariableSet(DealVar(), (double)maxTicket);
+   Print("DavePaul77: ", count, " deal dikirim ke jurnal");
   }
 
 //+------------------------------------------------------------------+

@@ -5,6 +5,7 @@ import { keyAccount, requireAccountKey, requireDataKey } from '../auth.ts';
 import type { Config } from '../config.ts';
 import { getSettings, type Collections } from '../db.ts';
 import { HttpError, notFound, parse, parseId } from '../http.ts';
+import { recordDeals, recordPlacements } from '../journal.ts';
 import { setManualLines } from '../lines.ts';
 import { refreshAnalysis } from '../service.ts';
 import { defaultDigits } from './web.ts';
@@ -69,6 +70,32 @@ const resultSchema = z.object({
     ticket: z.number().int().optional(),
     error: z.string().max(300).optional(),
   })).max(200),
+});
+
+// Deals of the app's positions for the trade journal. Times are broker server seconds;
+// `now` (TimeCurrent) gives the offset to UTC.
+const dealsSchema = z.object({
+  account: z.number().int().positive(),
+  now: z.number().int().positive(),
+  deals: z.array(z.object({
+    ticket: z.number().int().positive(),
+    order: z.number().int().min(0),
+    position: z.number().int().positive(),
+    time: z.number().int().positive(),
+    symbol: z.string().trim().min(1).max(30),
+    side: z.enum(['buy', 'sell']),
+    entry: z.enum(['in', 'out', 'inout', 'out_by']),
+    reason: z.enum(['sl', 'tp', 'so', 'expert', 'manual']),
+    volume: z.number().positive(),
+    price: price,
+    sl: z.number().min(0),
+    tp: z.number().min(0),
+    profit: z.number().finite(),
+    commission: z.number().finite(),
+    swap: z.number().finite(),
+    fee: z.number().finite().default(0),
+    comment: z.string().max(64).default(''),
+  })).min(1).max(200),
 });
 
 export function eaRoutes(db: Collections, config: Config): Router {
@@ -160,6 +187,16 @@ export function eaRoutes(db: Collections, config: Config): Router {
     res.json({ ok: true });
   });
 
+  router.post('/mt5/deals', accountKey, async (req, res) => {
+    const account = keyAccount(res);
+    const input = parse(dealsSchema, req.body);
+    if (input.account !== account.number) throw new HttpError(403, 'Key ini milik akun lain.');
+    const byBroker = new Map(Object.entries(account.symbolMap).map(([app, broker]) => [broker, app]));
+    const offsetMs = Math.round((input.now * 1000 - Date.now()) / 1_800_000) * 1_800_000;
+    const deals = input.deals.map((d) => ({ ...d, symbol: byBroker.get(d.symbol) ?? d.symbol, time: new Date(d.time * 1000 - offsetMs) }));
+    res.json(await recordDeals(db, account, deals));
+  });
+
   // Broker symbols whose specs the EA should report: the active pairs through the
   // account's symbol map.
   router.get('/mt5/symbols', accountKey, async (_req, res) => {
@@ -194,7 +231,9 @@ export function eaRoutes(db: Collections, config: Config): Router {
     if (!command) throw notFound('Perintah tidak ditemukan');
     if (command.status !== 'taken') throw new HttpError(409, `Perintah berstatus ${command.status}.`);
     const status = results.every((r) => r.ok) ? 'done' : 'failed';
-    await db.commands.updateOne({ _id: id }, { $set: { status, results, dryRun, deleted, finishedAt: new Date() } });
+    const finishedAt = new Date();
+    await db.commands.updateOne({ _id: id }, { $set: { status, results, dryRun, deleted, finishedAt } });
+    await recordPlacements(db, { ...command, status, results, dryRun, deleted, finishedAt });
     res.json({ ok: true, status });
   });
 

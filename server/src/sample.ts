@@ -114,6 +114,7 @@ export async function seedSample(db: Collections): Promise<void> {
     db.analyses.deleteMany({}),
     db.accounts.deleteMany({}),
     db.commands.deleteMany({}),
+    db.trades.deleteMany({}),
     db.news.deleteMany({}),
     db.settings.deleteMany({}),
   ]);

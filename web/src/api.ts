@@ -136,6 +136,85 @@ export type Command = {
   deleted?: number; // app pending orders removed by the EA (or that would be, in dry-run)
 };
 
+export type CloseReason = 'sl' | 'tp' | 'so' | 'expert' | 'manual';
+
+export type TradePlan = {
+  commandId: string;
+  placedAt: string;
+  aggressive: AggressiveMode;
+  line: number;
+  lineSource: 'manual' | 'auto';
+  entry: number;
+  sl: number;
+  tp: number;
+  tpAuto: boolean;
+  slFrom?: 'candle' | 'ladder';
+  lot: number;
+  risk: number | null;
+  rr: number | null;
+  multiplier: number;
+  atr: number | null;
+  newsAffected: boolean;
+};
+
+export type JournalTrade = {
+  id: string;
+  accountNumber: number;
+  ticket: number;
+  ref: string | null;
+  symbol: string;
+  side: Side;
+  status: 'placed' | 'cancelled' | 'open' | 'closed';
+  plan: TradePlan | null;
+  deals: number;
+  openedAt: string | null;
+  openPrice: number | null;
+  volume: number;
+  closedAt: string | null;
+  closePrice: number | null;
+  closeReason: CloseReason | null;
+  profit: number;
+  costs: number;
+  net: number;
+  r: number | null;
+};
+
+export type AuditStats = {
+  trades: number;
+  wins: number;
+  losses: number;
+  winRate: number | null;
+  net: number;
+  grossProfit: number;
+  grossLoss: number;
+  profitFactor: number | null;
+  avgWin: number | null;
+  avgLoss: number | null;
+  avgR: number | null;
+  totalR: number | null;
+};
+export type AuditGroup = AuditStats & { key: string };
+export type Finding = { level: 'warn' | 'info' | 'good'; text: string };
+
+export type Audit = {
+  stats: AuditStats;
+  maxDrawdown: number;
+  avgHoldHours: number | null;
+  avgSlipR: number | null;
+  bySymbol: AuditGroup[];
+  bySide: AuditGroup[];
+  byReason: AuditGroup[];
+  bySlFrom: AuditGroup[];
+  byMode: AuditGroup[];
+  byLineSource: AuditGroup[];
+  byRr: AuditGroup[];
+  fills: { placed: number; filled: number; cancelled: number; rate: number | null };
+  unplanned: number;
+  findings: Finding[];
+};
+
+export type Journal = { currency: string | null; audit: Audit; trades: JournalTrade[]; open: JournalTrade[] };
+
 export type Mt4Status = { lastSeenAt: string; brokerOffsetMinutes?: number } | null;
 
 export type CalibrationScore = { matched: number; total: number; error: number };
@@ -252,6 +331,7 @@ export const api = {
   execute: (accountIds: string[], aggressive: AggressiveMode) =>
     request<{ commands: Command[] }>('POST', '/execute', { accountIds, aggressive }),
   commands: () => request<{ commands: Command[] }>('GET', '/commands'),
+  journal: (accountId: string, from: string, to: string) => request<Journal>('GET', `/journal${q({ accountId, from, to })}`),
   news: () => request<NewsFeed>('GET', '/news'),
   refreshNews: () => request<NewsFeed>('POST', '/news/refresh'),
   settings: () => request<Settings>('GET', '/settings'),

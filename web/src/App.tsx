@@ -3,6 +3,7 @@ import { api, hasToken, setToken, UNAUTHORIZED, type Account, type Analysis, typ
 import { CalibrationModal } from './components/CalibrationModal.tsx';
 import { Chart } from './components/Chart.tsx';
 import { ExecuteModal } from './components/ExecuteModal.tsx';
+import { JournalModal } from './components/JournalModal.tsx';
 import { PendingModal } from './components/PendingModal.tsx';
 import { SettingsModal } from './components/SettingsModal.tsx';
 import { ago, fmtDate, fmtMoney, fmtNewsTime } from './format.ts';
@@ -76,7 +77,7 @@ function Login({ onDone }: { onDone: () => void }) {
   );
 }
 
-type ModalKind = 'pending' | 'execute' | 'settings' | 'calibration' | null;
+type ModalKind = 'pending' | 'execute' | 'settings' | 'calibration' | 'journal' | null;
 
 const MT4_STALE_MINUTES = 10;
 
@@ -229,6 +230,9 @@ function Main({ onLogout }: { onLogout: () => void }) {
           <button type="button" className="primary" onClick={() => setModal('execute')}>
             Execute
           </button>
+          <button type="button" onClick={() => setModal('journal')}>
+            Jurnal
+          </button>
           <button type="button" onClick={() => setModal('calibration')}>
             Kalibrasi
           </button>
@@ -306,6 +310,7 @@ function Main({ onLogout }: { onLogout: () => void }) {
         <ExecuteModal accounts={accounts} initialAccountId={accountId} aggressive={aggressive} onClose={() => setModal(null)} onChanged={refresh} />
       )}
       {modal === 'settings' && <SettingsModal onClose={() => setModal(null)} onChanged={refresh} />}
+      {modal === 'journal' && <JournalModal accounts={accounts} initialAccountId={accountId} onClose={() => setModal(null)} />}
       {modal === 'calibration' && <CalibrationModal symbols={symbols.map((s) => s.name)} onClose={() => setModal(null)} onChanged={refresh} />}
     </div>
   );

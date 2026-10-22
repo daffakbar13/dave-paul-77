@@ -84,11 +84,21 @@ Key.12345678=<key akun dari web>
 | `DryRun` | `true` sampai hasil di akun demo sesuai tabel; `false` untuk memasang order |
 | `MagicNumber` | penanda order aplikasi; hanya order dengan magic ini yang dihapus |
 | `PollSeconds` / `StatusSeconds` | ambil perintah tiap 5 detik, lapor balance dan spesifikasi tiap 60 detik |
+| `DealDays` | histori deal yang dibaca untuk jurnal (40 hari); saat pertama jalan deal dalam rentang ini ikut terkirim |
 
 **Posisi berjalan**: status juga memuat posisi terbuka ber-magic number (dikirim langsung saat ada order tersentuh atau
 posisi tutup). Server mencocokkan tiap posisi ke levelnya lewat komentar order (ID level), atau, jika broker mengubah
 komentar, lewat harga buka dalam 30% jarak entry ke SL (kebal slippage/spread). Level itu berstatus "Posisi berjalan",
 tetap tampil di chart (garis bertitik jarang, label "posisi #tiket") dan tidak dikirim ulang saat Execute.
+
+**Jurnal trade (v1.10)**: setiap status, EA membaca histori deal `DealDays` hari terakhir dan mengirim deal dari posisi
+yang dibuka order aplikasi (fill, SL, TP, stop out, tutup manual dari HP/terminal, termasuk partial close) ke
+`POST /api/ea/mt5/deals`. Tiket deal terakhir yang diterima server disimpan di global variable terminal
+`DavePaul77.deal.<login>` (F3), jadi deal tidak dikirim ulang; jika terkirim ulang pun server mengabaikannya. Server
+menautkan tiap posisi ke order yang dipasang (tiket order = ID posisi di MT5) beserta rencananya (garis, entry, SL, TP,
+risk, RR, sumber SL, Aggressive, berita). Hasilnya ada di tombol **Jurnal** di web: ringkasan per bulan (WIB), temuan
+otomatis, tabel per pair / alasan close / Aggressive / sumber SL / RR, dan Unduh CSV untuk audit bulanan.
+Hanya order yang dipasang LIVE yang tercatat; dry-run tidak menghasilkan tiket.
 
 **Pengaman**
 

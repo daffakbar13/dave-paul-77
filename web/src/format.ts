@@ -6,6 +6,11 @@ export const fmtDate = (ms: number) => dateFmt.format(new Date(ms)).replace('.',
 
 export const fmtWib = (iso: string) => `${timeFmt.format(new Date(iso)).replace('.', ':')} WIB`;
 
+const dateTimeFmt = new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta' });
+
+// "3 Nov 15:00" in WIB
+export const fmtWibDateTime = (iso: string | null) => (iso ? dateTimeFmt.format(new Date(iso)).replace('.', ':').replace(',', '') : '–');
+
 const dayFmt = new Intl.DateTimeFormat('id-ID', { weekday: 'short', timeZone: 'Asia/Jakarta' });
 const wibDay = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(d);
 

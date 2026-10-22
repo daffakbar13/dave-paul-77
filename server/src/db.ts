@@ -1,5 +1,6 @@
 import { MongoClient, type Collection, type Db, type ObjectId } from 'mongodb';
 import { DEFAULT_SR } from './analysis/sr.ts';
+import type { Deal, TradePlan, TradeState } from './analysis/journal.ts';
 import type { OpenPosition } from './analysis/positions.ts';
 import type { Candidate, Line, Side, SrParams, SymbolSpec } from './analysis/types.ts';
 
@@ -100,7 +101,25 @@ export type CommandDoc = {
   dryRun?: boolean;
   deleted?: number;
   results?: { ref: string; ok: boolean; ticket?: number; error?: string }[];
+  plans?: (Omit<TradePlan, 'commandId' | 'placedAt'> & { ref: string })[]; // audit context, not sent to the EA
   purgeAt: Date; // TTL
+};
+
+// Trade journal: one document per order the EA placed live (ticket = order ticket, which
+// MT5 also uses as the position id), filled in by the deals the EA reports. Positions of
+// the app's magic placed before the journal existed get a document without a plan.
+export type TradeDoc = TradeState & {
+  _id: ObjectId;
+  accountId: ObjectId;
+  accountNumber: number;
+  ticket: number;
+  ref: string | null; // level id
+  symbol: string; // app symbol
+  side: Side;
+  plan: TradePlan | null;
+  deals: Deal[];
+  createdAt: Date;
+  updatedAt: Date;
 };
 
 export type NewsDoc = { _id: ObjectId; at: Date; currency: string; impact: 'high' | 'medium' | 'low'; title: string };
@@ -140,6 +159,7 @@ export type Collections = {
   news: Collection<NewsDoc>;
   meta: Collection<MetaDoc>;
   manualOrders: Collection<ManualOrderDoc>;
+  trades: Collection<TradeDoc>;
 };
 
 export function collections(db: Db): Collections {
@@ -154,6 +174,7 @@ export function collections(db: Db): Collections {
     news: db.collection<NewsDoc>('news'),
     meta: db.collection<MetaDoc>('meta'),
     manualOrders: db.collection<ManualOrderDoc>('manual_orders'),
+    trades: db.collection<TradeDoc>('trades'),
   };
 }
 
@@ -166,6 +187,9 @@ export async function ensureIndexes(c: Collections): Promise<void> {
   await c.commands.createIndex({ purgeAt: 1 }, { expireAfterSeconds: 0 });
   await c.news.createIndex({ at: 1 });
   await c.manualOrders.createIndex({ symbol: 1, asOf: 1 });
+  await c.trades.createIndex({ accountId: 1, ticket: 1 }, { unique: true });
+  await c.trades.createIndex({ accountId: 1, closedAt: 1 });
+  await c.trades.createIndex({ accountId: 1, 'plan.placedAt': 1 });
 }
 
 export async function getSettings(c: Collections): Promise<Settings> {

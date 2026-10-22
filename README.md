@@ -68,6 +68,18 @@ hapus pending order ber-magic number lalu pasang yang baru, lapor hasil per orde
 terlihat di Pending Orders > Perintah ke MT5 (status, dry-run, berhasil/gagal, order lama yang dihapus).
 Urutan uji: dry-run (selesai) → akun demo live → live.
 
+## Jurnal trade dan audit bulanan
+
+EA eksekutor v1.10 melapor deal posisi ber-magic number (fill, SL, TP, stop out, tutup manual, partial close). Server
+menyimpan satu dokumen per order live (`trades`, tiket order = ID posisi) dengan salinan rencananya saat Execute (garis
+manual/otomatis, entry, SL, TP, lot, risk, RR, sumber SL, multiplier Aggressive, berita), jadi tetap utuh setelah
+perintah dihapus 30 hari. Order yang diganti Execute berikutnya sebelum ter-fill berstatus dibatalkan.
+
+Tombol **Jurnal**: per akun dan bulan (trade dihitung di bulan close-nya, WIB) — trade, win rate, net, profit factor,
+rata-rata R (net / risk rencana), max drawdown, fill rate per level, slippage fill terhadap entry rencana dalam R, temuan
+otomatis, rincian per pair / alasan close / Normal-Aggressive / sumber SL / RR / garis / arah, tabel trade, posisi
+terbuka, dan Unduh CSV (bahan audit bulanan).
+
 ## Model order tangga dan garis manual (22 Okt 2026)
 
 Dianalisa dari history MT5 akun 12345678 (4.622 pending order, September 2026) terhadap garis S/R yang digambar user
