@@ -146,25 +146,25 @@ export function planOthers(cal: Calendar, log: SentLog, now: number, pairs: stri
 }
 
 // --- Daily Outlook ----------------------------------------------------------
-// 05:00 WIB every day but Saturday (Sunday's covers Monday morning), for the 24 hours
-// from 05:00. Runs until 08:00 retry a failed send.
+// 05:00 WIB every day, weekends included, listing every impact for the 24 hours from
+// 05:00. Runs until 08:00 retry a failed send.
 export function planDigest(cal: Calendar, log: SentLog, now: number): Outgoing | null {
   const d = wib(now);
   const date = wibDate(now);
-  if (d.getUTCDay() === 6 || d.getUTCHours() < DIGEST_HOUR || d.getUTCHours() >= DIGEST_LATEST_HOUR) return null;
+  if (d.getUTCHours() < DIGEST_HOUR || d.getUTCHours() >= DIGEST_LATEST_HOUR) return null;
   if (log.digests.includes(date)) return null;
   const start = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), DIGEST_HOUR) - WIB;
   const end = start + 24 * HOUR;
-  const items = cal.items.filter((n) => n.impact === 'high' && Date.parse(n.at) >= start && Date.parse(n.at) < end);
+  const items = cal.items.filter((n) => Date.parse(n.at) >= start && Date.parse(n.at) < end);
 
-  const lines = [`📅 <b>Daily Outlook · ${fmtDay(now)}</b>`, `High impact 05:00 WIB s.d. besok 05:00 WIB`, ''];
-  if (!items.length) lines.push('Tidak ada berita high impact.');
+  const lines = [`📅 <b>Daily Outlook · ${fmtDay(now)}</b>`, `Semua berita 05:00 WIB s.d. besok 05:00 WIB`, ''];
+  if (!items.length) lines.push('Tidak ada berita.');
   let day = '';
   for (const n of items) {
     const at = Date.parse(n.at);
     if (fmtDay(at) !== day && wibDate(at) !== date) lines.push(`<i>${fmtDay(at)}</i>`);
     day = fmtDay(at);
-    lines.push(`${fmtTime(at)} · ${n.currency} · ${escape(n.title)}`);
+    lines.push(`${fmtTime(at)} · ${IMPACT_ICON[n.impact]} ${n.currency} · ${escape(n.title)}`);
   }
   if (isStale(cal, now)) lines.push('', `⚠️ ${staleNote(cal, now)}`);
   return {

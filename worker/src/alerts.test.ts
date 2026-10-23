@@ -120,18 +120,19 @@ describe('planDigest', () => {
     item(Date.parse('2026-10-23T22:00:00Z'), 'JPY', 'After window'), // Sat 05:00 WIB
   ];
 
-  it('lists high impact news from 05:00 WIB for 24 hours, once', () => {
+  it('lists news of every impact from 05:00 WIB for 24 hours, once', () => {
     const log = fresh();
     const d = planDigest(cal(items), log, fivePastFive);
     assert.equal(
       d!.text,
       [
         '📅 <b>Daily Outlook · Jum, 23 Okt</b>',
-        'High impact 05:00 WIB s.d. besok 05:00 WIB',
+        'Semua berita 05:00 WIB s.d. besok 05:00 WIB',
         '',
-        '19:30 · USD · Non-Farm Employment Change',
+        '19:30 · 🔴 USD · Non-Farm Employment Change',
+        '19:30 · 🟠 EUR · CPI',
         '<i>Sab, 24 Okt</i>',
-        '01:00 · NZD · GDP q/q',
+        '01:00 · 🔴 NZD · GDP q/q',
       ].join('\n'),
     );
     d!.mark(log);
@@ -144,10 +145,11 @@ describe('planDigest', () => {
     assert.equal(planDigest(cal(items), fresh(), Date.parse('2026-10-23T01:00:00Z')), null); // 08:00
   });
 
-  it('skips Saturday, sends Sunday', () => {
-    assert.equal(planDigest(cal([]), fresh(), Date.parse('2026-10-23T22:05:00Z')), null); // Sat 05:05 WIB
+  it('sends on weekends too', () => {
+    const sat = planDigest(cal([]), fresh(), Date.parse('2026-10-23T22:05:00Z')); // Sat 05:05 WIB
+    assert.match(sat!.text, /Sab, 24 Okt[\s\S]*Tidak ada berita\./);
     const sun = planDigest(cal([]), fresh(), Date.parse('2026-10-24T22:05:00Z'));
-    assert.match(sun!.text, /Min, 25 Okt[\s\S]*Tidak ada berita high impact\./);
+    assert.match(sun!.text, /Min, 25 Okt[\s\S]*Tidak ada berita\./);
   });
 });
 

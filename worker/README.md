@@ -10,8 +10,8 @@ Cloudflare Worker gratis yang jalan **setiap 5 menit**, tanpa laptop dan tanpa R
 - **Other News** (topik sendiri, opsional): berita *medium* 🟠 dan *low* 🟡 semua mata uang, sekali 30 menit
   sebelum rilis, digabung per jam rilis. Berita merah tetap hanya di News Alert. Tidak dikirim sebelum
   `TOPIC_OTHER_NEWS` diisi.
-- **Daily Outlook** (topik lain): 05:00 WIB, semua berita high impact 05:00 s.d. besok 05:00 WIB. Tidak dikirim hari
-  Sabtu (Minggu meliputi Senin pagi). Jika 05:00 gagal, dicoba lagi sampai 08:00.
+- **Daily Outlook** (topik lain): 05:00 WIB setiap hari termasuk Sabtu dan Minggu, semua berita (🔴 high, 🟠 medium,
+  🟡 low) 05:00 s.d. besok 05:00 WIB. Jika 05:00 gagal, dicoba lagi sampai 08:00.
 - Peringatan sekali di News Alert jika kalender gagal diperbarui lebih dari 12 jam, dan pesan saat kembali normal.
 - `GET /calendar`: salinan kalender untuk server Render (`NEWS_SOURCE=worker`), jadi Render tidak pernah memanggil
   ForexFactory sendiri.
