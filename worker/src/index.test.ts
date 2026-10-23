@@ -59,6 +59,25 @@ describe('run', () => {
     assert.match(String(telegram[1]!.text), /30 menit lagi/);
   });
 
+  it('sends medium/low news to its own topic only when TOPIC_OTHER_NEWS is set', async () => {
+    const telegram: Record<string, unknown>[] = [];
+    const fetcher = (async (url: string, init?: RequestInit) => {
+      if (url.includes('faireconomy')) return new Response(JSON.stringify(feed));
+      telegram.push(JSON.parse(String(init?.body)));
+      return Response.json({ ok: true });
+    }) as typeof fetch;
+    const at = now + 7 * H + 30 * 60_000;
+    const base = { TELEGRAM_BOT_TOKEN: 't', TELEGRAM_CHAT_ID: '-100', TOPIC_NEWS_ALERT: '7' };
+
+    await run({ ...base, NEWS: fakeKv().kv } as unknown as Env, at - 30 * 60_000, fetcher);
+    assert.deepEqual(telegram.map((t) => t.message_thread_id), [7]); // NFP 30m only
+
+    telegram.length = 0;
+    await run({ ...base, NEWS: fakeKv().kv, TOPIC_OTHER_NEWS: '9' } as unknown as Env, at - 30 * 60_000, fetcher);
+    assert.deepEqual(telegram.map((t) => t.message_thread_id), [7, 9]);
+    assert.match(String(telegram[1]!.text), /🟠 CAD · Retail Sales/);
+  });
+
   it('a failed send is retried on the next run', async () => {
     const { kv } = fakeKv();
     let fail = true;

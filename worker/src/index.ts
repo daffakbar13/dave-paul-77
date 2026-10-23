@@ -1,8 +1,8 @@
 // DavePaul77 news worker: every 5 minutes it keeps the ForexFactory calendar fresh in KV,
-// posts high-impact alerts and the 05:00 WIB Daily Outlook to the Telegram group, and
+// posts high-impact alerts, medium/low heads-ups (own topic) and the 05:00 WIB Daily Outlook to the Telegram group, and
 // serves the kept calendar at GET /calendar for the Render server (NEWS_SOURCE=worker).
 import { EMPTY_CALENDAR, needsRefresh, refreshCalendar, type Calendar } from './calendar.ts';
-import { EMPTY_LOG, parsePairs, planAlerts, planDigest, planHealth, pruneLog, type Outgoing, type SentLog } from './alerts.ts';
+import { EMPTY_LOG, parsePairs, planAlerts, planDigest, planOthers, planHealth, pruneLog, type Outgoing, type SentLog } from './alerts.ts';
 import { sendMessage } from './telegram.ts';
 
 export type Env = {
@@ -11,6 +11,7 @@ export type Env = {
   TELEGRAM_CHAT_ID: string;
   TOPIC_NEWS_ALERT?: string;
   TOPIC_DAILY_OUTLOOK?: string;
+  TOPIC_OTHER_NEWS?: string; // medium/low impact; not sent until set
   PAIRS?: string;
 };
 
@@ -34,11 +35,12 @@ export async function run(env: Env, now: number, fetcher: typeof fetch = fetch):
   const health = planHealth(cal, log, now);
   if (health) out.push(health);
   out.push(...planAlerts(cal, log, now, parsePairs(env.PAIRS)));
+  if (env.TOPIC_OTHER_NEWS) out.push(...planOthers(cal, log, now, parsePairs(env.PAIRS)));
   const digest = planDigest(cal, log, now);
   if (digest) out.push(digest);
 
   for (const o of out) {
-    const threadId = o.topic === 'alert' ? env.TOPIC_NEWS_ALERT : env.TOPIC_DAILY_OUTLOOK;
+    const threadId = { alert: env.TOPIC_NEWS_ALERT, other: env.TOPIC_OTHER_NEWS, digest: env.TOPIC_DAILY_OUTLOOK }[o.topic];
     try {
       await sendMessage({ token: env.TELEGRAM_BOT_TOKEN, chatId: env.TELEGRAM_CHAT_ID, threadId }, o.text, fetcher);
       o.mark(log);

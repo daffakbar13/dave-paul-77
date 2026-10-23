@@ -26,7 +26,7 @@ export type SentLog = {
 
 export const EMPTY_LOG: SentLog = { events: {}, digests: [], staleWarned: null };
 
-export type Topic = 'alert' | 'digest';
+export type Topic = 'alert' | 'other' | 'digest';
 export type Outgoing = { topic: Topic; text: string; mark: (log: SentLog) => void };
 
 // Currency + title + time: a rescheduled event is a new event and starts over.
@@ -110,6 +110,39 @@ export function planAlerts(cal: Calendar, log: SentLog, now: number, pairs: stri
         for (const n of items) l.events[eventKey(n)] = [...new Set([...(l.events[eventKey(n)] ?? []), ...done])];
       },
     }));
+}
+
+// --- Other News -------------------------------------------------------------
+// Medium and low impact (red stays in News Alert): one heads-up 30 minutes before each
+// release time, kept in `events` like a high-impact event's 30m stage.
+const OTHER_BEFORE = 30 * MINUTE;
+const IMPACT_ICON = { high: '🔴', medium: '🟠', low: '🟡' } as const;
+
+export function planOthers(cal: Calendar, log: SentLog, now: number, pairs: string[]): Outgoing[] {
+  const groups = new Map<number, NewsItem[]>();
+  for (const n of cal.items) {
+    if (n.impact === 'high') continue;
+    const at = Date.parse(n.at);
+    if (at <= now || at - now > OTHER_BEFORE || log.events[eventKey(n)]?.includes('30m')) continue;
+    groups.set(at, [...(groups.get(at) ?? []), n]);
+  }
+  return [...groups.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([at, items]) => {
+      const remaining = at - now;
+      const label = remaining > OTHER_BEFORE - 10 * MINUTE ? '30 menit lagi' : `${fmtRemaining(remaining)} lagi`;
+      const lines = [`🔔 <b>News · ${label}</b>`, `${fmtDay(at)} · ${fmtTime(at)} WIB`];
+      for (const n of items) lines.push(`• ${IMPACT_ICON[n.impact]} ${n.currency} · ${escape(n.title)}`);
+      const affected = pairsFor([...new Set(items.map((n) => n.currency))], pairs);
+      if (affected.length) lines.push(`Pair: ${affected.join(', ')}`);
+      return {
+        topic: 'other' as const,
+        text: lines.join('\n'),
+        mark: (l: SentLog) => {
+          for (const n of items) l.events[eventKey(n)] = ['30m'];
+        },
+      };
+    });
 }
 
 // --- Daily Outlook ----------------------------------------------------------

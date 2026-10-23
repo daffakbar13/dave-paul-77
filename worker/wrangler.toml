@@ -3,6 +3,7 @@
 #   npx wrangler secret put TELEGRAM_CHAT_ID
 #   npx wrangler secret put TOPIC_NEWS_ALERT
 #   npx wrangler secret put TOPIC_DAILY_OUTLOOK
+#   npx wrangler secret put TOPIC_OTHER_NEWS   (medium/low impact; optional)
 name = "dave-paul-77-news"
 main = "src/index.ts"
 compatibility_date = "2026-10-01"

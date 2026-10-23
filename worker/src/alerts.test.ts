@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { Calendar, NewsItem } from './calendar.ts';
-import { EMPTY_LOG, eventKey, planAlerts, planDigest, planHealth, pruneLog, type SentLog } from './alerts.ts';
+import { EMPTY_LOG, eventKey, planAlerts, planDigest, planHealth, planOthers, pruneLog, type SentLog } from './alerts.ts';
 
 const H = 3_600_000;
 const M = 60_000;
@@ -84,6 +84,29 @@ describe('planAlerts', () => {
   it('escapes HTML in titles', () => {
     const [o] = planAlerts(cal([item(NOW + H, 'USD', 'S&P <Global> PMI')]), fresh(), NOW, PAIRS);
     assert.match(o!.text, /S&amp;P &lt;Global&gt; PMI/);
+  });
+});
+
+describe('planOthers', () => {
+  it('sends medium and low news once, 30 minutes before, grouped by time; never high', () => {
+    const at = NOW + 2 * H;
+    const c = cal([item(at, 'EUR', 'CPI', 'medium'), item(at, 'GBP', 'PMI', 'low'), item(at, 'USD', 'NFP'), item(at + H, 'JPY', 'BoJ', 'low')]);
+    const log = fresh();
+    assert.equal(planOthers(c, log, at - 35 * M, PAIRS).length, 0);
+    const out = planOthers(c, log, at - 30 * M, PAIRS);
+    assert.equal(out.length, 1);
+    assert.equal(
+      out[0]!.text,
+      ['🔔 <b>News · 30 menit lagi</b>', 'Jum, 23 Okt · 14:00 WIB', '• 🟠 EUR · CPI', '• 🟡 GBP · PMI', 'Pair: EURUSD, EURGBP'].join('\n'),
+    );
+    out[0]!.mark(log);
+    assert.equal(planOthers(c, log, at - 25 * M, PAIRS).length, 0);
+    assert.equal(planOthers(c, log, at, PAIRS).length, 0); // released
+  });
+
+  it('a late first sight shows the real time left', () => {
+    const [o] = planOthers(cal([item(NOW + 12 * M, 'CAD', 'Retail Sales', 'medium')]), fresh(), NOW, PAIRS);
+    assert.match(o!.text, /News · 12 menit lagi/);
   });
 });
 
