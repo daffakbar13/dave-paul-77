@@ -6,7 +6,7 @@ import { Modal } from './Modal.tsx';
 type Props = { pairs: string[]; onClose: () => void; onChanged: () => void };
 
 type ImpactFilter = 'high' | 'medium' | 'all';
-const FILTER_KEY = 'dp77-news-filter';
+const FILTER_KEY = 'dp77-news-filter-v2'; // v2: default changed to every impact
 
 const IMPACT_LABEL: Record<string, string> = { high: 'Merah', medium: 'Oranye', low: 'Kuning' };
 const RANK: Record<string, number> = { high: 3, medium: 2, low: 1 };
@@ -18,9 +18,9 @@ const wibDay = (ms: number) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asi
 function loadFilter(): { impact: ImpactFilter; mine: boolean } {
   try {
     const v = JSON.parse(localStorage.getItem(FILTER_KEY) ?? '{}');
-    return { impact: v.impact === 'medium' || v.impact === 'all' ? v.impact : 'high', mine: v.mine !== false };
+    return { impact: v.impact === 'high' || v.impact === 'medium' ? v.impact : 'all', mine: v.mine !== false };
   } catch {
-    return { impact: 'high', mine: true };
+    return { impact: 'all', mine: true };
   }
 }
 
