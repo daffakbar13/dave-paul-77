@@ -6,7 +6,7 @@ import { getSettings, type AccountDoc, type AnalysisDoc, type CommandDoc, type C
 import { HttpError, notFound, parse, parseId } from '../http.ts';
 import { journalFor } from '../journal.ts';
 import { defaultMinSlPips, parseTpl, setManualLines } from '../lines.ts';
-import { aggressiveContext, isAffected, newsStatus, refreshNews, upcomingRed, type NewsProvider } from '../news.ts';
+import { aggressiveContext, isAffected, newsStatus, refreshNews, upcomingAll, upcomingRed, type NewsProvider } from '../news.ts';
 import { accountInfo, freshQuote, getAnalysis, loadCandles, ordersForAccount, refreshAnalysis, rowsFor } from '../service.ts';
 
 const HOUR = 3_600_000;
@@ -376,6 +376,13 @@ export function webRoutes(db: Collections, news: NewsProvider | null): Router {
   router.post('/news/refresh', async (_req, res) => {
     await refreshNews(db, news, true);
     res.json(await newsPayload());
+  });
+
+  // The whole calendar ahead, every impact; the web app filters by impact and pair.
+  router.get('/news/upcoming', async (_req, res) => {
+    await refreshNews(db, news);
+    const items = await upcomingAll(db);
+    res.json({ news: items.map(({ _id, ...n }) => ({ id: _id.toHexString(), ...n })), status: await newsStatus(db) });
   });
 
   // --- settings --------------------------------------------------------------

@@ -193,6 +193,15 @@ export async function upcomingRed(db: Collections, settings: Settings): Promise<
     .toArray();
 }
 
+// Every stored item (any impact) from one hour ago on: the calendar list in the web app.
+// The feed only covers the current week, so this ends at that week's last item.
+export async function upcomingAll(db: Collections): Promise<NewsDoc[]> {
+  return db.news
+    .find({ at: { $gte: new Date(Date.now() - HOUR) } })
+    .sort({ at: 1, currency: 1 })
+    .toArray();
+}
+
 // --- Aggressive -------------------------------------------------------------
 // auto: on for pairs whose currency has red news ahead in the window, for accounts with
 //       aggressiveAuto; on: every pair, every account; off: switched off for the session.

@@ -4,6 +4,7 @@ import { CalibrationModal } from './components/CalibrationModal.tsx';
 import { Chart } from './components/Chart.tsx';
 import { ExecuteModal } from './components/ExecuteModal.tsx';
 import { JournalModal } from './components/JournalModal.tsx';
+import { NewsModal } from './components/NewsModal.tsx';
 import { PendingModal } from './components/PendingModal.tsx';
 import { SettingsModal } from './components/SettingsModal.tsx';
 import { ago, fmtDate, fmtMoney, fmtNewsTime } from './format.ts';
@@ -77,7 +78,7 @@ function Login({ onDone }: { onDone: () => void }) {
   );
 }
 
-type ModalKind = 'pending' | 'execute' | 'settings' | 'calibration' | 'journal' | null;
+type ModalKind = 'pending' | 'execute' | 'settings' | 'calibration' | 'journal' | 'news' | null;
 
 const MT4_STALE_MINUTES = 10;
 
@@ -224,6 +225,9 @@ function Main({ onLogout }: { onLogout: () => void }) {
           >
             {aggrLabel}
           </button>
+          <button type="button" onClick={() => setModal('news')}>
+            Berita
+          </button>
           <button type="button" onClick={() => setModal('pending')}>
             Pending Orders
           </button>
@@ -253,6 +257,9 @@ function Main({ onLogout }: { onLogout: () => void }) {
             </span>
           ))}
           {feed.news.length > 0 && <span className="news-note">{newsNote}</span>}
+          <button type="button" className="news-more" onClick={() => setModal('news')}>
+            Semua berita
+          </button>
           {feed.status.error && <span className="error">Kalender gagal diambil ({feed.status.error}); data terakhir dipakai.</span>}
         </div>
       )}
@@ -311,6 +318,7 @@ function Main({ onLogout }: { onLogout: () => void }) {
       )}
       {modal === 'settings' && <SettingsModal onClose={() => setModal(null)} onChanged={refresh} />}
       {modal === 'journal' && <JournalModal accounts={accounts} initialAccountId={accountId} onClose={() => setModal(null)} />}
+      {modal === 'news' && <NewsModal pairs={symbols.map((s) => s.name)} onClose={() => setModal(null)} onChanged={refresh} />}
       {modal === 'calibration' && <CalibrationModal symbols={symbols.map((s) => s.name)} onClose={() => setModal(null)} onChanged={refresh} />}
     </div>
   );

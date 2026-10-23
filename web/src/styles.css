@@ -164,6 +164,7 @@ textarea {
   display: flex;
   flex-direction: column;
   height: 100%;
+  height: 100dvh; /* mobile browsers: the visible area, not behind the URL bar */
 }
 
 .toolbar {
@@ -621,12 +622,82 @@ table.orders {
   word-break: break-all;
 }
 
+/* Phone: look, don't operate. The toolbar becomes one swipeable row, modals fill the
+   screen, and the news banner is a single swipeable line led by its button. */
 @media (max-width: 640px) {
+  .toolbar {
+    padding: 6px 8px;
+    gap: 6px;
+  }
+  .acct {
+    width: 100%;
+    font-size: 12px;
+  }
+  .tool-actions {
+    width: calc(100% + 16px);
+    margin: 0 -8px;
+    padding: 0 8px 2px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
   .tool-actions button {
     padding: 6px 8px;
   }
+  .news {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    white-space: nowrap;
+    padding: 6px 8px;
+    gap: 12px;
+    scrollbar-width: none;
+  }
+  .news .news-more {
+    order: -1;
+  }
+  .stage {
+    min-height: 260px;
+  }
   .chart-labels {
     right: 56px;
+  }
+  .chart-label .invalid-text {
+    max-width: 120px;
+  }
+  .chart-tools {
+    padding: 6px 8px;
+    font-size: 11px;
+  }
+  .tabs button {
+    flex: none;
+    min-width: 0;
+    padding: 10px 12px;
+  }
+  .modal,
+  .modal.wide {
+    width: 100vw;
+    max-width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    margin: 0;
+    border-radius: 0;
+    border: none;
+  }
+  .modal-head,
+  .modal-body,
+  .modal-foot {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .table-scroll {
+    max-height: none;
+  }
+  .pairs li {
+    display: flex;
+    flex-wrap: wrap;
+  }
+  .foot-notes {
+    min-width: 0;
   }
 }
 
@@ -674,6 +745,65 @@ table.orders {
 button.aggr-off {
   color: var(--muted);
   border-style: dashed;
+}
+.news .news-more {
+  padding: 1px 8px;
+  border-color: var(--aggr);
+  color: var(--aggr);
+}
+
+/* calendar list: time, impact dot, currency, title, countdown */
+.news-day h3 {
+  position: sticky;
+  top: -12px;
+  margin: 0;
+  padding: 10px 0 6px;
+  background: var(--panel);
+  z-index: 1;
+}
+.news-list {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+}
+.news-list li {
+  display: grid;
+  grid-template-columns: 40px 10px 34px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: baseline;
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+}
+.news-list li.past {
+  opacity: 0.5;
+}
+.news-until {
+  font-size: 12px;
+  white-space: nowrap;
+}
+.impact {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  align-self: center;
+}
+.impact-high {
+  background: var(--sltp);
+}
+.impact-medium {
+  background: var(--aggr);
+}
+.impact-low {
+  background: var(--sr);
+}
+@media (max-width: 640px) {
+  .news-list li {
+    grid-template-columns: 40px 10px 34px minmax(0, 1fr);
+    row-gap: 2px;
+  }
+  .news-until {
+    grid-column: 4;
+  }
 }
 .tabs .news-mark {
   margin-left: 4px;

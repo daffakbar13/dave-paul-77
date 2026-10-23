@@ -344,6 +344,7 @@ export const api = {
   journal: (accountId: string, from: string, to: string) => request<Journal>('GET', `/journal${q({ accountId, from, to })}`),
   news: () => request<NewsFeed>('GET', '/news'),
   refreshNews: () => request<NewsFeed>('POST', '/news/refresh'),
+  upcomingNews: () => request<{ news: News[]; status: NewsFeed['status'] }>('GET', '/news/upcoming'),
   settings: () => request<Settings>('GET', '/settings'),
   saveSettings: (patch: Partial<Omit<Settings, 'version'>>) => request<Settings>('PUT', '/settings', patch),
   accounts: () => request<{ accounts: Account[] }>('GET', '/accounts'),
