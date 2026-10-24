@@ -2,13 +2,13 @@ import { AreaSeries, ColorType, createChart, PriceScaleMode, type UTCTimestamp }
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api.ts';
 import type { WorkerIn, WorkerOut } from '../backtest.worker.ts';
-import type { BacktestRun, Coverage } from '../engine/backtest.ts';
+import { withoutPairs, type BacktestRun, type Coverage } from '../engine/backtest.ts';
 import { equityCurve, monthTable, overall, pairStats, thin, tradesCsv, type MonthTable, type Overall, type PairGrade, type PairStats, type Streak } from '../engine/backtestStats.ts';
 import { fmtMoney } from '../format.ts';
 import { Modal } from './Modal.tsx';
 
 type Props = { onClose: () => void };
-type PairRow = PairStats & { tier: Coverage['tier']; years: number; gapDays: number };
+type PairRow = PairStats & { tier: Coverage['tier']; years: number; gapDays: number; active: boolean };
 type Tab = 'overall' | 'month' | 'growth' | 'pairs';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
@@ -19,6 +19,44 @@ const num = (v: number | null | undefined, d = 1) => (v === null || v === undefi
 const pct = (v: number | null | undefined, d = 2) => (v === null || v === undefined ? '–' : `${num(v, d)}%`);
 const sign = (v: number | null | undefined) => (v === null || v === undefined || v === 0 ? '' : v > 0 ? 'ok' : 'error');
 const fmtYears = (y: number) => (y >= 1 ? `${num(y, 1)} tahun` : `${Math.round(y * 12)} bulan`);
+
+const EXCLUDED_KEY = 'dp77.backtest.excluded';
+type SavedExcluded = { all: string; excluded: string[] };
+function readExcluded(): SavedExcluded {
+  try {
+    const v = JSON.parse(localStorage.getItem(EXCLUDED_KEY) ?? 'null') as SavedExcluded | null;
+    if (v && typeof v.all === 'string' && Array.isArray(v.excluded)) return v;
+  } catch {
+    /* storage blocked or corrupt: start with every pair */
+  }
+  return { all: '', excluded: [] };
+}
+function writeExcluded(v: SavedExcluded) {
+  try {
+    localStorage.setItem(EXCLUDED_KEY, JSON.stringify(v));
+  } catch {
+    /* the choice just does not survive a reload */
+  }
+}
+
+const WORST_COUNT = 4;
+
+const ymd = (d: Date) => d.toISOString().slice(0, 10);
+const lastYears = (n: number): [string, string] => {
+  const d = new Date();
+  d.setUTCFullYear(d.getUTCFullYear() - n);
+  return [ymd(d), ''];
+};
+const RANGES: { label: string; range: () => [string, string] }[] = [
+  { label: 'Semua data', range: () => ['', ''] },
+  { label: '1 th terakhir', range: () => lastYears(1) },
+  { label: '3 th', range: () => lastYears(3) },
+  { label: '5 th', range: () => lastYears(5) },
+  { label: '10 th', range: () => lastYears(10) },
+  { label: '2010–14', range: () => ['2010-01-01', '2014-12-31'] },
+  { label: '2015–19', range: () => ['2015-01-01', '2019-12-31'] },
+  { label: '2020–kini', range: () => ['2020-01-01', ''] },
+];
 
 function holding(days: number | null): string {
   if (days === null) return '–';
@@ -203,9 +241,50 @@ function GrowthChart({ curve, scope }: { curve: { t: number; balance: number }[]
   );
 }
 
+function CompareBox({ all, live, off }: { all: Overall; live: Overall; off: string[] }) {
+  const R = (v: number | null) => (v === null ? '–' : `${v >= 0 ? '+' : ''}${num(v, 2)}R`);
+  const rows: [string, string, string][] = [
+    ['Total profit', fmtMoney(all.profit), fmtMoney(live.profit)],
+    ['Expectancy', R(all.expectancyR), R(live.expectancyR)],
+    ['Profit factor (pips)', all.profitFactor === null ? '–' : num(all.profitFactor, 2), live.profitFactor === null ? '–' : num(live.profitFactor, 2)],
+    ['Max drawdown', pct(all.maxDrawdownPct), pct(live.maxDrawdownPct)],
+    ['Kalah beruntun', String(all.consecutiveLoss.byTrade.count), String(live.consecutiveLoss.byTrade.count)],
+    ['Total trade', String(all.trades), String(live.trades)],
+    ['Posisi bersamaan maks', String(all.peakOpen), String(live.peakOpen)],
+  ];
+  return (
+    <div className="compare">
+      <p className="muted">
+        Mengecualikan: <b>{off.join(', ')}</b>. Balance dan ukuran risiko dihitung ulang tanpa pair itu.
+      </p>
+      <table className="orders tabular">
+        <thead>
+          <tr>
+            <th />
+            <th className="num">Semua pair</th>
+            <th className="num">Pair aktif</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(([k, a, b]) => (
+            <tr key={k}>
+              <td>{k}</td>
+              <td className="num">{a}</td>
+              <td className="num">
+                <b>{b}</b>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 type SortKey = 'symbol' | 'trades' | 'winRate' | 'profitFactor' | 'expectancyR' | 'pips' | 'profit' | 'maxDrawdownR' | 'maxLossStreak' | 'perYear';
 
-function PairsView({ pairs, onPick }: { pairs: PairRow[]; onPick: (symbol: string) => void }) {
+function PairsView({ pairs, worst, onPick, onToggle, onSet }: { pairs: PairRow[]; worst: string[]; onPick: (symbol: string) => void; onToggle: (symbol: string) => void; onSet: (off: string[]) => void }) {
+  const activeCount = pairs.filter((p) => p.active).length;
   const [key, setKey] = useState<SortKey>('expectancyR');
   const [desc, setDesc] = useState(true);
   const rows = useMemo(() => {
@@ -238,12 +317,25 @@ function PairsView({ pairs, onPick }: { pairs: PairRow[]; onPick: (symbol: strin
   return (
     <>
       <p className="muted">
-        Kualitas tiap pair dari hasil run yang sama. Nilai: Bagus = expectancy ≥ 0,15R dan profit factor ≥ 1,3; Cukup = positif; Lemah = rugi; di bawah 30 trade tidak dinilai. Klik pair untuk lihat ringkasannya.
+        Kualitas tiap pair dari hasil run yang sama. Nilai: Bagus = expectancy ≥ 0,15R dan profit factor ≥ 1,3; Cukup = positif; Lemah = rugi; di bawah 30 trade tidak dinilai. Klik pair untuk lihat ringkasannya. Hilangkan centang
+        untuk mengecualikan pair dari perhitungan (hanya backtest; tidak mengubah trading live).
       </p>
+      <div className="modal-tools">
+        <span className="muted">
+          {activeCount} dari {pairs.length} pair aktif
+        </span>
+        <button type="button" onClick={() => onSet(worst)} disabled={!worst.length}>
+          Buang {worst.length} terbawah
+        </button>
+        <button type="button" onClick={() => onSet([])} disabled={activeCount === pairs.length}>
+          Pilih semua
+        </button>
+      </div>
       <div className="table-scroll">
         <table className="orders tabular">
           <thead>
             <tr>
+              <th aria-label="Ikut dihitung" />
               {th('symbol', 'Pair', false)}
               <th>Nilai</th>
               {th('trades', 'Trade')}
@@ -260,7 +352,10 @@ function PairsView({ pairs, onPick }: { pairs: PairRow[]; onPick: (symbol: strin
           </thead>
           <tbody>
             {rows.map((p) => (
-              <tr key={p.symbol} className="clickable" onClick={() => onPick(p.symbol)}>
+              <tr key={p.symbol} className={p.active ? 'clickable' : 'clickable off'} onClick={() => p.active && onPick(p.symbol)}>
+                <td onClick={(e) => e.stopPropagation()}>
+                  <input type="checkbox" checked={p.active} disabled={p.active && activeCount === 1} onChange={() => onToggle(p.symbol)} aria-label={`Hitung ${p.symbol}`} />
+                </td>
                 <td>
                   <b>{p.symbol}</b>
                 </td>
@@ -306,14 +401,36 @@ export function BacktestModal({ onClose }: Props) {
   const [run, setRun] = useState<(BacktestRun & { initial: number; riskPct: number }) | null>(null);
   const [error, setError] = useState<string | null>(null);
   const worker = useRef<Worker | null>(null);
+  const [excluded, setExcluded] = useState<Set<string>>(() => new Set(readExcluded().excluded));
 
   useEffect(() => () => worker.current?.terminate(), []);
+
+  // a choice made for another set of pairs no longer applies
+  useEffect(() => {
+    if (!run) return;
+    const all = run.coverage.map((c) => c.symbol).join(',');
+    const saved = readExcluded();
+    if (saved.all && saved.all !== all) {
+      setExcluded(new Set());
+      writeExcluded({ all, excluded: [] });
+    } else writeExcluded({ all, excluded: saved.excluded });
+  }, [run]);
+
+  const setOff = (next: Set<string>) => {
+    setExcluded(next);
+    if (symbol !== 'ALL' && next.has(symbol)) setSymbol('ALL');
+    writeExcluded({ all: (run?.coverage ?? []).map((c) => c.symbol).join(','), excluded: [...next] });
+  };
 
   const start = async () => {
     const b = Number(balance);
     const r = Number(risk);
     if (!(b > 0) || !(r > 0)) {
       setError('Balance dan risk harus lebih dari 0');
+      return;
+    }
+    if (from && to && from > to) {
+      setError('Tanggal "Dari" harus sebelum "Sampai"');
       return;
     }
     worker.current?.terminate();
@@ -359,21 +476,41 @@ export function BacktestModal({ onClose }: Props) {
     }
   };
 
-  // every view is computed here from the trades; switching pair costs milliseconds
+  // every view is computed here from the trades; switching pair or excluding pairs costs milliseconds
   const view = useMemo(() => {
     if (!run) return null;
-    const trades = symbol === 'ALL' ? run.trades : run.trades.filter((t) => t.symbol === symbol);
-    const byPair = new Map<string, typeof run.trades>();
-    for (const t of run.trades) byPair.set(t.symbol, [...(byPair.get(t.symbol) ?? []), t]);
+    const live = withoutPairs(run.trades, excluded, run.initial, run.riskPct);
+    const trades = symbol === 'ALL' ? live : live.filter((t) => t.symbol === symbol);
+    const group = (ts: typeof run.trades) => {
+      const m = new Map<string, typeof run.trades>();
+      for (const t of ts) m.set(t.symbol, [...(m.get(t.symbol) ?? []), t]);
+      return m;
+    };
+    const full = group(run.trades);
+    const kept = group(live);
+    const pairs = run.coverage.map((c): PairRow => {
+      const active = !excluded.has(c.symbol);
+      return { ...pairStats(c.symbol, (active ? kept : full).get(c.symbol) ?? [], run.initial), tier: c.tier, years: c.years, gapDays: c.gapDays, active };
+    });
+    // the weakest by the full run, so the suggestion does not move as pairs are switched off
+    const worst = run.coverage
+      .map((c) => ({ symbol: c.symbol, s: pairStats(c.symbol, full.get(c.symbol) ?? [], run.initial) }))
+      .filter((x) => x.s.grade !== 'few' && x.s.expectancyR !== null)
+      .sort((a, b) => a.s.expectancyR! - b.s.expectancyR!)
+      .slice(0, WORST_COUNT)
+      .map((x) => x.symbol);
     return {
       trades,
       overall: overall(trades, run.initial),
+      liveAll: symbol === 'ALL' ? null : overall(live, run.initial),
+      baseline: excluded.size ? overall(run.trades, run.initial) : null,
       monthsPips: monthTable(trades, (t) => t.pips),
       monthsMoney: monthTable(trades, (t) => t.profit),
       curve: thin(equityCurve(trades, run.initial), 600),
-      pairs: run.coverage.map((c): PairRow => ({ ...pairStats(c.symbol, byPair.get(c.symbol) ?? [], run.initial), tier: c.tier, years: c.years, gapDays: c.gapDays })),
+      pairs,
+      worst,
     };
-  }, [run, symbol]);
+  }, [run, symbol, excluded]);
 
   const save = (detail: boolean) => {
     if (!view) return;
@@ -398,14 +535,32 @@ export function BacktestModal({ onClose }: Props) {
           Risk / trade % <input type="number" min="0.01" step="any" value={risk} onChange={(e) => setRisk(e.target.value)} className="short" />
         </label>
         <label className="inline">
-          Dari <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+          Dari <input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} />
         </label>
         <label className="inline">
-          Sampai <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+          Sampai <input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} />
         </label>
         <button type="button" className="primary" disabled={busy} onClick={() => void start()}>
           {busy ? 'Memproses…' : 'Jalankan'}
         </button>
+      </div>
+      <div className="chips" role="group" aria-label="Rentang cepat">
+        {RANGES.map((r) => {
+          const [f, t] = r.range();
+          return (
+            <button
+              key={r.label}
+              type="button"
+              className={f === from && t === to ? 'chip active' : 'chip'}
+              onClick={() => {
+                setFrom(f);
+                setTo(t);
+              }}
+            >
+              {r.label}
+            </button>
+          );
+        })}
       </div>
       <p className="muted">
         Compounding: tiap trade berisiko {risk || '…'}% dari balance saat fill (hanya trade yang sudah close sebelum hari itu). Semua pair aktif, satu balance. Memakai pengaturan S/R yang tersimpan.
@@ -445,7 +600,7 @@ export function BacktestModal({ onClose }: Props) {
               Pair{' '}
               <select value={symbol} onChange={(e) => setSymbol(e.target.value)} aria-label="Pair">
                 <option value="ALL">Semua pair</option>
-                {view.pairs.map((p) => (
+                {view.pairs.filter((p) => p.active).map((p) => (
                   <option key={p.symbol} value={p.symbol}>
                     {p.symbol}
                   </option>
@@ -467,6 +622,7 @@ export function BacktestModal({ onClose }: Props) {
             </button>
           </div>
           {symbol !== 'ALL' && <p className="muted">Hanya {symbol}. Profit = bagian pair ini dari run bersama.</p>}
+          {view.baseline && <CompareBox all={view.baseline} live={view.liveAll ?? view.overall} off={[...excluded].sort()} />}
 
           {tab === 'overall' && <OverallView o={view.overall} initial={run.initial} />}
           {tab === 'month' && <MonthView pips={view.monthsPips} money={view.monthsMoney} />}
@@ -474,6 +630,14 @@ export function BacktestModal({ onClose }: Props) {
           {tab === 'pairs' && (
             <PairsView
               pairs={view.pairs}
+              worst={view.worst}
+              onToggle={(s) => {
+                const next = new Set(excluded);
+                if (next.has(s)) next.delete(s);
+                else next.add(s);
+                setOff(next);
+              }}
+              onSet={(off) => setOff(new Set(off))}
               onPick={(s) => {
                 setSymbol(s);
                 setTab('overall');

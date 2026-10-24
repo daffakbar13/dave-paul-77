@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { compound, coverageOf, fillDay, replaySymbol, runBacktest, tierOf, type RawTrade } from './backtest.ts';
+import { compound, coverageOf, fillDay, replaySymbol, runBacktest, tierOf, withoutPairs, type RawTrade } from './backtest.ts';
 import { DEFAULT_SR } from './sr.ts';
 import type { Candle } from './types.ts';
 
@@ -159,6 +159,35 @@ describe('compound', () => {
   it('never risks a negative balance', () => {
     const t = compound([raw({ r: -1, result: 'SL' }), raw({ entryAt: T0 + 5 * DAY, exitAt: T0 + 6 * DAY, entry: 1.2 })], 0, 1);
     assert.equal(t[1]!.riskMoney, 0);
+  });
+});
+
+describe('withoutPairs', async () => {
+  const data = new Map([
+    ['AAAUSD', { candles: series(700, 7), digits: 5 }],
+    ['BBBUSD', { candles: series(700, 11, 1.3), digits: 5 }],
+    ['CCCUSD', { candles: series(700, 23, 0.9), digits: 5 }],
+  ]);
+  const input = { params, balance: 10_000, riskPct: 1, warmup: 120, pause: async () => {} };
+  const full = await runBacktest({ ...input, data });
+
+  it('equals a run that never had the excluded pairs', async () => {
+    const only = await runBacktest({ ...input, data: new Map([['AAAUSD', data.get('AAAUSD')!]]) });
+    const cut = withoutPairs(full.trades, new Set(['BBBUSD', 'CCCUSD']), 10_000, 1);
+    assert.ok(only.trades.length > 0);
+    assert.deepEqual(cut, only.trades);
+  });
+
+  it('resizes the pairs that stay instead of only filtering them', () => {
+    const cut = withoutPairs(full.trades, new Set(['BBBUSD']), 10_000, 1);
+    assert.ok(cut.every((t) => t.symbol !== 'BBBUSD'));
+    const filtered = full.trades.filter((t) => t.symbol !== 'BBBUSD');
+    assert.equal(cut.length, filtered.length);
+    assert.notDeepEqual(cut.map((t) => t.profit), filtered.map((t) => t.profit));
+  });
+
+  it('returns the trades untouched when nothing is excluded', () => {
+    assert.equal(withoutPairs(full.trades, new Set(), 10_000, 1), full.trades);
   });
 });
 

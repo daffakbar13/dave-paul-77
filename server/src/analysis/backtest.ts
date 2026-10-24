@@ -181,6 +181,15 @@ export function compound(raw: RawTrade[], balance: number, riskPct: number): BtT
   return out;
 }
 
+// The same run with some pairs left out. The balance is shared, so sizes and profits of the
+// pairs that stay are redone; filtering the finished trades would keep the old sizing.
+export function withoutPairs(trades: BtTrade[], excluded: ReadonlySet<string>, balance: number, riskPct: number): BtTrade[] {
+  if (excluded.size === 0) return trades;
+  const raw: RawTrade[] = [];
+  for (const { riskMoney: _risk, profit: _profit, balanceBefore: _before, ...t } of trades) if (!excluded.has(t.symbol)) raw.push(t);
+  return compound(raw, balance, riskPct);
+}
+
 export type Coverage = {
   symbol: string;
   candles: number;
