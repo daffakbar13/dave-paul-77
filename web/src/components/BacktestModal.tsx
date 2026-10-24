@@ -1,6 +1,6 @@
 import { AreaSeries, ColorType, createChart, PriceScaleMode, type UTCTimestamp } from 'lightweight-charts';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api, type BtGrade, type BtMonthTable, type BtOverall, type BtPair, type BtRun, type BtStreak, type BtTier } from '../api.ts';
+import { api, ApiError, type BtGrade, type BtMonthTable, type BtOverall, type BtPair, type BtRun, type BtStreak, type BtTier } from '../api.ts';
 import { fmtMoney } from '../format.ts';
 import { Modal } from './Modal.tsx';
 
@@ -300,6 +300,11 @@ export function BacktestModal({ onClose }: Props) {
       setData(await api.backtest(runId, symbol === 'ALL' ? undefined : symbol));
       setError(null);
     } catch (e) {
+      // while the server is busy (or waking up) a poll can fail; keep the last state and retry
+      if (e instanceof TypeError || (e instanceof ApiError && e.status >= 502)) {
+        setError('Server sibuk atau sedang bangun, mencoba lagi…');
+        return;
+      }
       setError((e as Error).message);
     }
   }, [runId, symbol]);
@@ -308,12 +313,12 @@ export function BacktestModal({ onClose }: Props) {
     void load();
   }, [load]);
 
-  // poll while the server is still replaying
+  // poll while the server is still replaying; a failed poll keeps polling
   useEffect(() => {
-    if (data?.status !== 'running') return;
+    if (!runId || (data && data.status !== 'running')) return;
     const id = setInterval(() => void load(), 1000);
     return () => clearInterval(id);
-  }, [data?.status, load]);
+  }, [runId, data?.status, load]);
 
   const start = async () => {
     const b = Number(balance);

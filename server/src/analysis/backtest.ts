@@ -78,7 +78,19 @@ function usable(side: Side, entry: number, sl: number, tp: number, ref: number, 
   return sl > entry && tp < entry && entry < ref;
 }
 
-export function replaySymbol(symbol: string, data: SymbolData, p: SrParams, opts: ReplayOptions): RawTrade[] {
+// Lets the event loop run after ~10 ms of work. A 22-year replay of one pair is a second of
+// CPU on a laptop and many times that on a small shared host; without these pauses the
+// server stops answering (health checks, the page's polling) until the pair is done.
+export function makePause(everyMs = 10): () => Promise<void> {
+  let last = Date.now();
+  return async () => {
+    if (Date.now() - last < everyMs) return;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    last = Date.now();
+  };
+}
+
+export async function replaySymbol(symbol: string, data: SymbolData, p: SrParams, opts: ReplayOptions, pause?: () => Promise<void>): Promise<RawTrade[]> {
   const cs = data.candles;
   const pip = pipSize(data.digits);
   const trades: RawTrade[] = [];
@@ -104,6 +116,7 @@ export function replaySymbol(symbol: string, data: SymbolData, p: SrParams, opts
     if (opts.from !== undefined && day.t < opts.from) continue;
 
     const a = analyze(symbol, cs.slice(Math.max(0, i - p.lookback), i), p, data.digits, undefined, data.inputs);
+    if (pause) await pause();
     for (const c of a.candidates) {
       if (c.skipped || c.entry === undefined || c.sl === undefined || c.tp === undefined) continue;
       if (open.has(c.id) || !usable(c.side, c.entry, c.sl, c.tp, a.price, pip)) continue;
@@ -213,8 +226,7 @@ export type BacktestInput = {
 
 export type BacktestRun = { trades: BtTrade[]; coverage: Coverage[]; warmup: number };
 
-// Symbols run one after another; the event loop gets a turn between them (and while a
-// long one runs, every 200 days are not needed: one symbol takes seconds at most).
+// Symbols run one after another; the event loop gets a turn every few milliseconds.
 export async function runBacktest(input: BacktestInput): Promise<BacktestRun> {
   const warmup = input.warmup ?? Math.min(input.params.lookback, 260);
   const opts: ReplayOptions = { warmup, ...(input.from !== undefined ? { from: input.from } : {}), ...(input.to !== undefined ? { to: input.to } : {}) };
@@ -222,10 +234,11 @@ export async function runBacktest(input: BacktestInput): Promise<BacktestRun> {
   const raw: RawTrade[] = [];
   const coverage: Coverage[] = [];
   let done = 0;
+  const pause = makePause();
   for (const name of names) {
     const d = input.data.get(name)!;
     coverage.push(coverageOf(name, d.candles, opts));
-    raw.push(...replaySymbol(name, d, input.params, opts));
+    for (const t of await replaySymbol(name, d, input.params, opts, pause)) raw.push(t);
     input.onProgress?.(++done, names.length);
     await new Promise<void>((resolve) => setImmediate(resolve));
   }

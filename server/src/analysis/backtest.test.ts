@@ -33,9 +33,9 @@ const raw = (r: Partial<RawTrade>): RawTrade => ({
   tpPips: 20, slPips: 10, pips: 20, r: 2, ambiguous: false, digits: 5, ...r,
 });
 
-describe('replaySymbol', () => {
+describe('replaySymbol', async () => {
   const candles = series(600);
-  const trades = replaySymbol('EURUSD', { candles, digits: 5 }, params, opts);
+  const trades = await replaySymbol('EURUSD', { candles, digits: 5 }, params, opts);
 
   it('produces trades with consistent levels and results', () => {
     assert.ok(trades.length > 20, `only ${trades.length} trades`);
@@ -64,19 +64,19 @@ describe('replaySymbol', () => {
     }
   });
 
-  it('has no look-ahead: changing later candles does not change earlier trades', () => {
+  it('has no look-ahead: changing later candles does not change earlier trades', async () => {
     const cut = 450;
     const altered = candles.map((c, i) => (i < cut ? c : { ...c, h: c.h + 0.02, l: c.l - 0.02, c: c.c + 0.01 }));
-    const a = replaySymbol('EURUSD', { candles: altered, digits: 5 }, params, opts);
+    const a = await replaySymbol('EURUSD', { candles: altered, digits: 5 }, params, opts);
     const key = (t: RawTrade) => `${t.entryAt}|${t.side}|${t.entry}|${t.sl}|${t.tp}`;
     const before = (list: RawTrade[]) => list.filter((t) => t.entryAt < candles[cut]!.t).map(key);
     assert.deepEqual(before(a), before(trades));
   });
 
-  it('respects from/to', () => {
+  it('respects from/to', async () => {
     const from = candles[300]!.t;
     const to = candles[400]!.t;
-    const part = replaySymbol('EURUSD', { candles, digits: 5 }, params, { ...opts, from, to });
+    const part = await replaySymbol('EURUSD', { candles, digits: 5 }, params, { ...opts, from, to });
     assert.ok(part.length > 0);
     assert.ok(part.every((t) => t.entryAt >= from && t.entryAt <= to));
   });
