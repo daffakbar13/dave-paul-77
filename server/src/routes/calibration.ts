@@ -31,7 +31,7 @@ const toManual = (d: ManualOrderDoc): ManualOrder => ({
 });
 
 // All stored candles of the given symbols (the engine slices per day).
-async function loadData(db: Collections, symbols: string[]): Promise<Map<string, SymbolData>> {
+export async function loadData(db: Collections, symbols: string[]): Promise<Map<string, SymbolData>> {
   const map = new Map<string, SymbolData>();
   for (const symbol of new Set(symbols)) {
     const docs = await db.candles.find({ symbol }).sort({ t: 1 }).toArray();

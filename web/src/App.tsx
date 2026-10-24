@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { api, hasToken, setToken, UNAUTHORIZED, type Account, type Analysis, type Colors, type AggressiveMode, type Mt4Status, type NewsFeed, type OrderRow, type SymbolItem } from './api.ts';
+import { BacktestModal } from './components/BacktestModal.tsx';
 import { CalibrationModal } from './components/CalibrationModal.tsx';
 import { Chart } from './components/Chart.tsx';
 import { ExecuteModal } from './components/ExecuteModal.tsx';
@@ -78,7 +79,7 @@ function Login({ onDone }: { onDone: () => void }) {
   );
 }
 
-type ModalKind = 'pending' | 'execute' | 'settings' | 'calibration' | 'journal' | 'news' | null;
+type ModalKind = 'pending' | 'execute' | 'settings' | 'calibration' | 'journal' | 'news' | 'backtest' | null;
 
 const MT4_STALE_MINUTES = 10;
 
@@ -237,6 +238,9 @@ function Main({ onLogout }: { onLogout: () => void }) {
           <button type="button" onClick={() => setModal('journal')}>
             Jurnal
           </button>
+          <button type="button" onClick={() => setModal('backtest')}>
+            Backtest
+          </button>
           <button type="button" onClick={() => setModal('calibration')}>
             Kalibrasi
           </button>
@@ -318,6 +322,7 @@ function Main({ onLogout }: { onLogout: () => void }) {
       )}
       {modal === 'settings' && <SettingsModal onClose={() => setModal(null)} onChanged={refresh} />}
       {modal === 'journal' && <JournalModal accounts={accounts} initialAccountId={accountId} onClose={() => setModal(null)} />}
+      {modal === 'backtest' && <BacktestModal onClose={() => setModal(null)} />}
       {modal === 'news' && <NewsModal pairs={symbols.map((s) => s.name)} onClose={() => setModal(null)} onChanged={refresh} />}
       {modal === 'calibration' && <CalibrationModal symbols={symbols.map((s) => s.name)} onClose={() => setModal(null)} onChanged={refresh} />}
     </div>

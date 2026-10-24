@@ -908,3 +908,155 @@ button.restore-all {
   border: 1px solid var(--border);
   border-radius: 8px;
 }
+
+/* --- backtest --------------------------------------------------------------- */
+.tiles.big > div {
+  padding: 12px 14px;
+  min-height: 92px;
+  align-content: space-between;
+  border: none;
+}
+.tiles.big b {
+  font-size: 26px;
+}
+.tiles .tile-blue {
+  background: rgba(41, 98, 255, 0.35);
+}
+.tiles .tile-green {
+  background: rgba(0, 176, 80, 0.35);
+}
+.tiles .tile-orange {
+  background: rgba(255, 128, 64, 0.35);
+}
+.tiles .tile-yellow {
+  background: rgba(244, 180, 32, 0.35);
+}
+.tiles .tile-blue span,
+.tiles .tile-green span,
+.tiles .tile-orange span,
+.tiles .tile-yellow span {
+  color: var(--text);
+}
+.tiles .ok b {
+  color: var(--candle);
+}
+.tiles .error b {
+  color: #ff6b61;
+}
+.streaks {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.streak {
+  padding: 10px 14px;
+  border-radius: 8px;
+}
+.streak h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.streak-win {
+  background: rgba(0, 176, 80, 0.3);
+}
+.streak-loss {
+  background: rgba(255, 69, 58, 0.3);
+}
+.streak-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+.streak-row:first-of-type {
+  border-top: none;
+}
+.streak-row b {
+  font-size: 18px;
+  font-weight: 600;
+}
+.streak-row span {
+  align-self: center;
+  min-width: 70px;
+  color: var(--muted);
+}
+.growth-chart {
+  height: 360px;
+  width: 100%;
+}
+.tabs-inline {
+  display: inline-flex;
+  gap: 2px;
+  background: var(--panel-2);
+  border-radius: 8px;
+  padding: 2px;
+}
+.tabs-inline button {
+  border: none;
+  background: none;
+  color: var(--muted);
+  padding: 6px 12px;
+  border-radius: 6px;
+}
+.tabs-inline button.active {
+  background: var(--panel);
+  color: #fff;
+}
+.banner-warn {
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--aggr);
+  border-radius: 8px;
+  color: var(--text);
+}
+.foot-note {
+  margin-top: 12px;
+  font-size: 12px;
+}
+.months th,
+.months td {
+  white-space: nowrap;
+}
+.grade {
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.grade-good {
+  background: rgba(59, 209, 111, 0.25);
+  color: var(--candle);
+}
+.grade-ok {
+  background: rgba(108, 182, 255, 0.2);
+  color: var(--focus);
+}
+.grade-weak {
+  background: rgba(255, 69, 58, 0.22);
+  color: #ff6b61;
+}
+.grade-few {
+  background: var(--panel-2);
+  color: var(--muted);
+}
+.sort {
+  border: none;
+  background: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+tr.clickable {
+  cursor: pointer;
+}
+tr.clickable:hover td {
+  background: var(--panel-2);
+}
+input.short {
+  width: 90px;
+}
