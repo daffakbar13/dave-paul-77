@@ -284,7 +284,8 @@ void SendCandles(const int i)
 
 //+------------------------------------------------------------------+
 //| Older history: shifts HistoryBars+1 .. BackfillBars, oldest first, |
-//| one chunk per timer tick. The server upserts, so a repeat is safe. |
+//| one chunk per timer tick. Progress is kept in a terminal global   |
+//| variable (DP77_BFT_<pair>), so a restart resumes where it stopped. |
 //+------------------------------------------------------------------+
 void Backfill(const int i)
   {
@@ -302,6 +303,14 @@ void Backfill(const int i)
    if(g_bfNext[i] == 0)
      {
       g_bfNext[i] = MathMin(bars - 1, BackfillBars);
+      // a restart resumes after the newest candle already accepted, not from the oldest
+      string progress = "DP77_BFT_" + app;
+      if(!RedoBackfill && GlobalVariableCheck(progress))
+        {
+         int sh = iBarShift(broker, PERIOD_D1, (datetime)GlobalVariableGet(progress), true);
+         if(sh > 1 && sh - 1 < g_bfNext[i])
+            g_bfNext[i] = sh - 1;
+        }
       Print("DavePaul77: ", app, " riwayat D1 di terminal ", bars, " candle (sekitar ", DoubleToString(bars / 260.0, 1), " tahun); backfill sampai ", g_bfNext[i]);
      }
    if(g_bfNext[i] <= HistoryBars)
@@ -341,6 +350,7 @@ void Backfill(const int i)
    string response;
    if(Http("POST", "/api/ea/mt4/candles", body, response) == 200)
      {
+      GlobalVariableSet("DP77_BFT_" + app, (double)iTime(broker, PERIOD_D1, to));
       g_bfNext[i] = to - 1;
       Print("DavePaul77: ", app, " backfill ", n, " candle terkirim, sisa ", MathMax(g_bfNext[i] - HistoryBars, 0), " ", response);
      }

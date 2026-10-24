@@ -8,7 +8,7 @@ import { fmtMoney } from '../format.ts';
 import { Modal } from './Modal.tsx';
 
 type Props = { onClose: () => void };
-type PairRow = PairStats & { tier: Coverage['tier']; years: number };
+type PairRow = PairStats & { tier: Coverage['tier']; years: number; gapDays: number };
 type Tab = 'overall' | 'month' | 'growth' | 'pairs';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
@@ -26,6 +26,8 @@ function holding(days: number | null): string {
   const h = Math.round((days - d) * 24);
   return `${d} hari ${h} jam`;
 }
+
+const isoDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
 function download(blob: Blob, name: string) {
   const url = URL.createObjectURL(blob);
@@ -276,6 +278,12 @@ function PairsView({ pairs, onPick }: { pairs: PairRow[]; onPick: (symbol: strin
                 <td className="num">{p.perYear === null ? '–' : num(p.perYear, 0)}</td>
                 <td className="num">
                   {fmtYears(p.years)} <span className="muted">({TIER[p.tier]})</span>
+                  {p.gapDays > 0 && (
+                    <span className="error" title={`${p.gapDays} hari tanpa candle di rentang uji`}>
+                      {' '}
+                      ⚠ bolong {Math.round(p.gapDays / 30)} bln
+                    </span>
+                  )}
                 </td>
               </tr>
             ))}
@@ -363,7 +371,7 @@ export function BacktestModal({ onClose }: Props) {
       monthsPips: monthTable(trades, (t) => t.pips),
       monthsMoney: monthTable(trades, (t) => t.profit),
       curve: thin(equityCurve(trades, run.initial), 600),
-      pairs: run.coverage.map((c): PairRow => ({ ...pairStats(c.symbol, byPair.get(c.symbol) ?? [], run.initial), tier: c.tier, years: c.years })),
+      pairs: run.coverage.map((c): PairRow => ({ ...pairStats(c.symbol, byPair.get(c.symbol) ?? [], run.initial), tier: c.tier, years: c.years, gapDays: c.gapDays })),
     };
   }, [run, symbol]);
 
@@ -375,6 +383,7 @@ export function BacktestModal({ onClose }: Props) {
 
   const cov = run?.coverage ?? [];
   const minYears = cov.length ? Math.min(...cov.map((c) => c.years)) : 0;
+  const gapPairs = cov.filter((c) => c.gapDays > 0);
   const shortPairs = cov.filter((c) => c.tier === 'short' || c.tier === 'none');
   const tabs: [Tab, string][] = [['overall', 'Overall'], ['month', 'Per Month'], ['growth', 'Growth'], ['pairs', 'Pair']];
   const busy = phase === 'loading' || phase === 'running';
@@ -420,6 +429,15 @@ export function BacktestModal({ onClose }: Props) {
             <p className="banner-warn">
               Data teruji hanya {fmtYears(minYears)}
               {shortPairs.length === cov.length ? ' di semua pair' : ` di ${shortPairs.map((c) => c.symbol).join(', ')}`}. Minimum 2 tahun; 5 / 10 / 20 tahun lebih meyakinkan. Tambah riwayat candle D1 (backfill) dulu sebelum mengandalkan angka ini.
+            </p>
+          )}
+          {gapPairs.length > 0 && (
+            <p className="banner-warn">
+              Ada lubang di riwayat candle:{' '}
+              {gapPairs
+                .map((c) => `${c.symbol} ${c.gaps.slice(0, 2).map((g) => `${isoDay(g.from)} → ${isoDay(g.to)}`).join(', ')}${c.gaps.length > 2 ? ', …' : ''}`)
+                .join(' · ')}
+              . Trade tidak dibuat di hari yang hilang dan garis S/R di sekitarnya kurang akurat. Lengkapi lewat backfill EA atau CSV.
             </p>
           )}
           <div className="modal-tools">

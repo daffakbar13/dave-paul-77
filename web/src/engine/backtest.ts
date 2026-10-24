@@ -189,6 +189,8 @@ export type Coverage = {
   to: number | null;
   years: number; // tested span
   tier: 'none' | 'short' | 'min' | 'good' | 'better' | 'perfect';
+  gaps: { from: number; to: number; days: number }[]; // holes in the tested span (first 20)
+  gapDays: number; // total days missing inside the tested span
 };
 
 // 2 years is the least that says anything; 5 / 10 / 20 are the steps above it.
@@ -200,10 +202,24 @@ export function tierOf(years: number): Coverage['tier'] {
   return years > 0 ? 'short' : 'none';
 }
 
+// Holes longer than this many days between two candles are missing history, not a weekend
+// or a holiday (the longest normal break, Christmas to New Year, is about 5 days).
+export const GAP_DAYS = 7;
+
 export function coverageOf(symbol: string, cs: Candle[], opts: ReplayOptions): Coverage {
   const startIdx = Math.max(opts.warmup, 10);
   const days = cs.filter((c, i) => i >= startIdx && (opts.from === undefined || c.t >= opts.from) && (opts.to === undefined || c.t <= opts.to));
-  const years = days.length ? (days[days.length - 1]!.t - days[0]!.t) / (365.25 * 86_400_000) : 0;
+  const DAY_MS = 86_400_000;
+  // holes inside the tested span; the history before it only feeds the first analyses
+  const gaps: Coverage['gaps'] = [];
+  for (let i = 1; i < days.length; i++) {
+    const d = (days[i]!.t - days[i - 1]!.t) / DAY_MS;
+    if (d > GAP_DAYS) gaps.push({ from: days[i - 1]!.t, to: days[i]!.t, days: Math.round(d) });
+  }
+  const gapDays = gaps.reduce((s, g) => s + g.days, 0);
+  const span = days.length ? (days[days.length - 1]!.t - days[0]!.t) / DAY_MS : 0;
+  // years that really have candles: the span minus its holes
+  const years = Math.max(span - gapDays, 0) / 365.25;
   return {
     symbol,
     candles: cs.length,
@@ -212,6 +228,8 @@ export function coverageOf(symbol: string, cs: Candle[], opts: ReplayOptions): C
     to: cs[cs.length - 1]?.t ?? null,
     years: roundTo(years, 2),
     tier: tierOf(years),
+    gaps: gaps.slice(0, 20),
+    gapDays,
   };
 }
 

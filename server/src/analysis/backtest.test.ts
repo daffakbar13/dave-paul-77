@@ -172,6 +172,18 @@ describe('coverage', () => {
     assert.equal(tierOf(20), 'perfect');
   });
 
+  it('subtracts holes from the covered years and lists them', () => {
+    const cs = series(120 + 1000);
+    const hole = cs.map((c, i) => (i >= 700 && i < 900 ? null : c)).filter((c): c is Candle => c !== null);
+    const c = coverageOf('X', hole, { warmup: 120 });
+    assert.equal(c.gaps.length, 1);
+    assert.equal(c.gaps[0]!.days, 201);
+    assert.equal(c.gapDays, 201);
+    const whole = coverageOf('X', cs, { warmup: 120 });
+    assert.ok(whole.gaps.length === 0 && whole.gapDays === 0);
+    assert.ok(Math.abs(whole.years - c.years - 200 / 365.25) < 0.02);
+  });
+
   it('counts years after the warm-up', () => {
     const c = coverageOf('X', series(120 + 365), { warmup: 120 });
     assert.ok(Math.abs(c.years - 1) < 0.02);

@@ -54,7 +54,7 @@ terakhir); chart tanpa garis mengembalikan pair itu ke garis otomatis.
 - Saat pertama jalan, tiap pair mengirim 520 candle D1 tertutup. Setelah itu hanya candle baru setiap pergantian hari broker.
 - **Backfill untuk backtest:** setelah kiriman pertama, EA mengirim candle yang lebih lama (sampai `BackfillBars`) per 1000 candle,
   paling lama dulu, satu pair per 5 detik. Selesai per pair dicatat di variabel global terminal `DP77_BF_<PAIR>`,
-  jadi restart EA tidak mengirim ulang (`RedoBackfill` memaksa). Server hanya menyimpan (upsert); analisa live tidak dihitung ulang.
+  jadi restart EA tidak mengirim ulang; kemajuannya juga disimpan (`DP77_BFT_<PAIR>` = candle terbaru yang sudah diterima server) sehingga restart melanjutkan dari situ (`RedoBackfill` memaksa dari awal). Server hanya menyimpan (upsert); analisa live tidak dihitung ulang.
   Terminal hanya punya riwayat yang sudah diunduh: Tools > Options > Charts, naikkan *Max bars in history* dan *in chart*
   (mis. 1.000.000), lalu F2 (History Center) > pair > Daily > Download, ulangi tiap pair, baru pasang EA.
   Log Experts menulis berapa tahun yang ada ("riwayat D1 di terminal N candle"). Bila broker hanya punya 10 tahun,
