@@ -23,7 +23,10 @@ const candlesSchema = z.object({
   symbol: symbolName,
   digits: z.number().int().min(0).max(8).optional(),
   now: z.number().int().positive().optional(), // TimeCurrent(); without it UTC is assumed
-  candles: z.array(candleSchema).min(1).max(5000),
+  // 22 years of D1 is about 5,700 candles; the EA sends older history in smaller chunks
+  candles: z.array(candleSchema).min(1).max(10_000),
+  // old history: stored without recomputing the live analysis, which only uses recent candles
+  backfill: z.boolean().optional(),
 });
 
 const quotesSchema = z.object({
@@ -147,7 +150,7 @@ export function eaRoutes(db: Collections, config: Config): Router {
     } else if (input.digits !== undefined && exists.digits !== input.digits) {
       await db.symbols.updateOne({ _id: exists._id }, { $set: { digits } });
     }
-    if (closed.length) await refreshAnalysis(db, input.symbol, await getSettings(db));
+    if (closed.length && !input.backfill) await refreshAnalysis(db, input.symbol, await getSettings(db));
     await seen(input.now);
     res.json({ stored: closed.length, ignoredOpen: input.candles.length - closed.length });
   });

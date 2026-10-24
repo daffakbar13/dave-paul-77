@@ -20,6 +20,9 @@ pernah membuka order.
 | `SymbolSuffix` | akhiran nama simbol broker di MT4 ini, mis. `m` untuk `EURUSDm`; kosong jika tidak ada |
 | `FallbackSymbols` | dipakai hanya jika daftar pair dari server tidak terbaca |
 | `HistoryBars` | jumlah candle D1 yang dikirim saat pertama jalan (520 = sekitar 2 tahun) |
+| `BackfillBars` | candle D1 yang lebih lama, dikirim sekali setelah kiriman pertama (5800 = sekitar 22 tahun, sejauh yang dimiliki terminal) |
+| `BackfillChunk` | candle per request saat backfill (1000) |
+| `RedoBackfill` | kirim ulang riwayat lama walau sudah pernah selesai |
 | `QuoteSeconds` | jeda kirim bid/ask |
 | `TimeoutMs` | 30000; Render paket gratis bisa butuh 30 sampai 50 detik untuk bangun |
 
@@ -49,6 +52,13 @@ terakhir); chart tanpa garis mengembalikan pair itu ke garis otomatis.
 
 - Daftar pair diambil dari Pengaturan > Pair di web (`GET /api/ea/mt4/symbols`) tiap 5 menit, jadi tab dan EA selalu sama.
 - Saat pertama jalan, tiap pair mengirim 520 candle D1 tertutup. Setelah itu hanya candle baru setiap pergantian hari broker.
+- **Backfill untuk backtest:** setelah kiriman pertama, EA mengirim candle yang lebih lama (sampai `BackfillBars`) per 1000 candle,
+  paling lama dulu, satu pair per 5 detik. Selesai per pair dicatat di variabel global terminal `DP77_BF_<PAIR>`,
+  jadi restart EA tidak mengirim ulang (`RedoBackfill` memaksa). Server hanya menyimpan (upsert); analisa live tidak dihitung ulang.
+  Terminal hanya punya riwayat yang sudah diunduh: Tools > Options > Charts, naikkan *Max bars in history* dan *in chart*
+  (mis. 1.000.000), lalu F2 (History Center) > pair > Daily > Download, ulangi tiap pair, baru pasang EA.
+  Log Experts menulis berapa tahun yang ada ("riwayat D1 di terminal N candle"). Bila broker hanya punya 10 tahun,
+  pakai CSV (lihat README utama, "Riwayat dari CSV").
   Histori yang belum terunduh (error 4066) dicoba lagi tiap 60 detik.
 - Waktu candle memakai jam server broker. EA ikut mengirim `TimeCurrent()`, jadi server tahu candle sudah close
   dan menampilkan offset broker (mis. "server broker UTC+3") di bawah chart.

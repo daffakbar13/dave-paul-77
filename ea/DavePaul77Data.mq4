@@ -8,11 +8,16 @@
 //| ServerUrl and DataKey left empty are read from                   |
 //| MQL4/Files/DavePaul77.ini (ServerUrl=..., DataKey=...), so the   |
 //| key never has to be typed in and stays out of the source.        |
+//| After the first run, older D1 history (BackfillBars) is sent once|
+//| per pair in chunks, for the backtest. The terminal only has what |
+//| it has downloaded: Tools > Options > Charts > Max bars in history|
+//| and bars in chart set high, then F2 (History Center) > the pair  |
+//| > D1 > Download, before attaching the EA.                        |
 //| Horizontal lines drawn on the open charts of a pair are sent as  |
 //| the user's own S/R lines (only when they change).                |
 //+------------------------------------------------------------------+
 #property copyright "DavePaul77"
-#property version   "1.00"
+#property version   "1.10"
 #property strict
 
 input string ServerUrl       = "";      // URL server (kosong = dari DavePaul77.ini)
@@ -20,6 +25,9 @@ input string DataKey         = "";      // Data key (kosong = dari DavePaul77.in
 input string SymbolSuffix    = "";      // Akhiran simbol broker, mis. "m" untuk EURUSDm
 input string FallbackSymbols = "AUDJPY,AUDUSD,CADJPY,CHFJPY,EURGBP,EURNZD,EURUSD,GBPJPY,GBPUSD,NZDJPY,NZDUSD,USDCAD,USDCHF,USDJPY,XAUUSD"; // used when the server list cannot be read
 input int    HistoryBars     = 520;     // closed D1 candles sent on the first run (about 2 years)
+input int    BackfillBars    = 5800;    // older D1 candles sent once after the first run (5800 = about 22 years, as far back as the terminal has)
+input int    BackfillChunk   = 1000;    // candles per request while backfilling
+input bool   RedoBackfill    = false;   // send the old history again even if it was done before
 input int    QuoteSeconds    = 60;      // bid/ask interval
 input int    ListMinutes     = 5;       // refresh the pair list from the web settings
 input int    RetrySeconds    = 60;      // wait after a failed send or history not ready
@@ -31,6 +39,8 @@ string   g_symbols[];   // app names (without suffix)
 datetime g_sent[];      // open time of the last closed D1 candle the server accepted
 datetime g_retryAt[];   // per symbol back-off
 string   g_linesSig[];  // last horizontal lines accepted by the server, per symbol
+int      g_bfNext[];    // backfill: shift of the oldest candle still to send (0 = not started)
+bool     g_bfDone[];    // backfill finished (remembered across restarts in a terminal global variable)
 datetime g_lastLines  = 0;
 datetime g_lastQuotes = 0;
 datetime g_lastList   = 0;
@@ -94,7 +104,11 @@ void OnTimer()
       RefreshList();
    for(int i = 0; i < ArraySize(g_symbols); i++)
       if(now >= g_retryAt[i])
+        {
          SendCandles(i);
+         if(g_sent[i] > 0 && !g_bfDone[i] && now >= g_retryAt[i])
+            Backfill(i);
+        }
    if(now - g_lastQuotes >= QuoteSeconds)
      {
       SendQuotes();
@@ -179,7 +193,13 @@ void RefreshList()
    ArrayCopy(oldSymbols, g_symbols);
    ArrayCopy(oldSent, g_sent);
    ArrayCopy(oldSig, g_linesSig);
+   int oldNext[];
+   bool oldDone[];
+   ArrayCopy(oldNext, g_bfNext);
+   ArrayCopy(oldDone, g_bfDone);
    ArrayResize(g_symbols, count);
+   ArrayResize(g_bfNext, count);
+   ArrayResize(g_bfDone, count);
    ArrayResize(g_sent, count);
    ArrayResize(g_retryAt, count);
    ArrayResize(g_linesSig, count);
@@ -189,11 +209,15 @@ void RefreshList()
       g_sent[i] = 0;
       g_retryAt[i] = 0;
       g_linesSig[i] = "";
+      g_bfNext[i] = 0;
+      g_bfDone[i] = !RedoBackfill && GlobalVariableCheck("DP77_BF_" + names[i]);
       for(int j = 0; j < ArraySize(oldSymbols); j++)
          if(oldSymbols[j] == names[i])
            {
             g_sent[i] = oldSent[j];
             g_linesSig[i] = oldSig[j];
+            g_bfNext[i] = oldNext[j];
+            g_bfDone[i] = oldDone[j];
            }
       if(!SymbolSelect(names[i] + SymbolSuffix, true))
          Print("DavePaul77: ", names[i] + SymbolSuffix, " tidak ada di MT4 ini. Cek nama atau SymbolSuffix.");
@@ -253,6 +277,72 @@ void SendCandles(const int i)
      {
       g_sent[i] = lastClosed;
       Print("DavePaul77: ", app, " ", last, " candle D1 terkirim ", response);
+     }
+   else
+      g_retryAt[i] = TimeLocal() + RetrySeconds;
+  }
+
+//+------------------------------------------------------------------+
+//| Older history: shifts HistoryBars+1 .. BackfillBars, oldest first, |
+//| one chunk per timer tick. The server upserts, so a repeat is safe. |
+//+------------------------------------------------------------------+
+void Backfill(const int i)
+  {
+   string app = g_symbols[i];
+   string broker = app + SymbolSuffix;
+   ResetLastError();
+   int bars = iBars(broker, PERIOD_D1);
+   int err = GetLastError();
+   if(bars < 3 || err == 4066)
+     {
+      g_retryAt[i] = TimeLocal() + RetrySeconds;
+      return;
+     }
+   int chunk = MathMax(MathMin(BackfillChunk, 5000), 50);
+   if(g_bfNext[i] == 0)
+     {
+      g_bfNext[i] = MathMin(bars - 1, BackfillBars);
+      Print("DavePaul77: ", app, " riwayat D1 di terminal ", bars, " candle (sekitar ", DoubleToString(bars / 260.0, 1), " tahun); backfill sampai ", g_bfNext[i]);
+     }
+   if(g_bfNext[i] <= HistoryBars)
+     {
+      g_bfDone[i] = true;
+      GlobalVariableSet("DP77_BF_" + app, 1);
+      Print("DavePaul77: ", app, " backfill selesai");
+      return;
+     }
+   int from = g_bfNext[i];                              // oldest shift of this chunk
+   int to = MathMax(from - chunk + 1, HistoryBars + 1); // newest shift of this chunk
+   int digits = (int)MarketInfo(broker, MODE_DIGITS);
+   string items = "";
+   int n = 0;
+   for(int shift = from; shift >= to; shift--)
+     {
+      datetime t = iTime(broker, PERIOD_D1, shift);
+      if(t == 0)
+         continue;
+      if(StringLen(items) > 0)
+         items += ",";
+      items += "{\"t\":" + IntegerToString((long)t)
+               + ",\"o\":" + Num(iOpen(broker, PERIOD_D1, shift), digits)
+               + ",\"h\":" + Num(iHigh(broker, PERIOD_D1, shift), digits)
+               + ",\"l\":" + Num(iLow(broker, PERIOD_D1, shift), digits)
+               + ",\"c\":" + Num(iClose(broker, PERIOD_D1, shift), digits) + "}";
+      n++;
+     }
+   if(n == 0)
+     {
+      g_bfNext[i] = to - 1;
+      return;
+     }
+   string body = "{\"symbol\":\"" + app + "\",\"digits\":" + IntegerToString(digits)
+                 + ",\"now\":" + IntegerToString((long)TimeCurrent())
+                 + ",\"backfill\":true,\"candles\":[" + items + "]}";
+   string response;
+   if(Http("POST", "/api/ea/mt4/candles", body, response) == 200)
+     {
+      g_bfNext[i] = to - 1;
+      Print("DavePaul77: ", app, " backfill ", n, " candle terkirim, sisa ", MathMax(g_bfNext[i] - HistoryBars, 0), " ", response);
      }
    else
       g_retryAt[i] = TimeLocal() + RetrySeconds;

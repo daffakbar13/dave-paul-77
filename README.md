@@ -112,3 +112,22 @@ sering memberi RR di bawah 1:1,5. Karena itu ada pengaturan **Maks garis berorde
 terdekat di atas dan di bawah harga yang diberi order; semua garis tetap dipakai sebagai TP). Isi 0 untuk semua garis.
 Parameter lain (penggabungan area, candle kuat, pantulan, pilihan candle kuat paling baru atau paling dekat) dikalibrasi
 dengan contoh order manual.
+
+
+## Riwayat dari CSV (untuk backtest)
+
+Backtest butuh sekitar 2 tahun warm-up sebelum hari pertama yang diuji, jadi 2 tahun teruji butuh sekitar 4 tahun candle D1
+(5 tahun: ~7, 10: ~12, 20: ~22). EA MT4 mengirim riwayat yang dimiliki terminal (lihat `ea/README.md`). Untuk tahun yang tidak
+dimiliki broker, impor CSV harga dari sumber lain (export MT4 History Center, HistData, Dukascopy, TradingView; D1 atau
+intraday, intraday dilipat jadi harian):
+
+```bash
+cd server
+node scripts/import-candles.ts --url https://dave-paul-77.onrender.com --key <EA_DATA_KEY> \
+     --until 2024-10-15 EURUSD_D1.csv GBPUSD_H1.csv      # --dry untuk cek tanpa kirim
+```
+
+- Nama pair diambil dari nama file (enam huruf), atau `--symbol`. `--digits N` bila pair belum ada di server.
+- Pakai `--until` hari sebelum candle MT4 pertama supaya CSV tidak menimpa data broker (batas hari tiap sumber berbeda).
+- Sabtu dan Minggu dibuang (`--weekends` untuk menyimpannya). Mengimpor dua kali aman (upsert).
+- Server menerima sampai 10.000 candle per request; skrip mengirim per 1000 tanpa menghitung ulang analisa live.
