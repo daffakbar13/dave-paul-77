@@ -122,75 +122,6 @@ export type SrParams = {
   slMaxRiskAtr: number;
 };
 
-export type BtStreak = { count: number; pips: number };
-export type BtOverall = {
-  trades: number;
-  wins: number;
-  losses: number;
-  probability: number | null;
-  profit: number;
-  profitPct: number;
-  avgProfitTrade: number;
-  avgProfitTradePct: number;
-  avgProfitMonth: number;
-  avgProfitMonthPct: number;
-  avgProfitYear: number;
-  avgProfitYearPct: number;
-  pips: number;
-  avgPipsTrade: number;
-  avgPipsMonth: number;
-  avgPipsYear: number;
-  months: number;
-  years: number;
-  riskReward: number | null;
-  avgHoldDays: number | null;
-  profitFactor: number | null;
-  expectancyR: number | null;
-  maxDrawdown: number;
-  maxDrawdownPct: number;
-  consecutiveProfit: { byTrade: BtStreak; byPips: BtStreak };
-  consecutiveLoss: { byTrade: BtStreak; byPips: BtStreak };
-  ambiguous: number;
-  open: number;
-  peakOpen: number;
-};
-export type BtMonthTable = { rows: { year: number; months: (number | null)[]; ytd: number }[]; total: number };
-export type BtTier = 'none' | 'short' | 'min' | 'good' | 'better' | 'perfect';
-export type BtGrade = 'good' | 'ok' | 'weak' | 'few';
-export type BtPair = {
-  symbol: string;
-  trades: number;
-  winRate: number | null;
-  pips: number;
-  profit: number;
-  profitFactor: number | null;
-  expectancyR: number | null;
-  riskReward: number | null;
-  maxLossStreak: number;
-  maxDrawdownR: number;
-  perYear: number | null;
-  ambiguousShare: number | null;
-  grade: BtGrade;
-  tier: BtTier;
-  years: number;
-};
-export type BtCoverage = { symbol: string; candles: number; from: number | null; testFrom: number | null; to: number | null; years: number; tier: BtTier };
-export type BtRun = {
-  id: string;
-  status: 'running' | 'done' | 'error';
-  progress: { done: number; total: number };
-  error: string | null;
-  input: { balance: number; riskPct: number; symbols: string[]; from: string | null; to: string | null };
-  symbol?: string | null;
-  warmup?: number;
-  coverage?: BtCoverage[];
-  overall?: BtOverall;
-  monthsPips?: BtMonthTable;
-  monthsMoney?: BtMonthTable;
-  curve?: { t: number; balance: number }[];
-  pairs?: BtPair[];
-};
-
 export type Settings = {
   version: number;
   rrThreshold: number;
@@ -411,13 +342,12 @@ export const api = {
     request<{ commands: Command[] }>('POST', '/execute', { accountIds, aggressive }),
   commands: () => request<{ commands: Command[] }>('GET', '/commands'),
   journal: (accountId: string, from: string, to: string) => request<Journal>('GET', `/journal${q({ accountId, from, to })}`),
-  runBacktest: (b: { balance: number; riskPct: number; from?: string; to?: string }) => request<{ id: string }>('POST', '/backtest/run', b),
-  backtest: (id: string, symbol?: string) => request<BtRun>('GET', `/backtest/${id}${q({ symbol })}`),
-  backtestCsv: async (id: string, symbol: string | undefined, detail: boolean): Promise<Blob> => {
-    const res = await fetch(`${BASE}/api/backtest/${id}/csv${q({ symbol, detail })}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
-    if (!res.ok) throw new ApiError(res.status, ((await res.json().catch(() => ({}))) as { error?: string }).error ?? `HTTP ${res.status}`);
-    return res.blob();
-  },
+  // stored D1 candles (compact arrays) and the saved S/R settings, for the in-browser backtest
+  backtestCandles: (symbols?: string[]) =>
+    request<{ sr: SrParams; symbols: { name: string; digits: number; inputs: { manualLines?: number[]; minSlPips?: number }; candles: number[][] }[] }>(
+      'GET',
+      `/backtest/candles${q({ symbols: symbols?.join(',') })}`,
+    ),
   news: () => request<NewsFeed>('GET', '/news'),
   refreshNews: () => request<NewsFeed>('POST', '/news/refresh'),
   upcomingNews: () => request<{ news: News[]; status: NewsFeed['status'] }>('GET', '/news/upcoming'),

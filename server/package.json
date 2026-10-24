@@ -15,6 +15,7 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test \"src/**/*.test.ts\"",
     "seed": "node --env-file-if-exists=.env scripts/seed.ts",
+    "sync:engine": "node scripts/sync-engine.ts",
     "hash-password": "node scripts/hash-password.ts"
   },
   "dependencies": {

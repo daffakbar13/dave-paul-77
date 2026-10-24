@@ -89,3 +89,6 @@ export type Analysis = {
   lines: Line[];
   candidates: Candidate[];
 };
+
+// One pair's history for the engine and the backtest.
+export type SymbolData = { candles: Candle[]; digits: number; inputs?: SymbolInputs };

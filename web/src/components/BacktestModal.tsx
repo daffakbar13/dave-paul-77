@@ -1,15 +1,19 @@
 import { AreaSeries, ColorType, createChart, PriceScaleMode, type UTCTimestamp } from 'lightweight-charts';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api, ApiError, type BtGrade, type BtMonthTable, type BtOverall, type BtPair, type BtRun, type BtStreak, type BtTier } from '../api.ts';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { api } from '../api.ts';
+import type { WorkerIn, WorkerOut } from '../backtest.worker.ts';
+import type { BacktestRun, Coverage } from '../engine/backtest.ts';
+import { equityCurve, monthTable, overall, pairStats, thin, tradesCsv, type MonthTable, type Overall, type PairGrade, type PairStats, type Streak } from '../engine/backtestStats.ts';
 import { fmtMoney } from '../format.ts';
 import { Modal } from './Modal.tsx';
 
 type Props = { onClose: () => void };
+type PairRow = PairStats & { tier: Coverage['tier']; years: number };
 type Tab = 'overall' | 'month' | 'growth' | 'pairs';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
-const GRADE: Record<BtGrade, string> = { good: 'Bagus', ok: 'Cukup', weak: 'Lemah', few: 'Data kurang' };
-const TIER: Record<BtTier, string> = { none: 'tanpa data', short: '< 2 th', min: '2 th', good: '5 th', better: '10 th', perfect: '20 th' };
+const GRADE: Record<PairGrade, string> = { good: 'Bagus', ok: 'Cukup', weak: 'Lemah', few: 'Data kurang' };
+const TIER: Record<Coverage['tier'], string> = { none: 'tanpa data', short: '< 2 th', min: '2 th', good: '5 th', better: '10 th', perfect: '20 th' };
 
 const num = (v: number | null | undefined, d = 1) => (v === null || v === undefined ? '–' : v.toLocaleString('id-ID', { minimumFractionDigits: d, maximumFractionDigits: d }));
 const pct = (v: number | null | undefined, d = 2) => (v === null || v === undefined ? '–' : `${num(v, d)}%`);
@@ -42,8 +46,8 @@ function Tile({ label, value, sub, cls }: { label: string; value: string; sub?: 
   );
 }
 
-function StreakBox({ title, tone, data }: { title: string; tone: 'win' | 'loss'; data: { byTrade: BtStreak; byPips: BtStreak } }) {
-  const row = (label: string, s: BtStreak) => (
+function StreakBox({ title, tone, data }: { title: string; tone: 'win' | 'loss'; data: { byTrade: Streak; byPips: Streak } }) {
+  const row = (label: string, s: Streak) => (
     <div className="streak-row">
       <span>{label}</span>
       <b>{s.count}×</b>
@@ -62,7 +66,7 @@ function StreakBox({ title, tone, data }: { title: string; tone: 'win' | 'loss';
   );
 }
 
-function OverallView({ o, initial }: { o: BtOverall; initial: number }) {
+function OverallView({ o, initial }: { o: Overall; initial: number }) {
   return (
     <>
       <div className="tiles tabular">
@@ -97,7 +101,7 @@ function OverallView({ o, initial }: { o: BtOverall; initial: number }) {
   );
 }
 
-function MonthView({ pips, money }: { pips: BtMonthTable; money: BtMonthTable }) {
+function MonthView({ pips, money }: { pips: MonthTable; money: MonthTable }) {
   const [unit, setUnit] = useState<'pips' | 'money'>('pips');
   const t = unit === 'pips' ? pips : money;
   const f = (v: number | null) => (v === null ? '-' : unit === 'pips' ? num(v) : fmtMoney(v));
@@ -199,11 +203,11 @@ function GrowthChart({ curve, scope }: { curve: { t: number; balance: number }[]
 
 type SortKey = 'symbol' | 'trades' | 'winRate' | 'profitFactor' | 'expectancyR' | 'pips' | 'profit' | 'maxDrawdownR' | 'maxLossStreak' | 'perYear';
 
-function PairsView({ pairs, onPick }: { pairs: BtPair[]; onPick: (symbol: string) => void }) {
+function PairsView({ pairs, onPick }: { pairs: PairRow[]; onPick: (symbol: string) => void }) {
   const [key, setKey] = useState<SortKey>('expectancyR');
   const [desc, setDesc] = useState(true);
   const rows = useMemo(() => {
-    const v = (p: BtPair) => (p[key] ?? (desc ? -Infinity : Infinity)) as number | string;
+    const v = (p: PairRow) => (p[key] ?? (desc ? -Infinity : Infinity)) as number | string;
     return [...pairs].sort((a, b) => {
       const x = v(a);
       const y = v(b);
@@ -287,38 +291,15 @@ export function BacktestModal({ onClose }: Props) {
   const [risk, setRisk] = useState('1');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
-  const [runId, setRunId] = useState<string | null>(null);
   const [symbol, setSymbol] = useState('ALL');
-  const [data, setData] = useState<BtRun | null>(null);
   const [tab, setTab] = useState<Tab>('overall');
+  const [phase, setPhase] = useState<'idle' | 'loading' | 'running' | 'done'>('idle');
+  const [progress, setProgress] = useState({ done: 0, total: 0 });
+  const [run, setRun] = useState<(BacktestRun & { initial: number; riskPct: number }) | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const worker = useRef<Worker | null>(null);
 
-  const load = useCallback(async () => {
-    if (!runId) return;
-    try {
-      setData(await api.backtest(runId, symbol === 'ALL' ? undefined : symbol));
-      setError(null);
-    } catch (e) {
-      // while the server is busy (or waking up) a poll can fail; keep the last state and retry
-      if (e instanceof TypeError || (e instanceof ApiError && e.status >= 502)) {
-        setError('Server sibuk atau sedang bangun, mencoba lagi…');
-        return;
-      }
-      setError((e as Error).message);
-    }
-  }, [runId, symbol]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  // poll while the server is still replaying; a failed poll keeps polling
-  useEffect(() => {
-    if (!runId || (data && data.status !== 'running')) return;
-    const id = setInterval(() => void load(), 1000);
-    return () => clearInterval(id);
-  }, [runId, data?.status, load]);
+  useEffect(() => () => worker.current?.terminate(), []);
 
   const start = async () => {
     const b = Number(balance);
@@ -327,34 +308,76 @@ export function BacktestModal({ onClose }: Props) {
       setError('Balance dan risk harus lebih dari 0');
       return;
     }
-    setBusy(true);
+    worker.current?.terminate();
     setError(null);
+    setRun(null);
+    setSymbol('ALL');
+    setPhase('loading');
     try {
-      const { id } = await api.runBacktest({ balance: b, riskPct: r, ...(from ? { from } : {}), ...(to ? { to } : {}) });
-      setData(null);
-      setSymbol('ALL');
-      setRunId(id);
+      const { sr, symbols } = await api.backtestCandles();
+      const w = new Worker(new URL('../backtest.worker.ts', import.meta.url), { type: 'module' });
+      worker.current = w;
+      w.onmessage = (e: MessageEvent<WorkerOut>) => {
+        const m = e.data;
+        if (m.type === 'progress') setProgress({ done: m.done, total: m.total });
+        else if (m.type === 'done') {
+          setRun({ ...m.run, initial: b, riskPct: r });
+          setPhase('done');
+          w.terminate();
+        } else {
+          setError(m.message);
+          setPhase('idle');
+          w.terminate();
+        }
+      };
+      w.onerror = (e) => {
+        setError(e.message || 'Worker gagal');
+        setPhase('idle');
+      };
+      setProgress({ done: 0, total: symbols.length });
+      setPhase('running');
+      const msg: WorkerIn = {
+        symbols,
+        sr,
+        balance: b,
+        riskPct: r,
+        ...(from ? { from: Date.parse(`${from}T00:00:00Z`) } : {}),
+        ...(to ? { to: Date.parse(`${to}T00:00:00Z`) } : {}),
+      };
+      w.postMessage(msg);
     } catch (e) {
       setError((e as Error).message);
-    } finally {
-      setBusy(false);
+      setPhase('idle');
     }
   };
 
-  const save = async (detail: boolean) => {
-    if (!runId) return;
-    try {
-      download(await api.backtestCsv(runId, symbol === 'ALL' ? undefined : symbol, detail), `backtest-${symbol === 'ALL' ? 'semua-pair' : symbol}${detail ? '-detail' : ''}.csv`);
-    } catch (e) {
-      setError((e as Error).message);
-    }
+  // every view is computed here from the trades; switching pair costs milliseconds
+  const view = useMemo(() => {
+    if (!run) return null;
+    const trades = symbol === 'ALL' ? run.trades : run.trades.filter((t) => t.symbol === symbol);
+    const byPair = new Map<string, typeof run.trades>();
+    for (const t of run.trades) byPair.set(t.symbol, [...(byPair.get(t.symbol) ?? []), t]);
+    return {
+      trades,
+      overall: overall(trades, run.initial),
+      monthsPips: monthTable(trades, (t) => t.pips),
+      monthsMoney: monthTable(trades, (t) => t.profit),
+      curve: thin(equityCurve(trades, run.initial), 600),
+      pairs: run.coverage.map((c): PairRow => ({ ...pairStats(c.symbol, byPair.get(c.symbol) ?? [], run.initial), tier: c.tier, years: c.years })),
+    };
+  }, [run, symbol]);
+
+  const save = (detail: boolean) => {
+    if (!view) return;
+    const name = `backtest-${symbol === 'ALL' ? 'semua-pair' : symbol}${detail ? '-detail' : ''}.csv`;
+    download(new Blob([tradesCsv(view.trades, detail)], { type: 'text/csv;charset=utf-8' }), name);
   };
 
-  const done = data?.status === 'done' && data.overall;
-  const cov = data?.coverage ?? [];
+  const cov = run?.coverage ?? [];
   const minYears = cov.length ? Math.min(...cov.map((c) => c.years)) : 0;
   const shortPairs = cov.filter((c) => c.tier === 'short' || c.tier === 'none');
   const tabs: [Tab, string][] = [['overall', 'Overall'], ['month', 'Per Month'], ['growth', 'Growth'], ['pairs', 'Pair']];
+  const busy = phase === 'loading' || phase === 'running';
 
   return (
     <Modal title="Backtest" onClose={onClose} wide>
@@ -371,22 +394,27 @@ export function BacktestModal({ onClose }: Props) {
         <label className="inline">
           Sampai <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
         </label>
-        <button type="button" className="primary" disabled={busy || data?.status === 'running'} onClick={() => void start()}>
-          {data?.status === 'running' ? 'Memproses…' : 'Jalankan'}
+        <button type="button" className="primary" disabled={busy} onClick={() => void start()}>
+          {busy ? 'Memproses…' : 'Jalankan'}
         </button>
       </div>
       <p className="muted">
         Compounding: tiap trade berisiko {risk || '…'}% dari balance saat fill (hanya trade yang sudah close sebelum hari itu). Semua pair aktif, satu balance. Memakai pengaturan S/R yang tersimpan.
+        Dihitung di browser Anda; server hanya mengirim candle.
       </p>
       {error && <p className="error">{error}</p>}
-      {data?.status === 'running' && (
+      {phase === 'loading' && (
         <p className="muted" role="status">
-          Memproses pair {data.progress.done}/{data.progress.total}…
+          Mengunduh candle dari server…
         </p>
       )}
-      {data?.status === 'error' && <p className="error">{data.error}</p>}
+      {phase === 'running' && (
+        <p className="muted" role="status">
+          Memproses pair {progress.done}/{progress.total}…
+        </p>
+      )}
 
-      {done && data.overall && (
+      {run && view && phase === 'done' && (
         <>
           {(minYears < 2 || shortPairs.length > 0) && (
             <p className="banner-warn">
@@ -399,7 +427,7 @@ export function BacktestModal({ onClose }: Props) {
               Pair{' '}
               <select value={symbol} onChange={(e) => setSymbol(e.target.value)} aria-label="Pair">
                 <option value="ALL">Semua pair</option>
-                {(data.pairs ?? []).map((p) => (
+                {view.pairs.map((p) => (
                   <option key={p.symbol} value={p.symbol}>
                     {p.symbol}
                   </option>
@@ -413,21 +441,21 @@ export function BacktestModal({ onClose }: Props) {
                 </button>
               ))}
             </span>
-            <button type="button" onClick={() => void save(false)} disabled={!data.overall.trades && !data.overall.open}>
+            <button type="button" onClick={() => save(false)} disabled={!view.trades.length}>
               Unduh CSV
             </button>
-            <button type="button" onClick={() => void save(true)} disabled={!data.overall.trades && !data.overall.open}>
+            <button type="button" onClick={() => save(true)} disabled={!view.trades.length}>
               CSV detail
             </button>
           </div>
           {symbol !== 'ALL' && <p className="muted">Hanya {symbol}. Profit = bagian pair ini dari run bersama.</p>}
 
-          {tab === 'overall' && <OverallView o={data.overall} initial={data.input.balance} />}
-          {tab === 'month' && data.monthsPips && data.monthsMoney && <MonthView pips={data.monthsPips} money={data.monthsMoney} />}
-          {tab === 'growth' && data.curve && <GrowthChart curve={data.curve} scope={symbol} />}
-          {tab === 'pairs' && data.pairs && (
+          {tab === 'overall' && <OverallView o={view.overall} initial={run.initial} />}
+          {tab === 'month' && <MonthView pips={view.monthsPips} money={view.monthsMoney} />}
+          {tab === 'growth' && <GrowthChart curve={view.curve} scope={symbol} />}
+          {tab === 'pairs' && (
             <PairsView
-              pairs={data.pairs}
+              pairs={view.pairs}
               onPick={(s) => {
                 setSymbol(s);
                 setTab('overall');
@@ -436,8 +464,8 @@ export function BacktestModal({ onClose }: Props) {
           )}
 
           <p className="muted foot-note">
-            Candle D1: untuk trade yang entry dan exit-nya satu hari, urutan harga dibaca open-low-high-close (candle naik) atau open-high-low-close (candle turun). {data.overall.ambiguous} dari {data.overall.trades} trade
-            ({data.overall.trades ? pct((data.overall.ambiguous / data.overall.trades) * 100, 1) : '–'}) hasilnya berubah bila urutannya terbalik. Jika SL dan TP kena di candle yang sama setelah posisi terbuka, SL dihitung dulu. Spread, komisi, dan slippage tidak dihitung, jadi hasil lebih optimis dari akun nyata. Warm-up {data.warmup} candle.
+            Candle D1: untuk trade yang entry dan exit-nya satu hari, urutan harga dibaca open-low-high-close (candle naik) atau open-high-low-close (candle turun). {view.overall.ambiguous} dari {view.overall.trades} trade
+            ({view.overall.trades ? pct((view.overall.ambiguous / view.overall.trades) * 100, 1) : '–'}) hasilnya berubah bila urutannya terbalik. Jika SL dan TP kena di candle yang sama setelah posisi terbuka, SL dihitung dulu. Spread, komisi, dan slippage tidak dihitung, jadi hasil lebih optimis dari akun nyata. Warm-up {run.warmup} candle.
           </p>
         </>
       )}

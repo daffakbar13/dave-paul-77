@@ -2,7 +2,9 @@
 // day, and searches the S/R parameters that reproduce them best. Differences are in ATR
 // units so pairs with different price scales can be averaged.
 import { analyze, atr, engineLines, fractals, roundTo } from './sr.ts';
-import type { Candidate, Candle, Side, SrParams, SymbolInputs } from './types.ts';
+import type { Candidate, Candle, Side, SrParams, SymbolData, SymbolInputs } from './types.ts';
+
+export type { SymbolData };
 
 const DAY = 86_400_000;
 
@@ -16,7 +18,6 @@ export type ManualOrder = {
   asOf: number; // ms, start of the trading day the order was placed
 };
 
-export type SymbolData = { candles: Candle[]; digits: number; inputs?: SymbolInputs };
 
 export type Comparison = {
   id: string;

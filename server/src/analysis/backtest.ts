@@ -7,9 +7,8 @@
 // Money is added afterwards (`compound`): every trade risks riskPct of the balance on the
 // day it fills, and the balance only counts trades that closed on an earlier day.
 import type { BtTrade } from './backtestStats.ts';
-import type { SymbolData } from './calibrate.ts';
 import { analyze, pipSize, roundTo } from './sr.ts';
-import type { Candle, Side, SrParams } from './types.ts';
+import type { Candle, Side, SrParams, SymbolData } from './types.ts';
 
 const MIN_RISK_PIPS = 1e-6;
 
@@ -83,9 +82,12 @@ function usable(side: Side, entry: number, sl: number, tp: number, ref: number, 
 // server stops answering (health checks, the page's polling) until the pair is done.
 export function makePause(everyMs = 10): () => Promise<void> {
   let last = Date.now();
+  // setImmediate in Node; browsers have only setTimeout
+  const immediate = (globalThis as { setImmediate?: (f: () => void) => unknown }).setImmediate;
+  const later = (f: () => void) => (immediate ? immediate(f) : setTimeout(f, 0));
   return async () => {
     if (Date.now() - last < everyMs) return;
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => later(resolve));
     last = Date.now();
   };
 }
@@ -222,6 +224,7 @@ export type BacktestInput = {
   from?: number;
   to?: number;
   onProgress?: (done: number, total: number) => void;
+  pause?: () => Promise<void>; // default: give the event loop a turn every ~10 ms; a worker passes a no-op
 };
 
 export type BacktestRun = { trades: BtTrade[]; coverage: Coverage[]; warmup: number };
@@ -234,13 +237,13 @@ export async function runBacktest(input: BacktestInput): Promise<BacktestRun> {
   const raw: RawTrade[] = [];
   const coverage: Coverage[] = [];
   let done = 0;
-  const pause = makePause();
+  const pause = input.pause ?? makePause();
   for (const name of names) {
     const d = input.data.get(name)!;
     coverage.push(coverageOf(name, d.candles, opts));
     for (const t of await replaySymbol(name, d, input.params, opts, pause)) raw.push(t);
     input.onProgress?.(++done, names.length);
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await pause();
   }
   return { trades: compound(raw, input.balance, input.riskPct), coverage, warmup };
 }
