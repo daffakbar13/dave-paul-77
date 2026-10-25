@@ -185,9 +185,12 @@ export function compound(raw: RawTrade[], balance: number, riskPct: number): BtT
 // pairs that stay are redone; filtering the finished trades would keep the old sizing.
 export function withoutPairs(trades: BtTrade[], excluded: ReadonlySet<string>, balance: number, riskPct: number): BtTrade[] {
   if (excluded.size === 0) return trades;
-  const raw: RawTrade[] = [];
-  for (const { riskMoney: _risk, profit: _profit, balanceBefore: _before, ...t } of trades) if (!excluded.has(t.symbol)) raw.push(t);
-  return compound(raw, balance, riskPct);
+  return compound(toRaw(trades).filter((t) => !excluded.has(t.symbol)), balance, riskPct);
+}
+
+// Drops the money again, so another balance or risk % can be applied without a replay.
+export function toRaw(trades: BtTrade[]): RawTrade[] {
+  return trades.map(({ riskMoney: _risk, profit: _profit, balanceBefore: _before, ...t }) => t);
 }
 
 export type Coverage = {
@@ -257,6 +260,8 @@ export type BacktestInput = {
 export type BacktestRun = { trades: BtTrade[]; coverage: Coverage[]; warmup: number };
 
 // Symbols run one after another; the event loop gets a turn every few milliseconds.
+// Trades still open on the last candle are left out: they have no result yet. While the
+// replay runs they still count, so their level is not placed again.
 export async function runBacktest(input: BacktestInput): Promise<BacktestRun> {
   const warmup = input.warmup ?? Math.min(input.params.lookback, 260);
   const opts: ReplayOptions = { warmup, ...(input.from !== undefined ? { from: input.from } : {}), ...(input.to !== undefined ? { to: input.to } : {}) };
@@ -268,7 +273,7 @@ export async function runBacktest(input: BacktestInput): Promise<BacktestRun> {
   for (const name of names) {
     const d = input.data.get(name)!;
     coverage.push(coverageOf(name, d.candles, opts));
-    for (const t of await replaySymbol(name, d, input.params, opts, pause)) raw.push(t);
+    for (const t of await replaySymbol(name, d, input.params, opts, pause)) if (t.result !== 'Open') raw.push(t);
     input.onProgress?.(++done, names.length);
     await pause();
   }

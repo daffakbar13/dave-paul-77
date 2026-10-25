@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
-import { peakOpen, closedInOrder, csvDate, csvPrice, drawdown, monthTable, overall, streaks, tradesCsv, gradeOf, type BtTrade } from './backtestStats.ts';
+import { compound, toRaw } from './backtest.ts';
+import { peakOpen, peakOpenDay, closedInOrder, csvDate, csvPrice, drawdown, monthReturns, monthTable, overall, streaks, tradesCsv, gradeOf, type BtTrade } from './backtestStats.ts';
 
 const DAY = 86_400_000;
 const day = (s: string) => Date.parse(`${s}T00:00:00Z`);
@@ -98,13 +99,85 @@ describe('peakOpen', () => {
       trade({ entryAt: 3 * DAY, exitAt: null, result: 'Open' }),
     ];
     assert.equal(peakOpen(t), 2); // days: 0 -> 1, 1 -> 2 (1+2), 2 -> 2 (1+3), 3 -> 2 (3 + the open one)
+    assert.deepEqual(peakOpenDay(t), { count: 2, at: DAY }); // first reached on day 1
+    assert.deepEqual(peakOpenDay([]), { count: 0, at: null });
+  });
+});
+
+describe('monthReturns (Persentase)', () => {
+  it('month = profit over the balance at the start of the month; YTD compounds; Total = final / initial', () => {
+    const t = monthReturns(
+      [
+        trade({ exitAt: day('2024-01-10'), profit: 100 }), // Jan: 1000 -> 1100 = +10%
+        trade({ exitAt: day('2024-03-05'), profit: -55, result: 'SL' }), // Mar: 1100 -> 1045 = -5%
+        trade({ exitAt: day('2024-03-20'), profit: 0 }),
+        trade({ exitAt: day('2025-02-01'), profit: 209 }), // Feb 2025: 1045 -> 1254 = +20%
+        trade({ result: 'Open', exitAt: null, profit: 0 }),
+      ],
+      1000,
+    );
+    assert.deepEqual(t.rows[0]!.months, [10, null, -5, null, null, null, null, null, null, null, null, null]);
+    assert.equal(t.rows[0]!.ytd, 4.5); // 1.10 x 0.95 - 1
+    assert.equal(t.rows[1]!.year, 2025);
+    assert.equal(t.rows[1]!.months[1], 20);
+    assert.equal(t.rows[1]!.ytd, 20);
+    assert.equal(t.total, 25.4); // 1254 / 1000 - 1
+  });
+
+  it('is empty-safe', () => {
+    assert.deepEqual(monthReturns([], 1000), { rows: [], total: 0 });
+  });
+});
+
+describe('toRaw', () => {
+  it('drops the money so compound() can apply another balance without a replay', () => {
+    const raw = [
+      { ...trade({ entryAt: day('2024-01-02'), exitAt: day('2024-01-02'), r: 2 }) },
+      { ...trade({ entryAt: day('2024-01-03'), exitAt: day('2024-01-04'), r: -1, result: 'SL' as const, pips: -10 }) },
+    ];
+    const once = compound(toRaw(raw), 1000, 1);
+    assert.deepEqual(once.map((t) => t.profit), [20, -10.2]); // the second trade is sized on 1020
+    assert.equal(Object.hasOwn(toRaw(once)[0]!, 'profit'), false);
+    assert.deepEqual(compound(toRaw(compound(toRaw(raw), 5000, 2)), 1000, 1), once);
   });
 });
 
 describe('drawdown and grade', () => {
   it('measures the largest fall from a peak', () => {
     const dd = drawdown([{ t: 1, balance: 100 }, { t: 2, balance: 150 }, { t: 3, balance: 90 }, { t: 4, balance: 140 }]);
-    assert.deepEqual(dd, { amount: 60, pct: 40 });
+    assert.equal(dd.amount, 60);
+    assert.equal(dd.pct, 40);
+    assert.deepEqual(dd.byAmount, { amount: 60, pct: 40, peakAt: 2, troughAt: 3, recoveredAt: null });
+    assert.deepEqual(dd.byPct, dd.byAmount);
+  });
+
+  it('the deepest fall in money and in % can be different episodes, each with its dates', () => {
+    // early: 100 -> 50 (-50, -50%), recovered at t=4; later: 1000 -> 800 (-200, -20%), not recovered
+    const dd = drawdown([
+      { t: 1, balance: 100 }, { t: 2, balance: 50 }, { t: 3, balance: 80 }, { t: 4, balance: 100 },
+      { t: 5, balance: 1000 }, { t: 6, balance: 900 }, { t: 7, balance: 800 }, { t: 8, balance: 950 },
+    ]);
+    assert.equal(dd.amount, 200);
+    assert.equal(dd.pct, 50);
+    assert.deepEqual(dd.byAmount, { amount: 200, pct: 20, peakAt: 5, troughAt: 7, recoveredAt: null });
+    assert.deepEqual(dd.byPct, { amount: 50, pct: 50, peakAt: 1, troughAt: 2, recoveredAt: 4 });
+  });
+
+  it('a curve that only rises has no drawdown', () => {
+    assert.deepEqual(drawdown([{ t: 1, balance: 100 }, { t: 2, balance: 120 }]), { amount: 0, pct: 0, byAmount: null, byPct: null });
+  });
+
+  it('overall reports both episodes', () => {
+    const o = overall(
+      [
+        trade({ entryAt: day('2024-01-02'), exitAt: day('2024-01-05'), profit: -100, result: 'SL', pips: -10, r: -1 }),
+        trade({ entryAt: day('2024-02-01'), exitAt: day('2024-02-03'), profit: 300 }),
+      ],
+      1000,
+    );
+    assert.equal(o.maxDrawdown, 100);
+    assert.equal(o.maxDrawdownPct, 10);
+    assert.deepEqual(o.maxDrawdownByAmount, { amount: 100, pct: 10, peakAt: day('2024-01-02'), troughAt: day('2024-01-05'), recoveredAt: day('2024-02-03') });
   });
 
   it('few trades never get a verdict', () => {

@@ -228,5 +228,6 @@ describe('runBacktest', () => {
     assert.deepEqual(seen, [1, 2]);
     assert.equal(run.coverage.length, 2);
     assert.ok(new Set(run.trades.map((t) => t.symbol)).size === 2);
+    assert.ok(run.trades.every((t) => t.result !== 'Open'), 'trades still open at the end are left out');
   });
 });

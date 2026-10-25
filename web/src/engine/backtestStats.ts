@@ -54,13 +54,20 @@ export type Overall = {
   profitFactor: number | null; // gross profit pips / gross loss pips
   expectancyR: number | null;
   maxDrawdown: number; // money, from the equity curve
-  maxDrawdownPct: number;
+  maxDrawdownPct: number; // the largest % drop, which can be another episode than the money one
+  maxDrawdownByAmount: DrawdownEpisode | null;
+  maxDrawdownByPct: DrawdownEpisode | null;
   consecutiveProfit: { byTrade: Streak; byPips: Streak };
   consecutiveLoss: { byTrade: Streak; byPips: Streak };
   ambiguous: number; // trades whose result flips if the D1 candle was traversed the other way
   open: number;
   peakOpen: number; // most trades open on one day (each risks the same %)
+  peakOpenAt: number | null; // first day that many were open
 };
+
+// One fall of the equity curve: from a high to the lowest point before the curve got
+// back above that high. Both sizes are of this same fall.
+export type DrawdownEpisode = { amount: number; pct: number; peakAt: number; troughAt: number; recoveredAt: number | null };
 
 export type MonthRow = { year: number; months: (number | null)[]; ytd: number };
 export type MonthTable = { rows: MonthRow[]; total: number };
@@ -113,16 +120,31 @@ export function equityCurve(trades: BtTrade[], initial: number): CurvePoint[] {
   return points;
 }
 
-export function drawdown(curve: CurvePoint[]): { amount: number; pct: number } {
-  let peak = -Infinity;
-  let amount = 0;
-  let pct = 0;
-  for (const p of curve) {
-    peak = Math.max(peak, p.balance);
-    amount = Math.max(amount, peak - p.balance);
-    if (peak > 0) pct = Math.max(pct, (peak - p.balance) / peak);
+// The deepest fall in money and the deepest in %. With compounding they are often different
+// episodes (an early fall is small in money but large in %), so each comes with its dates.
+export function drawdown(curve: CurvePoint[]): { amount: number; pct: number; byAmount: DrawdownEpisode | null; byPct: DrawdownEpisode | null } {
+  type Fall = { peak: number; trough: number; amount: number; pct: number }; // indexes into curve
+  let peak = -1;
+  let byAmount: Fall | null = null;
+  let byPct: Fall | null = null;
+  for (let i = 0; i < curve.length; i++) {
+    if (peak < 0 || curve[i]!.balance >= curve[peak]!.balance) {
+      peak = i;
+      continue;
+    }
+    const top = curve[peak]!.balance;
+    const amount = top - curve[i]!.balance;
+    const pct = top > 0 ? (amount / top) * 100 : 0;
+    if (!byAmount || amount > byAmount.amount) byAmount = { peak, trough: i, amount, pct };
+    if (!byPct || pct > byPct.pct) byPct = { peak, trough: i, amount, pct };
   }
-  return { amount: r2(amount), pct: r2(pct * 100) };
+  const episode = (f: Fall | null): DrawdownEpisode | null => {
+    if (!f) return null;
+    // first point after the trough back at the peak's balance
+    const back = curve.slice(f.trough + 1).find((p) => p.balance >= curve[f.peak]!.balance);
+    return { amount: r2(f.amount), pct: r2(f.pct), peakAt: curve[f.peak]!.t, troughAt: curve[f.trough]!.t, recoveredAt: back?.t ?? null };
+  };
+  return { amount: r2(byAmount?.amount ?? 0), pct: r2(byPct?.pct ?? 0), byAmount: episode(byAmount), byPct: episode(byPct) };
 }
 
 // At most `max` points for the chart; the first and last are always kept.
@@ -134,6 +156,11 @@ export function thin(curve: CurvePoint[], max: number): CurvePoint[] {
 
 // Most trades open at once, counting the fill and exit days as open.
 export function peakOpen(trades: BtTrade[]): number {
+  return peakOpenDay(trades).count;
+}
+
+// The same, with the first day it happened.
+export function peakOpenDay(trades: BtTrade[]): { count: number; at: number | null } {
   const events: [number, number][] = [];
   for (const t of trades) {
     events.push([t.entryAt, 1]);
@@ -142,11 +169,15 @@ export function peakOpen(trades: BtTrade[]): number {
   events.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
   let now = 0;
   let peak = 0;
-  for (const [, d] of events) {
+  let at: number | null = null;
+  for (const [t, d] of events) {
     now += d;
-    peak = Math.max(peak, now);
+    if (now > peak) {
+      peak = now;
+      at = t;
+    }
   }
-  return peak;
+  return { count: peak, at };
 }
 
 export function overall(trades: BtTrade[], initial: number): Overall {
@@ -167,6 +198,7 @@ export function overall(trades: BtTrade[], initial: number): Overall {
   const grossWin = wins.reduce((s, t) => s + t.pips, 0);
   const grossLoss = losses.reduce((s, t) => s - t.pips, 0);
   const dd = drawdown(equityCurve(trades, initial));
+  const busiest = peakOpenDay(trades);
   return {
     trades: n,
     wins: wins.length,
@@ -192,11 +224,14 @@ export function overall(trades: BtTrade[], initial: number): Overall {
     expectancyR: n ? roundTo(closed.reduce((s, t) => s + t.r, 0) / n, 3) : null,
     maxDrawdown: dd.amount,
     maxDrawdownPct: dd.pct,
+    maxDrawdownByAmount: dd.byAmount,
+    maxDrawdownByPct: dd.byPct,
     consecutiveProfit: streaks(closed, 1),
     consecutiveLoss: streaks(closed, -1),
     ambiguous: closed.filter((t) => t.ambiguous).length,
     open: trades.length - n,
-    peakOpen: peakOpen(trades),
+    peakOpen: busiest.count,
+    peakOpenAt: busiest.at,
   };
 }
 
@@ -213,6 +248,33 @@ export function monthTable(trades: BtTrade[], pick: (t: BtTrade) => number): Mon
     .sort((a, b) => a[0] - b[0])
     .map(([year, months]) => ({ year, months: months.map((m) => (m === null ? null : r1(m))), ytd: r1(months.reduce<number>((s, m) => s + (m ?? 0), 0)) }));
   return { rows, total: r1(rows.reduce((s, r) => s + r.ytd, 0)) };
+}
+
+// Return per exit month in %: the month's profit over the balance at the start of that
+// month (initial plus every trade closed before it). YTD is the year's compounded return
+// (balance at the end of the year over the start), Total is final over initial balance.
+export function monthReturns(trades: BtTrade[], initial: number): MonthTable {
+  const byYear = new Map<number, { months: (number | null)[]; start: number; end: number }>();
+  let bal = initial;
+  let month = -1;
+  let monthStart = initial;
+  for (const t of closedInOrder(trades)) {
+    const d = new Date(t.exitAt!);
+    const key = d.getUTCFullYear() * 12 + d.getUTCMonth();
+    if (key !== month) {
+      month = key;
+      monthStart = bal;
+    }
+    const row = byYear.get(d.getUTCFullYear()) ?? { months: Array<number | null>(12).fill(null), start: bal, end: bal };
+    bal += t.profit;
+    row.end = bal;
+    row.months[d.getUTCMonth()] = monthStart > 0 ? ((bal - monthStart) / monthStart) * 100 : null;
+    byYear.set(d.getUTCFullYear(), row);
+  }
+  const rows = [...byYear]
+    .sort((a, b) => a[0] - b[0])
+    .map(([year, r]) => ({ year, months: r.months.map((m) => (m === null ? null : r2(m))), ytd: r.start > 0 ? r2(((r.end - r.start) / r.start) * 100) : 0 }));
+  return { rows, total: rows.length && initial > 0 ? r2(((bal - initial) / initial) * 100) : 0 };
 }
 
 // --- per pair ------------------------------------------------------------------
