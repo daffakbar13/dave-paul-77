@@ -1,15 +1,34 @@
 import { AreaSeries, ColorType, createChart, PriceScaleMode, type UTCTimestamp } from 'lightweight-charts';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { api } from '../api.ts';
-import type { WorkerIn, WorkerOut } from '../backtest.worker.ts';
-import { withoutPairs, type BacktestRun, type Coverage } from '../engine/backtest.ts';
-import { equityCurve, monthTable, overall, pairStats, thin, tradesCsv, type MonthTable, type Overall, type PairGrade, type PairStats, type Streak } from '../engine/backtestStats.ts';
-import { fmtMoney } from '../format.ts';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { api, type SavedBacktest } from '../api.ts';
+import type { WorkerIn, WorkerOut, WorkerSymbol } from '../backtest.worker.ts';
+import { fingerprintOf, loadCandles, loadLastResult, loadUi, pack, sameSr, saveCandles, saveLastResult, saveUi, unpack, type BtResult } from '../backtestStore.ts';
+import { compound, toRaw, type Coverage, type RawTrade } from '../engine/backtest.ts';
+import {
+  equityCurve,
+  monthReturns,
+  monthTable,
+  overall,
+  pairStats,
+  thin,
+  tradesCsv,
+  type BtTrade,
+  type DrawdownEpisode,
+  type MonthTable,
+  type Overall,
+  type PairGrade,
+  type PairStats,
+  type Streak,
+} from '../engine/backtestStats.ts';
+import type { SrParams } from '../engine/types.ts';
+import { fmtDate, fmtMoney } from '../format.ts';
+import { BacktestChart } from './BacktestChart.tsx';
 import { Modal } from './Modal.tsx';
 
 type Props = { onClose: () => void };
 type PairRow = PairStats & { tier: Coverage['tier']; years: number; gapDays: number; active: boolean };
-type Tab = 'overall' | 'month' | 'growth' | 'pairs';
+type Tab = 'overall' | 'month' | 'growth' | 'chart' | 'pairs';
+const TABS: Tab[] = ['overall', 'month', 'growth', 'chart', 'pairs'];
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
 const GRADE: Record<PairGrade, string> = { good: 'Bagus', ok: 'Cukup', weak: 'Lemah', few: 'Data kurang' };
@@ -20,26 +39,23 @@ const pct = (v: number | null | undefined, d = 2) => (v === null || v === undefi
 const sign = (v: number | null | undefined) => (v === null || v === undefined || v === 0 ? '' : v > 0 ? 'ok' : 'error');
 const fmtYears = (y: number) => (y >= 1 ? `${num(y, 1)} tahun` : `${Math.round(y * 12)} bulan`);
 
+// Before the inputs moved to IndexedDB the excluded pairs lived here; read once as a fallback.
 const EXCLUDED_KEY = 'dp77.backtest.excluded';
-type SavedExcluded = { all: string; excluded: string[] };
-function readExcluded(): SavedExcluded {
+function oldExcluded(): string[] {
   try {
-    const v = JSON.parse(localStorage.getItem(EXCLUDED_KEY) ?? 'null') as SavedExcluded | null;
-    if (v && typeof v.all === 'string' && Array.isArray(v.excluded)) return v;
+    const v = JSON.parse(localStorage.getItem(EXCLUDED_KEY) ?? 'null') as { excluded?: unknown } | null;
+    if (v && Array.isArray(v.excluded)) return v.excluded.filter((x): x is string => typeof x === 'string');
   } catch {
     /* storage blocked or corrupt: start with every pair */
   }
-  return { all: '', excluded: [] };
-}
-function writeExcluded(v: SavedExcluded) {
-  try {
-    localStorage.setItem(EXCLUDED_KEY, JSON.stringify(v));
-  } catch {
-    /* the choice just does not survive a reload */
-  }
+  return [];
 }
 
 const WORST_COUNT = 4;
+
+// Results stored before open trades were left out still have them; a trade with no result
+// has no place in a backtest.
+const closedOnly = (raw: RawTrade[]) => raw.filter((t) => t.result !== 'Open');
 
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
 const lastYears = (n: number): [string, string] => {
@@ -76,7 +92,7 @@ function download(blob: Blob, name: string) {
   URL.revokeObjectURL(url);
 }
 
-function Tile({ label, value, sub, cls }: { label: string; value: string; sub?: string; cls?: string }) {
+function Tile({ label, value, sub, cls }: { label: string; value: string; sub?: ReactNode; cls?: string }) {
   return (
     <div className={cls}>
       <span>{label}</span>
@@ -106,6 +122,20 @@ function StreakBox({ title, tone, data }: { title: string; tone: 'win' | 'loss';
   );
 }
 
+// Under a drawdown figure: the other size of the same fall and its dates.
+function Episode({ ep, show }: { ep: DrawdownEpisode | null; show: 'pct' | 'amount' }) {
+  if (!ep) return <>tidak ada penurunan</>;
+  return (
+    <>
+      {show === 'pct' ? `= ${pct(ep.pct)} dari puncak` : `= ${fmtMoney(ep.amount)}`}
+      <br />
+      {fmtDate(ep.peakAt)} → {fmtDate(ep.troughAt)}
+      <br />
+      {ep.recoveredAt === null ? 'belum pulih' : `pulih ${fmtDate(ep.recoveredAt)}`}
+    </>
+  );
+}
+
 function OverallView({ o, initial }: { o: Overall; initial: number }) {
   return (
     <>
@@ -132,19 +162,20 @@ function OverallView({ o, initial }: { o: Overall; initial: number }) {
       <div className="tiles tabular">
         <Tile label="Profit factor (pips)" value={o.profitFactor === null ? '–' : num(o.profitFactor, 2)} />
         <Tile label="Expectancy" value={o.expectancyR === null ? '–' : `${o.expectancyR >= 0 ? '+' : ''}${num(o.expectancyR, 2)}R`} cls={sign(o.expectancyR)} sub="rata-rata R per trade" />
-        <Tile label="Max drawdown" value={fmtMoney(o.maxDrawdown)} sub={pct(o.maxDrawdownPct)} />
+        <Tile label="Max drawdown (nilai)" value={fmtMoney(o.maxDrawdown)} sub={<Episode ep={o.maxDrawdownByAmount} show="pct" />} cls={o.maxDrawdown ? 'error' : ''} />
+        <Tile label="Max drawdown (%)" value={pct(o.maxDrawdownPct)} sub={<Episode ep={o.maxDrawdownByPct} show="amount" />} cls={o.maxDrawdownPct ? 'error' : ''} />
         <Tile label="Posisi bersamaan maks" value={String(o.peakOpen)} sub={`≈ ${o.peakOpen}× risiko per trade`} />
         <Tile label="Bergantung urutan intraday" value={String(o.ambiguous)} sub={o.trades ? pct((o.ambiguous / o.trades) * 100, 1) : undefined} />
-        <Tile label="Masih terbuka" value={String(o.open)} sub={`balance awal ${fmtMoney(initial)}`} />
+        <Tile label="Balance awal" value={fmtMoney(initial)} sub={`akhir ${fmtMoney(initial + o.profit)}`} />
       </div>
     </>
   );
 }
 
-function MonthView({ pips, money }: { pips: MonthTable; money: MonthTable }) {
-  const [unit, setUnit] = useState<'pips' | 'money'>('pips');
-  const t = unit === 'pips' ? pips : money;
-  const f = (v: number | null) => (v === null ? '-' : unit === 'pips' ? num(v) : fmtMoney(v));
+function MonthView({ pips, money, returns, scope }: { pips: MonthTable; money: MonthTable; returns: MonthTable; scope: string }) {
+  const [unit, setUnit] = useState<'pips' | 'money' | 'pct'>('pips');
+  const t = unit === 'pips' ? pips : unit === 'money' ? money : returns;
+  const f = (v: number | null) => (v === null ? '-' : unit === 'pips' ? num(v) : unit === 'money' ? fmtMoney(v) : pct(v));
   return (
     <>
       <div className="modal-tools">
@@ -155,8 +186,15 @@ function MonthView({ pips, money }: { pips: MonthTable; money: MonthTable }) {
           <button type="button" aria-pressed={unit === 'money'} onClick={() => setUnit('money')}>
             Profit
           </button>
+          <button type="button" aria-pressed={unit === 'pct'} onClick={() => setUnit('pct')}>
+            Persentase
+          </button>
         </span>
-        <span className="muted">Dihitung pada bulan close trade.</span>
+        <span className="muted">
+          Dihitung pada bulan close trade.
+          {unit === 'pct' &&
+            ` Bulan = profit bulan itu / balance awal bulan${scope === 'ALL' ? '' : ` (balance awal + kontribusi ${scope})`}; YTD = return majemuk setahun; Total = balance akhir / balance awal − 1.`}
+        </span>
       </div>
       <div className="table-scroll">
         <table className="orders tabular months">
@@ -186,7 +224,7 @@ function MonthView({ pips, money }: { pips: MonthTable; money: MonthTable }) {
               </tr>
             ))}
             <tr>
-              <th colSpan={13}>Total</th>
+              <th colSpan={13}>Total{unit === 'pct' ? ' (majemuk)' : ''}</th>
               <td className={`num ${sign(t.total)}`}>
                 <b>{f(t.total)}</b>
               </td>
@@ -247,7 +285,8 @@ function CompareBox({ all, live, off }: { all: Overall; live: Overall; off: stri
     ['Total profit', fmtMoney(all.profit), fmtMoney(live.profit)],
     ['Expectancy', R(all.expectancyR), R(live.expectancyR)],
     ['Profit factor (pips)', all.profitFactor === null ? '–' : num(all.profitFactor, 2), live.profitFactor === null ? '–' : num(live.profitFactor, 2)],
-    ['Max drawdown', pct(all.maxDrawdownPct), pct(live.maxDrawdownPct)],
+    ['Max drawdown (nilai)', fmtMoney(all.maxDrawdown), fmtMoney(live.maxDrawdown)],
+    ['Max drawdown (%)', pct(all.maxDrawdownPct), pct(live.maxDrawdownPct)],
     ['Kalah beruntun', String(all.consecutiveLoss.byTrade.count), String(live.consecutiveLoss.byTrade.count)],
     ['Total trade', String(all.trades), String(live.trades)],
     ['Posisi bersamaan maks', String(all.peakOpen), String(live.peakOpen)],
@@ -392,34 +431,74 @@ function PairsView({ pairs, worst, onPick, onToggle, onSet }: { pairs: PairRow[]
 export function BacktestModal({ onClose }: Props) {
   const [balance, setBalance] = useState('6000');
   const [risk, setRisk] = useState('1');
+  // what the numbers are computed with: the inputs once valid, a moment after typing stops
+  const [money, setMoney] = useState({ balance: 6000, riskPct: 1 });
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [symbol, setSymbol] = useState('ALL');
   const [tab, setTab] = useState<Tab>('overall');
-  const [phase, setPhase] = useState<'idle' | 'loading' | 'running' | 'done'>('idle');
+  const [phase, setPhase] = useState<'idle' | 'loading' | 'running'>('idle');
   const [progress, setProgress] = useState({ done: 0, total: 0 });
-  const [run, setRun] = useState<(BacktestRun & { initial: number; riskPct: number }) | null>(null);
+  const [result, setResult] = useState<BtResult | null>(null);
+  const [restored, setRestored] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const worker = useRef<Worker | null>(null);
-  const [excluded, setExcluded] = useState<Set<string>>(() => new Set(readExcluded().excluded));
+  const [excluded, setExcluded] = useState<Set<string>>(() => new Set());
+  const [currentSr, setCurrentSr] = useState<SrParams | null>(null);
+  const [candles, setCandles] = useState<WorkerSymbol[] | null>(null);
+  const [chartState, setChartState] = useState<{ loading: boolean; failed: string | null }>({ loading: false, failed: null });
+  const [saved, setSaved] = useState<SavedBacktest[]>([]);
+  const [saveName, setSaveName] = useState('');
+  const [savedBusy, setSavedBusy] = useState(false);
+  const [savedMsg, setSavedMsg] = useState<string | null>(null);
 
   useEffect(() => () => worker.current?.terminate(), []);
 
-  // a choice made for another set of pairs no longer applies
+  // the last result and inputs of this browser, the S/R settings now, the saved results
   useEffect(() => {
-    if (!run) return;
-    const all = run.coverage.map((c) => c.symbol).join(',');
-    const saved = readExcluded();
-    if (saved.all && saved.all !== all) {
-      setExcluded(new Set());
-      writeExcluded({ all, excluded: [] });
-    } else writeExcluded({ all, excluded: saved.excluded });
-  }, [run]);
+    let stop = false;
+    void (async () => {
+      const [last, ui] = await Promise.all([loadLastResult(), loadUi()]);
+      if (stop) return;
+      if (ui) {
+        setBalance(ui.balance);
+        setRisk(ui.risk);
+        if (Number(ui.balance) > 0 && Number(ui.risk) > 0) setMoney({ balance: Number(ui.balance), riskPct: Number(ui.risk) });
+        setFrom(ui.from);
+        setTo(ui.to);
+        setSymbol(ui.symbol);
+        if (TABS.includes(ui.tab as Tab)) setTab(ui.tab as Tab);
+        setExcluded(new Set(ui.excluded));
+      } else setExcluded(new Set(oldExcluded()));
+      if (last) setResult({ ...last, raw: closedOnly(last.raw) });
+      setRestored(true);
+    })();
+    api.settings().then((s) => !stop && setCurrentSr(s.sr as unknown as SrParams), () => {});
+    api.savedBacktests().then((r) => !stop && setSaved(r.backtests), () => {});
+    return () => {
+      stop = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const b = Number(balance);
+    const r = Number(risk);
+    if (!(b > 0) || !(r > 0)) return;
+    const id = setTimeout(() => setMoney({ balance: b, riskPct: r }), 250);
+    return () => clearTimeout(id);
+  }, [balance, risk]);
+
+  // inputs are remembered on every change; the result only when it is a new one
+  useEffect(() => {
+    if (restored) void saveUi({ balance, risk, from, to, symbol, tab, excluded: [...excluded] });
+  }, [restored, balance, risk, from, to, symbol, tab, excluded]);
+  useEffect(() => {
+    if (restored && result) void saveLastResult(result);
+  }, [restored, result]);
 
   const setOff = (next: Set<string>) => {
     setExcluded(next);
     if (symbol !== 'ALL' && next.has(symbol)) setSymbol('ALL');
-    writeExcluded({ all: (run?.coverage ?? []).map((c) => c.symbol).join(','), excluded: [...next] });
   };
 
   const start = async () => {
@@ -435,19 +514,26 @@ export function BacktestModal({ onClose }: Props) {
     }
     worker.current?.terminate();
     setError(null);
-    setRun(null);
-    setSymbol('ALL');
+    setSavedMsg(null);
     setPhase('loading');
     try {
       const { sr, symbols } = await api.backtestCandles();
+      const runFrom = from;
+      const runTo = to;
       const w = new Worker(new URL('../backtest.worker.ts', import.meta.url), { type: 'module' });
       worker.current = w;
       w.onmessage = (e: MessageEvent<WorkerOut>) => {
         const m = e.data;
         if (m.type === 'progress') setProgress({ done: m.done, total: m.total });
         else if (m.type === 'done') {
-          setRun({ ...m.run, initial: b, riskPct: r });
-          setPhase('done');
+          const names = new Set(m.run.coverage.map((c) => c.symbol));
+          setResult({ raw: toRaw(m.run.trades), coverage: m.run.coverage, warmup: m.run.warmup, sr, from: runFrom, to: runTo, fingerprint: fingerprintOf(symbols) });
+          setMoney({ balance: b, riskPct: r });
+          // a pair that is not in this run cannot stay excluded or selected
+          setExcluded((prev) => new Set([...prev].filter((s) => names.has(s))));
+          setSymbol((prev) => (names.has(prev) ? prev : 'ALL'));
+          setCurrentSr(sr);
+          setPhase('idle');
           w.terminate();
         } else {
           setError(m.message);
@@ -459,6 +545,9 @@ export function BacktestModal({ onClose }: Props) {
         setError(e.message || 'Worker gagal');
         setPhase('idle');
       };
+      setCandles(symbols);
+      setChartState({ loading: false, failed: null });
+      void saveCandles(symbols);
       setProgress({ done: 0, total: symbols.length });
       setPhase('running');
       const msg: WorkerIn = {
@@ -476,41 +565,71 @@ export function BacktestModal({ onClose }: Props) {
     }
   };
 
-  // every view is computed here from the trades; switching pair or excluding pairs costs milliseconds
+  // Chart tab: candles of the picked pair from the last download (memory, then IndexedDB),
+  // fetched from the server only when this browser has none for it.
+  useEffect(() => {
+    if (tab !== 'chart' || symbol === 'ALL' || !result || chartState.loading || chartState.failed === symbol) return;
+    if (candles?.some((s) => s.name === symbol)) return;
+    // no cancel flag: the loading state change re-runs this effect, and the candles are wanted either way
+    void (async () => {
+      let list = candles ?? (await loadCandles()) ?? [];
+      if (!list.some((s) => s.name === symbol)) {
+        setChartState({ loading: true, failed: null });
+        try {
+          const { symbols } = await api.backtestCandles([symbol]);
+          list = [...list.filter((s) => s.name !== symbol), ...symbols];
+          void saveCandles(list);
+          setChartState({ loading: false, failed: null });
+        } catch (e) {
+          setChartState({ loading: false, failed: symbol });
+          setError((e as Error).message);
+          return;
+        }
+      }
+      setCandles(list);
+    })();
+  }, [tab, symbol, result, candles, chartState]);
+
+  // every view is computed here from the raw trades; balance, risk, pair and excluded pairs
+  // cost milliseconds, only dates and S/R settings need a new replay
   const view = useMemo(() => {
-    if (!run) return null;
-    const live = withoutPairs(run.trades, excluded, run.initial, run.riskPct);
+    if (!result) return null;
+    const initial = money.balance;
+    const all = compound(result.raw, initial, money.riskPct);
+    const live = excluded.size ? compound(result.raw.filter((t) => !excluded.has(t.symbol)), initial, money.riskPct) : all;
     const trades = symbol === 'ALL' ? live : live.filter((t) => t.symbol === symbol);
-    const group = (ts: typeof run.trades) => {
-      const m = new Map<string, typeof run.trades>();
+    const group = (ts: BtTrade[]) => {
+      const m = new Map<string, BtTrade[]>();
       for (const t of ts) m.set(t.symbol, [...(m.get(t.symbol) ?? []), t]);
       return m;
     };
-    const full = group(run.trades);
+    const full = group(all);
     const kept = group(live);
-    const pairs = run.coverage.map((c): PairRow => {
+    const pairs = result.coverage.map((c): PairRow => {
       const active = !excluded.has(c.symbol);
-      return { ...pairStats(c.symbol, (active ? kept : full).get(c.symbol) ?? [], run.initial), tier: c.tier, years: c.years, gapDays: c.gapDays, active };
+      return { ...pairStats(c.symbol, (active ? kept : full).get(c.symbol) ?? [], initial), tier: c.tier, years: c.years, gapDays: c.gapDays, active };
     });
     // the weakest by the full run, so the suggestion does not move as pairs are switched off
-    const worst = run.coverage
-      .map((c) => ({ symbol: c.symbol, s: pairStats(c.symbol, full.get(c.symbol) ?? [], run.initial) }))
+    const worst = result.coverage
+      .map((c) => ({ symbol: c.symbol, s: pairStats(c.symbol, full.get(c.symbol) ?? [], initial) }))
       .filter((x) => x.s.grade !== 'few' && x.s.expectancyR !== null)
       .sort((a, b) => a.s.expectancyR! - b.s.expectancyR!)
       .slice(0, WORST_COUNT)
       .map((x) => x.symbol);
     return {
+      initial,
       trades,
-      overall: overall(trades, run.initial),
-      liveAll: symbol === 'ALL' ? null : overall(live, run.initial),
-      baseline: excluded.size ? overall(run.trades, run.initial) : null,
+      overall: overall(trades, initial),
+      liveAll: symbol === 'ALL' ? null : overall(live, initial),
+      baseline: excluded.size ? overall(all, initial) : null,
       monthsPips: monthTable(trades, (t) => t.pips),
       monthsMoney: monthTable(trades, (t) => t.profit),
-      curve: thin(equityCurve(trades, run.initial), 600),
+      monthsPct: monthReturns(trades, initial),
+      curve: thin(equityCurve(trades, initial), 600),
       pairs,
       worst,
     };
-  }, [run, symbol, excluded]);
+  }, [result, money, symbol, excluded]);
 
   const save = (detail: boolean) => {
     if (!view) return;
@@ -518,12 +637,101 @@ export function BacktestModal({ onClose }: Props) {
     download(new Blob([tradesCsv(view.trades, detail)], { type: 'text/csv;charset=utf-8' }), name);
   };
 
-  const cov = run?.coverage ?? [];
+  // --- named results on the server ---
+  const refreshSaved = () => api.savedBacktests().then((r) => setSaved(r.backtests));
+
+  const withSaved = async (work: () => Promise<string | void>) => {
+    setSavedBusy(true);
+    setSavedMsg(null);
+    setError(null);
+    try {
+      const msg = await work();
+      if (msg) setSavedMsg(msg);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSavedBusy(false);
+    }
+  };
+
+  const storeResult = () =>
+    withSaved(async () => {
+      if (!result) return;
+      const name = saveName.trim();
+      const { backtest } = await api.saveBacktest({
+        name,
+        balance: money.balance,
+        riskPct: money.riskPct,
+        from: result.from || null,
+        to: result.to || null,
+        excluded: [...excluded].sort(),
+        sr: result.sr as unknown as SavedBacktest['sr'],
+        warmup: result.warmup,
+        coverage: result.coverage,
+        fingerprint: result.fingerprint,
+        trades: result.raw.map(pack),
+      });
+      setResult({ ...result, saved: { id: backtest.id, name: backtest.name } });
+      setSaveName('');
+      await refreshSaved();
+      return `Tersimpan sebagai "${backtest.name}"`;
+    });
+
+  const openSaved = (id: string) =>
+    withSaved(async () => {
+      if (!id) return;
+      const b = await api.savedBacktest(id);
+      worker.current?.terminate();
+      setPhase('idle');
+      setResult({
+        raw: closedOnly(b.trades.map(unpack)),
+        coverage: b.coverage,
+        warmup: b.warmup,
+        sr: b.sr as unknown as SrParams,
+        from: b.from ?? '',
+        to: b.to ?? '',
+        fingerprint: b.fingerprint,
+        saved: { id: b.id, name: b.name },
+      });
+      setBalance(String(b.balance));
+      setRisk(String(b.riskPct));
+      setMoney({ balance: b.balance, riskPct: b.riskPct });
+      setFrom(b.from ?? '');
+      setTo(b.to ?? '');
+      setExcluded(new Set(b.excluded));
+      setSymbol('ALL');
+    });
+
+  const renameSaved = () =>
+    withSaved(async () => {
+      if (!result?.saved) return;
+      const { backtest } = await api.renameBacktest(result.saved.id, saveName.trim());
+      setResult({ ...result, saved: { id: backtest.id, name: backtest.name } });
+      setSaveName('');
+      await refreshSaved();
+      return `Nama diganti jadi "${backtest.name}"`;
+    });
+
+  const deleteSaved = () =>
+    withSaved(async () => {
+      if (!result?.saved || !window.confirm(`Hapus hasil tersimpan "${result.saved.name}"? Hasil yang tampil sekarang tetap ada di browser ini.`)) return;
+      await api.deleteBacktest(result.saved.id);
+      const { saved: _gone, ...rest } = result;
+      setResult(rest);
+      await refreshSaved();
+      return 'Hasil tersimpan dihapus';
+    });
+
+  const cov = result?.coverage ?? [];
   const minYears = cov.length ? Math.min(...cov.map((c) => c.years)) : 0;
   const gapPairs = cov.filter((c) => c.gapDays > 0);
   const shortPairs = cov.filter((c) => c.tier === 'short' || c.tier === 'none');
-  const tabs: [Tab, string][] = [['overall', 'Overall'], ['month', 'Per Month'], ['growth', 'Growth'], ['pairs', 'Pair']];
+  const tabs: [Tab, string][] = [['overall', 'Overall'], ['month', 'Per Month'], ['growth', 'Growth'], ['chart', 'Chart'], ['pairs', 'Pair']];
   const busy = phase === 'loading' || phase === 'running';
+  const datesChanged = !!result && (from !== result.from || to !== result.to);
+  const srChanged = !!result && !!currentSr && !sameSr(result.sr, currentSr);
+  const chartData = symbol === 'ALL' ? undefined : candles?.find((s) => s.name === symbol);
+  const range = (f: string, t: string) => `${f || 'awal data'} – ${t || 'candle terakhir'}`;
 
   return (
     <Modal title="Backtest" onClose={onClose} wide>
@@ -564,8 +772,45 @@ export function BacktestModal({ onClose }: Props) {
       </div>
       <p className="muted">
         Compounding: tiap trade berisiko {risk || '…'}% dari balance saat fill (hanya trade yang sudah close sebelum hari itu). Semua pair aktif, satu balance. Memakai pengaturan S/R yang tersimpan.
-        Dihitung di browser Anda; server hanya mengirim candle.
+        Dihitung di browser Anda; server hanya mengirim candle. Balance dan risk langsung dihitung ulang; Jalankan hanya perlu bila tanggal atau pengaturan S/R berubah.
       </p>
+      <div className="modal-tools saved-bar">
+        <label className="inline">
+          Hasil tersimpan{' '}
+          <select value={result?.saved?.id ?? ''} onChange={(e) => void openSaved(e.target.value)} disabled={savedBusy || busy} aria-label="Hasil tersimpan">
+            <option value="">{saved.length ? '— pilih —' : '— belum ada —'}</option>
+            {saved.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name} · {s.tradeCount} trade · {range(s.from ?? '', s.to ?? '')}
+                {currentSr && !sameSr(s.sr as unknown as SrParams, currentSr) ? ' · S/R beda' : ''}
+              </option>
+            ))}
+          </select>
+        </label>
+        {result && (
+          <>
+            <input type="text" placeholder="Nama hasil" maxLength={80} value={saveName} onChange={(e) => setSaveName(e.target.value)} aria-label="Nama hasil" />
+            <button type="button" onClick={() => void storeResult()} disabled={savedBusy || busy || !saveName.trim()}>
+              Simpan
+            </button>
+            {result.saved && (
+              <>
+                <button type="button" onClick={() => void renameSaved()} disabled={savedBusy || !saveName.trim()} title={`Ganti nama "${result.saved.name}" jadi nama di kolom`}>
+                  Ganti nama
+                </button>
+                <button type="button" onClick={() => void deleteSaved()} disabled={savedBusy}>
+                  Hapus
+                </button>
+              </>
+            )}
+          </>
+        )}
+        {savedMsg && (
+          <span className="ok" role="status">
+            {savedMsg}
+          </span>
+        )}
+      </div>
       {error && <p className="error">{error}</p>}
       {phase === 'loading' && (
         <p className="muted" role="status">
@@ -578,8 +823,20 @@ export function BacktestModal({ onClose }: Props) {
         </p>
       )}
 
-      {run && view && phase === 'done' && (
+      {result && view && !busy && (
         <>
+          <p className="muted">
+            {result.saved ? (
+              <>
+                Hasil tersimpan <b>{result.saved.name}</b>
+              </>
+            ) : (
+              'Hasil terakhir'
+            )}
+            : rentang {range(result.from, result.to)}, {result.raw.length} trade.
+            {datesChanged && <span className="error"> Tanggal sudah diubah: klik Jalankan untuk menghitung rentang {range(from, to)}.</span>}
+          </p>
+          {srChanged && <p className="banner-warn">Hasil ini memakai pengaturan S/R yang berbeda dari pengaturan sekarang. Klik Jalankan untuk menghitung ulang dengan pengaturan sekarang.</p>}
           {(minYears < 2 || shortPairs.length > 0) && (
             <p className="banner-warn">
               Data teruji hanya {fmtYears(minYears)}
@@ -624,9 +881,28 @@ export function BacktestModal({ onClose }: Props) {
           {symbol !== 'ALL' && <p className="muted">Hanya {symbol}. Profit = bagian pair ini dari run bersama.</p>}
           {view.baseline && <CompareBox all={view.baseline} live={view.liveAll ?? view.overall} off={[...excluded].sort()} />}
 
-          {tab === 'overall' && <OverallView o={view.overall} initial={run.initial} />}
-          {tab === 'month' && <MonthView pips={view.monthsPips} money={view.monthsMoney} />}
+          {tab === 'overall' && <OverallView o={view.overall} initial={view.initial} />}
+          {tab === 'month' && <MonthView pips={view.monthsPips} money={view.monthsMoney} returns={view.monthsPct} scope={symbol} />}
           {tab === 'growth' && <GrowthChart curve={view.curve} scope={symbol} />}
+          {tab === 'chart' &&
+            (symbol === 'ALL' ? (
+              <div className="chips" role="group" aria-label="Pilih pair untuk grafik">
+                <span className="muted">Grafik butuh satu pair. Pilih:</span>
+                {view.pairs
+                  .filter((p) => p.active)
+                  .map((p) => (
+                    <button key={p.symbol} type="button" className="chip" onClick={() => setSymbol(p.symbol)}>
+                      {p.symbol}
+                    </button>
+                  ))}
+              </div>
+            ) : chartData ? (
+              <BacktestChart key={symbol} symbol={symbol} digits={chartData.digits} candles={chartData.candles} inputs={chartData.inputs} sr={result.sr} trades={view.trades} />
+            ) : (
+              <p className="muted" role="status">
+                {chartState.failed === symbol ? 'Candle tidak bisa diambil.' : 'Mengambil candle…'}
+              </p>
+            ))}
           {tab === 'pairs' && (
             <PairsView
               pairs={view.pairs}
@@ -647,7 +923,7 @@ export function BacktestModal({ onClose }: Props) {
 
           <p className="muted foot-note">
             Candle D1: untuk trade yang entry dan exit-nya satu hari, urutan harga dibaca open-low-high-close (candle naik) atau open-high-low-close (candle turun). {view.overall.ambiguous} dari {view.overall.trades} trade
-            ({view.overall.trades ? pct((view.overall.ambiguous / view.overall.trades) * 100, 1) : '–'}) hasilnya berubah bila urutannya terbalik. Jika SL dan TP kena di candle yang sama setelah posisi terbuka, SL dihitung dulu. Spread, komisi, dan slippage tidak dihitung, jadi hasil lebih optimis dari akun nyata. Warm-up {run.warmup} candle.
+            ({view.overall.trades ? pct((view.overall.ambiguous / view.overall.trades) * 100, 1) : '–'}) hasilnya berubah bila urutannya terbalik. Jika SL dan TP kena di candle yang sama setelah posisi terbuka, SL dihitung dulu. Spread, komisi, dan slippage tidak dihitung, jadi hasil lebih optimis dari akun nyata. Warm-up {result.warmup} candle.
           </p>
         </>
       )}

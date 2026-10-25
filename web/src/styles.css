@@ -987,6 +987,25 @@ button.restore-all {
   height: 360px;
   width: 100%;
 }
+.bt-chart {
+  height: 420px;
+  width: 100%;
+  margin-bottom: 8px;
+}
+.bt-trades {
+  max-height: 260px;
+  overflow-y: auto;
+}
+tr.focused td {
+  background: var(--panel-2);
+  font-weight: 600;
+}
+.saved-bar {
+  flex-wrap: wrap;
+}
+.saved-bar input {
+  width: 180px;
+}
 .tabs-inline {
   display: inline-flex;
   gap: 2px;
@@ -1088,4 +1107,19 @@ input.short {
 }
 tr.off td:not(:first-child) {
   opacity: 0.45;
+}
+.bt-chart-wrap {
+  position: relative;
+}
+.bt-tip {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+  padding: 6px 8px;
+  background: rgba(20, 23, 28, 0.95);
+  border: 1px solid #3a3f46;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: nowrap;
 }

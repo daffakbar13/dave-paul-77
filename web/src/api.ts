@@ -1,4 +1,6 @@
 // Thin client for the Render backend. Shapes mirror server/src (routes/web.ts, analysis/orders.ts).
+import type { CompactTrade, Fingerprint } from './backtestStore.ts';
+import type { Coverage } from './engine/backtest.ts';
 
 export type Side = 'buy' | 'sell';
 export type AggressiveMode = 'auto' | 'on' | 'off';
@@ -253,6 +255,25 @@ export type ManualOrder = {
 
 export type SweepResult = { current: CalibrationScore; best: { params: Partial<SrParams>; score: CalibrationScore }[]; tried: number };
 
+// A named backtest result kept on the server (trades only in the single GET).
+export type SavedBacktest = {
+  id: string;
+  name: string;
+  balance: number;
+  riskPct: number;
+  from: string | null;
+  to: string | null;
+  excluded: string[];
+  sr: SrParams;
+  warmup: number;
+  coverage: Coverage[];
+  fingerprint: Fingerprint[];
+  tradeCount: number;
+  size: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type News = { id: string; at: string; currency: string; impact: string; title: string };
 export type NewsFeed = {
   news: News[];
@@ -348,6 +369,12 @@ export const api = {
       'GET',
       `/backtest/candles${q({ symbols: symbols?.join(',') })}`,
     ),
+  savedBacktests: () => request<{ backtests: SavedBacktest[] }>('GET', '/backtests'),
+  savedBacktest: (id: string) => request<SavedBacktest & { trades: CompactTrade[] }>('GET', `/backtests/${id}`),
+  saveBacktest: (b: Omit<SavedBacktest, 'id' | 'tradeCount' | 'size' | 'createdAt' | 'updatedAt'> & { trades: CompactTrade[] }) =>
+    request<{ backtest: SavedBacktest }>('POST', '/backtests', b),
+  renameBacktest: (id: string, name: string) => request<{ backtest: SavedBacktest }>('PUT', `/backtests/${id}`, { name }),
+  deleteBacktest: (id: string) => request<void>('DELETE', `/backtests/${id}`),
   news: () => request<NewsFeed>('GET', '/news'),
   refreshNews: () => request<NewsFeed>('POST', '/news/refresh'),
   upcomingNews: () => request<{ news: News[]; status: NewsFeed['status'] }>('GET', '/news/upcoming'),
