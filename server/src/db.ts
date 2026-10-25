@@ -1,4 +1,4 @@
-import { MongoClient, type Collection, type Db, type ObjectId } from 'mongodb';
+import { MongoClient, type Binary, type Collection, type Db, type ObjectId } from 'mongodb';
 import { DEFAULT_SR } from './analysis/sr.ts';
 import type { Deal, TradePlan, TradeState } from './analysis/journal.ts';
 import type { OpenPosition } from './analysis/positions.ts';
@@ -148,6 +148,28 @@ export type ManualOrderDoc = {
   createdAt: Date;
 };
 
+// A backtest result the user saved by name. The trades are stored before money is applied
+// (balance and risk are re-applied in the browser), as compact arrays, gzipped; the
+// candles are not stored, only a fingerprint of them.
+export type BacktestDoc = {
+  _id: ObjectId;
+  name: string;
+  balance: number;
+  riskPct: number;
+  from: string | null; // YYYY-MM-DD, null = from the first candle
+  to: string | null;
+  excluded: string[];
+  sr: Record<string, unknown>; // the S/R settings the run used
+  warmup: number;
+  coverage: Record<string, unknown>[];
+  fingerprint: { symbol: string; candles: number; first: number | null; last: number | null }[];
+  tradeCount: number;
+  trades: Binary; // gzip of the JSON array of compact trades
+  size: number; // bytes of `trades`
+  createdAt: Date;
+  updatedAt: Date;
+};
+
 export type Collections = {
   settings: Collection<Settings>;
   symbols: Collection<SymbolDoc>;
@@ -160,6 +182,7 @@ export type Collections = {
   meta: Collection<MetaDoc>;
   manualOrders: Collection<ManualOrderDoc>;
   trades: Collection<TradeDoc>;
+  backtests: Collection<BacktestDoc>;
 };
 
 export function collections(db: Db): Collections {
@@ -175,6 +198,7 @@ export function collections(db: Db): Collections {
     meta: db.collection<MetaDoc>('meta'),
     manualOrders: db.collection<ManualOrderDoc>('manual_orders'),
     trades: db.collection<TradeDoc>('trades'),
+    backtests: db.collection<BacktestDoc>('backtests'),
   };
 }
 
@@ -190,6 +214,7 @@ export async function ensureIndexes(c: Collections): Promise<void> {
   await c.trades.createIndex({ accountId: 1, ticket: 1 }, { unique: true });
   await c.trades.createIndex({ accountId: 1, closedAt: 1 });
   await c.trades.createIndex({ accountId: 1, 'plan.placedAt': 1 });
+  await c.backtests.createIndex({ createdAt: -1 });
 }
 
 export async function getSettings(c: Collections): Promise<Settings> {

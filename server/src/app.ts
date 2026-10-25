@@ -4,6 +4,7 @@ import type { Config } from './config.ts';
 import type { Collections } from './db.ts';
 import { errorHandler, unknownRoute } from './http.ts';
 import { backtestRoutes } from './routes/backtest.ts';
+import { backtestsRoutes } from './routes/backtests.ts';
 import { calibrationRoutes } from './routes/calibration.ts';
 import { eaRoutes } from './routes/ea.ts';
 import { webRoutes } from './routes/web.ts';
@@ -38,6 +39,8 @@ export function createApp(db: Collections, config: Config): Express {
 
   // A candle batch (up to 10,000 D1 candles, about 1 MB) is the largest body; everything else is small.
   app.use('/api/ea', rateLimit({ windowMs: 60_000, max: 120 }), express.json({ limit: '2mb' }), eaRoutes(db, config), unknownRoute);
+  // a saved backtest carries its trades (~30k compact rows, a few MB)
+  app.use('/api/backtests', rateLimit({ windowMs: 60_000, max: 120 }), requireAdmin(config), express.json({ limit: '10mb' }), backtestsRoutes(db), unknownRoute);
   app.use('/api', rateLimit({ windowMs: 60_000, max: 300 }), express.json({ limit: '100kb' }));
   app.use('/api/auth', authRoutes(config));
   app.use('/api/backtest', requireAdmin(config), backtestRoutes(db));
