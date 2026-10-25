@@ -9,13 +9,14 @@ import { defaultDigits } from './routes/web.ts';
 
 const DAY = 86_400_000;
 
-// Initial tabs from the MT4 terminal; GBPUSD and XAUUSD exist but start inactive.
+// Initial tabs from the MT4 terminal; XAUUSD exists but starts inactive.
 export const SAMPLE_SYMBOLS: { name: string; base: number; active: boolean }[] = [
   { name: 'AUDJPY', base: 98.5, active: true },
   { name: 'AUDUSD', base: 0.66, active: true },
   { name: 'CADJPY', base: 108.2, active: true },
   { name: 'CHFJPY', base: 185.4, active: true },
   { name: 'EURGBP', base: 0.86, active: true },
+  { name: 'EURJPY', base: 162.5, active: true },
   { name: 'EURNZD', base: 1.92, active: true },
   { name: 'EURUSD', base: 1.09, active: true },
   { name: 'GBPJPY', base: 196.3, active: true },
@@ -24,7 +25,7 @@ export const SAMPLE_SYMBOLS: { name: string; base: number; active: boolean }[] =
   { name: 'USDCAD', base: 1.37, active: true },
   { name: 'USDCHF', base: 0.8, active: true },
   { name: 'USDJPY', base: 150.2, active: true },
-  { name: 'GBPUSD', base: 1.27, active: false },
+  { name: 'GBPUSD', base: 1.27, active: true },
   { name: 'XAUUSD', base: 2400, active: false },
 ];
 

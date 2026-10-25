@@ -23,7 +23,7 @@
 input string ServerUrl       = "";      // URL server (kosong = dari DavePaul77.ini)
 input string DataKey         = "";      // Data key (kosong = dari DavePaul77.ini)
 input string SymbolSuffix    = "";      // Akhiran simbol broker, mis. "m" untuk EURUSDm
-input string FallbackSymbols = "AUDJPY,AUDUSD,CADJPY,CHFJPY,EURGBP,EURNZD,EURUSD,GBPJPY,GBPUSD,NZDJPY,NZDUSD,USDCAD,USDCHF,USDJPY,XAUUSD"; // used when the server list cannot be read
+input string FallbackSymbols = "AUDJPY,AUDUSD,CADJPY,CHFJPY,EURGBP,EURJPY,EURNZD,EURUSD,GBPJPY,GBPUSD,NZDJPY,NZDUSD,USDCAD,USDCHF,USDJPY,XAUUSD"; // used when the server list cannot be read
 input int    HistoryBars     = 520;     // closed D1 candles sent on the first run (about 2 years)
 input int    BackfillBars    = 5800;    // older D1 candles sent once after the first run (5800 = about 22 years, as far back as the terminal has)
 input int    BackfillChunk   = 1000;    // candles per request while backfilling

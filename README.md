@@ -28,7 +28,7 @@ cd server && npm install && npm run dev:memory
 cd web && npm install && npm run dev
 ```
 
-Buka http://localhost:5173, password `admin`. Data contoh: 15 pair sintetis (GBPUSD dan XAUUSD nonaktif), akun
+Buka http://localhost:5173, password `admin`. Data contoh: 16 pair sintetis (XAUUSD nonaktif), akun
 Demo A (10.000 USD) dan Demo B (5.000 USD, suffix `.m`, balance "lama"). Key EA contoh ada di `server/src/sample.ts`.
 
 Dengan EA MT4 sungguhan tanpa data contoh: `npm run dev:memory -- --empty` plus ngrok (lihat `ea/README.md`).
