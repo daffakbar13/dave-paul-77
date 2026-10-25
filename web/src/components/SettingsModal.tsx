@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { api, type Account, type Settings, type SrParams, type SymbolItem } from '../api.ts';
+import { defaultSpreadPips } from '../engine/backtest.ts';
+import { pipSize } from '../engine/sr.ts';
 import { ago, fmtMoney } from '../format.ts';
 import { Modal } from './Modal.tsx';
 
 type Props = { onClose: () => void; onChanged: () => void };
-type Tab = 'general' | 'sr' | 'pairs' | 'accounts';
+type Tab = 'general' | 'sr' | 'pairs' | 'costs' | 'accounts';
 
 type Field = { key: keyof SrParams; label: string; hint: string; step: number };
 
@@ -123,6 +125,18 @@ export function SettingsModal({ onClose, onChanged }: Props) {
       setSymbols((await api.symbols()).symbols);
     }, 'Daftar pair disimpan.');
 
+  // only the costs: they are for the backtest and need no new analysis
+  const saveCosts = () =>
+    run(async () => {
+      const c = settings!.costs;
+      // a value equal to the default is not stored, so a later default change reaches it
+      const digits = new Map(symbols.map((s) => [s.name, s.digits]));
+      const spreadPips = Object.fromEntries(
+        Object.entries(c.spreadPips).filter(([k, v]) => Number.isFinite(v) && v >= 0 && v !== defaultSpreadPips(k, digits.get(k) ?? 5)),
+      );
+      setSettings(await api.saveSettings({ costs: { ...c, slippagePips: Number.isFinite(c.slippagePips) ? c.slippagePips : 0, spreadPips } }));
+    }, 'Biaya backtest disimpan. Buka Backtest untuk melihat hasil net.');
+
   const importTemplates = (files: FileList | null) => {
     if (!files?.length) return;
     void run(async () => {
@@ -162,6 +176,7 @@ export function SettingsModal({ onClose, onChanged }: Props) {
             ['general', 'Umum'],
             ['sr', 'Analisa S/R'],
             ['pairs', 'Pair'],
+            ['costs', 'Biaya backtest'],
             ['accounts', 'Akun MT5'],
           ] as const
         ).map(([k, label]) => (
@@ -348,6 +363,74 @@ export function SettingsModal({ onClose, onChanged }: Props) {
           <div className="actions">
             <button type="button" className="primary" onClick={() => savePairs(symbols)}>
               Simpan daftar pair
+            </button>
+          </div>
+        </div>
+      )}
+
+      {tab === 'costs' && (
+        <div className="form">
+          <p className="muted">
+            Hanya untuk backtest. Candle D1 adalah harga bid, jadi hasil mentah (gross) belum membayar spread. Net = tiap trade dikurangi spread + slippage dalam pips, dan
+            dalam R sebesar biaya / jarak SL trade itu. Default = rata-rata spread akun Exness Standard (perkiraan, bukan data broker Anda); ganti dengan spread
+            akun Anda bila tahu. Tidak mengubah order live.
+          </p>
+          <div className="grid">
+            <label className="check">
+              <input type="checkbox" checked={settings.costs.enabled} onChange={(e) => set({ costs: { ...settings.costs, enabled: e.target.checked } })} /> Hitung spread dan slippage
+              (hasil net)
+            </label>
+            <NumberField
+              label="Slippage per trade (pips)"
+              hint="Tambahan untuk semua pair; 0 = tanpa slippage"
+              step={0.1}
+              value={settings.costs.slippagePips}
+              onChange={(v) => set({ costs: { ...settings.costs, slippagePips: v } })}
+            />
+          </div>
+          <table className="orders tabular spreads">
+            <thead>
+              <tr>
+                <th>Pair</th>
+                <th className="num">Spread (pips)</th>
+                <th className="num">= harga</th>
+                <th className="num">Default</th>
+              </tr>
+            </thead>
+            <tbody>
+              {symbols.map((s) => {
+                const def = defaultSpreadPips(s.name, s.digits);
+                const v = settings.costs.spreadPips[s.name] ?? def;
+                return (
+                  <tr key={s.name} className={s.active ? '' : 'off'}>
+                    <td>
+                      <b>{s.name}</b>
+                      {!s.active && <span className="muted"> (nonaktif)</span>}
+                    </td>
+                    <td className="num">
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.1}
+                        value={Number.isFinite(v) ? v : ''}
+                        aria-label={`Spread ${s.name} dalam pips`}
+                        onChange={(e) => set({ costs: { ...settings.costs, spreadPips: { ...settings.costs.spreadPips, [s.name]: e.target.valueAsNumber } } })}
+                      />
+                    </td>
+                    <td className="num muted">{Number.isFinite(v) ? (v * pipSize(s.digits)).toFixed(Math.max(s.digits, 2)) : '–'}</td>
+                    <td className="num muted">{def}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <p className="muted">1 pip = 0,0001 (0,01 untuk pair JPY); XAUUSD 1 pip = 10 × digit terakhir, default spreadnya $0,25.</p>
+          <div className="actions">
+            <button type="button" onClick={() => set({ costs: { ...settings.costs, spreadPips: {} } })}>
+              Kembalikan default
+            </button>
+            <button type="button" className="primary" onClick={saveCosts}>
+              Simpan biaya
             </button>
           </div>
         </div>

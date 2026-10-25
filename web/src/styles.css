@@ -1146,3 +1146,14 @@ tr.off td:not(:first-child) {
   line-height: 1.5;
   white-space: nowrap;
 }
+.spreads {
+  max-width: 520px;
+}
+.spreads input {
+  width: 72px;
+  padding: 2px 6px;
+  text-align: right;
+}
+.spreads tr.off td {
+  opacity: 0.6;
+}

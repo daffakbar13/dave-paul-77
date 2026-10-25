@@ -188,6 +188,54 @@ export function withoutPairs(trades: BtTrade[], excluded: ReadonlySet<string>, b
   return compound(toRaw(trades).filter((t) => !excluded.has(t.symbol)), balance, riskPct);
 }
 
+// --- trading costs ---------------------------------------------------------------
+// The candles are bid prices and the replay fills and exits on them, so the trades are
+// gross: no spread, no slippage. The cost is taken off each closed trade afterwards:
+// spread + slippage in pips, and that over the trade's SL distance in R. A buy stop fills
+// on the ask and a sell closes on the ask, so every round trip pays the spread once.
+// Applied after the replay, the costs (and a Gross/Net switch) change nothing that needs a
+// new run, and saved results get them too.
+
+// spreadPips: per pair, overrides the defaults; slippagePips: extra per trade, every pair
+export type CostSettings = { enabled: boolean; slippagePips: number; spreadPips: Record<string, number> };
+
+export const DEFAULT_COSTS: CostSettings = { enabled: true, slippagePips: 0, spreadPips: {} };
+
+// Typical average spreads of an Exness Standard account, in pips (pipSize). Assumed, not
+// measured: the user has no spread data from the broker.
+export const DEFAULT_SPREAD_PIPS: Record<string, number> = {
+  EURUSD: 1.0, GBPUSD: 1.2, USDJPY: 1.1, USDCHF: 1.4, USDCAD: 1.5, AUDUSD: 1.0, NZDUSD: 1.6,
+  EURJPY: 1.8, GBPJPY: 2.5, AUDJPY: 1.8, CHFJPY: 2.6, NZDJPY: 2.4, CADJPY: 2.1, EURGBP: 1.3, EURNZD: 3.5,
+};
+const GOLD_SPREAD = 0.25; // XAUUSD in price ($); its pip depends on the broker's digits
+export const FALLBACK_SPREAD_PIPS = 2;
+
+export function defaultSpreadPips(symbol: string, digits: number): number {
+  const s = symbol.toUpperCase();
+  if (s.startsWith('XAUUSD')) return roundTo(GOLD_SPREAD / pipSize(digits), 4);
+  return DEFAULT_SPREAD_PIPS[s] ?? DEFAULT_SPREAD_PIPS[s.slice(0, 6)] ?? FALLBACK_SPREAD_PIPS;
+}
+
+export function spreadPipsOf(symbol: string, digits: number, costs: CostSettings): number {
+  return costs.spreadPips[symbol] ?? defaultSpreadPips(symbol, digits);
+}
+
+// The cost of one trade in pips; 0 when costs are off.
+export function costPipsOf(symbol: string, digits: number, costs: CostSettings): number {
+  return costs.enabled ? spreadPipsOf(symbol, digits, costs) + costs.slippagePips : 0;
+}
+
+// The trades net of costs. A TP whose cost is larger than its distance becomes a loss in
+// pips and R but stays a TP.
+export function withCosts(raw: RawTrade[], costs: CostSettings): RawTrade[] {
+  if (!costs.enabled) return raw;
+  return raw.map((t) => {
+    if (t.result === 'Open') return t;
+    const cost = costPipsOf(t.symbol, t.digits, costs);
+    return { ...t, pips: roundTo(t.pips - cost, 2), r: roundTo(t.r - cost / t.slPips, 4) };
+  });
+}
+
 // Drops the money again, so another balance or risk % can be applied without a replay.
 export function toRaw(trades: BtTrade[]): RawTrade[] {
   return trades.map(({ riskMoney: _risk, profit: _profit, balanceBefore: _before, ...t }) => t);

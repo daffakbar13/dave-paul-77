@@ -1,6 +1,6 @@
 // Thin client for the Render backend. Shapes mirror server/src (routes/web.ts, analysis/orders.ts).
 import type { CompactTrade, Fingerprint } from './backtestStore.ts';
-import type { Coverage } from './engine/backtest.ts';
+import type { CostSettings, Coverage } from './engine/backtest.ts';
 
 export type Side = 'buy' | 'sell';
 export type AggressiveMode = 'auto' | 'on' | 'off';
@@ -133,6 +133,7 @@ export type Settings = {
   quoteMaxAgeMinutes: number;
   sr: SrParams;
   colors: Colors;
+  costs: CostSettings; // backtest only
 };
 
 export type Command = {

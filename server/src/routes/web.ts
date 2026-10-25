@@ -94,6 +94,11 @@ const settingsSchema = z.object({
     slMaxRiskAtr: z.number().positive().max(10),
   }).partial(),
   colors: z.object({ sr: hexColor, entry: hexColor, sltp: hexColor }).partial(),
+  costs: z.object({
+    enabled: z.boolean(),
+    slippagePips: z.number().min(0).max(100),
+    spreadPips: z.record(symbolName, z.number().min(0).max(1000)),
+  }).partial(),
 }).partial();
 
 const executeSchema = z.object({
@@ -399,10 +404,13 @@ export function webRoutes(db: Collections, news: NewsProvider | null): Router {
       ...patch,
       sr: { ...current.sr, ...patch.sr },
       colors: { ...current.colors, ...patch.colors },
-      version: current.version + 1,
+      costs: { ...current.costs, ...patch.costs },
     };
+    // backtest costs alone do not touch the analyses
+    const costsOnly = Object.keys(patch).every((k) => k === 'costs');
+    if (!costsOnly) next.version = current.version + 1;
     await db.settings.replaceOne({ _id: 'main' }, next, { upsert: true });
-    await refreshAll(db, next);
+    if (!costsOnly) await refreshAll(db, next);
     const { _id, ...settings } = next;
     res.json(settings);
   });

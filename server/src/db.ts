@@ -1,4 +1,5 @@
 import { MongoClient, type Binary, type Collection, type Db, type ObjectId } from 'mongodb';
+import { DEFAULT_COSTS, type CostSettings } from './analysis/backtest.ts';
 import { DEFAULT_SR } from './analysis/sr.ts';
 import type { Deal, TradePlan, TradeState } from './analysis/journal.ts';
 import type { OpenPosition } from './analysis/positions.ts';
@@ -16,6 +17,7 @@ export type Settings = {
   quoteMaxAgeMinutes: number;
   sr: SrParams;
   colors: { sr: string; entry: string; sltp: string };
+  costs: CostSettings; // backtest only: spread and slippage taken off each trade
 };
 
 export const DEFAULT_SETTINGS: Omit<Settings, '_id'> = {
@@ -27,6 +29,7 @@ export const DEFAULT_SETTINGS: Omit<Settings, '_id'> = {
   quoteMaxAgeMinutes: 30,
   sr: DEFAULT_SR,
   colors: { sr: '#FFD60A', entry: '#FFFFFF', sltp: '#FF453A' },
+  costs: DEFAULT_COSTS,
 };
 
 export type SymbolDoc = {
@@ -219,7 +222,7 @@ export async function ensureIndexes(c: Collections): Promise<void> {
 
 export async function getSettings(c: Collections): Promise<Settings> {
   const found = await c.settings.findOne({ _id: 'main' });
-  if (found) return { ...DEFAULT_SETTINGS, ...found, sr: { ...DEFAULT_SR, ...found.sr } };
+  if (found) return { ...DEFAULT_SETTINGS, ...found, sr: { ...DEFAULT_SR, ...found.sr }, costs: { ...DEFAULT_COSTS, ...found.costs } };
   const fresh: Settings = { _id: 'main', ...DEFAULT_SETTINGS };
   await c.settings.updateOne({ _id: 'main' }, { $setOnInsert: fresh }, { upsert: true });
   return fresh;

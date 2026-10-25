@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { api, type SavedBacktest } from '../api.ts';
 import type { WorkerIn, WorkerOut, WorkerSymbol } from '../backtest.worker.ts';
 import { fingerprintOf, loadCandles, loadLastResult, loadUi, pack, sameSr, saveCandles, saveLastResult, saveUi, unpack, type BtResult } from '../backtestStore.ts';
-import { compound, toRaw, type Coverage, type RawTrade } from '../engine/backtest.ts';
+import { compound, costPipsOf, DEFAULT_COSTS, toRaw, withCosts, type CostSettings, type Coverage, type RawTrade } from '../engine/backtest.ts';
 import {
   equityCurve,
   monthReturns,
@@ -26,7 +26,9 @@ import { BacktestChart } from './BacktestChart.tsx';
 import { Modal } from './Modal.tsx';
 
 type Props = { onClose: () => void };
-type PairRow = PairStats & { tier: Coverage['tier']; years: number; gapDays: number; active: boolean };
+// grossR: expectancy before costs; costR: what the costs take per trade (gross - net)
+type PairRow = PairStats & { tier: Coverage['tier']; years: number; gapDays: number; active: boolean; grossR: number | null; costR: number | null };
+type Basis = 'net' | 'gross';
 type Tab = 'overall' | 'month' | 'growth' | 'chart' | 'pairs';
 const TABS: Tab[] = ['overall', 'month', 'growth', 'chart', 'pairs'];
 
@@ -37,6 +39,9 @@ const TIER: Record<Coverage['tier'], string> = { none: 'tanpa data', short: '< 2
 const num = (v: number | null | undefined, d = 1) => (v === null || v === undefined ? '–' : v.toLocaleString('id-ID', { minimumFractionDigits: d, maximumFractionDigits: d }));
 const pct = (v: number | null | undefined, d = 2) => (v === null || v === undefined ? '–' : `${num(v, d)}%`);
 const sign = (v: number | null | undefined) => (v === null || v === undefined || v === 0 ? '' : v > 0 ? 'ok' : 'error');
+const fmtR = (v: number | null | undefined) => (v === null || v === undefined ? '–' : `${v >= 0 ? '+' : ''}${num(v, 2)}R`);
+// mean R per trade, which does not depend on balance or risk
+const meanR = (ts: RawTrade[]) => (ts.length ? ts.reduce((s, t) => s + t.r, 0) / ts.length : null);
 const fmtYears = (y: number) => (y >= 1 ? `${num(y, 1)} tahun` : `${Math.round(y * 12)} bulan`);
 
 // Before the inputs moved to IndexedDB the excluded pairs lived here; read once as a fallback.
@@ -136,7 +141,7 @@ function Episode({ ep, show }: { ep: DrawdownEpisode | null; show: 'pct' | 'amou
   );
 }
 
-function OverallView({ o, initial }: { o: Overall; initial: number }) {
+function OverallView({ o, initial, grossR }: { o: Overall; initial: number; grossR: number | null | undefined }) {
   return (
     <>
       <div className="tiles tabular">
@@ -161,7 +166,12 @@ function OverallView({ o, initial }: { o: Overall; initial: number }) {
       </div>
       <div className="tiles tabular">
         <Tile label="Profit factor (pips)" value={o.profitFactor === null ? '–' : num(o.profitFactor, 2)} />
-        <Tile label="Expectancy" value={o.expectancyR === null ? '–' : `${o.expectancyR >= 0 ? '+' : ''}${num(o.expectancyR, 2)}R`} cls={sign(o.expectancyR)} sub="rata-rata R per trade" />
+        <Tile
+          label={grossR === undefined ? 'Expectancy' : 'Expectancy (net)'}
+          value={fmtR(o.expectancyR)}
+          cls={sign(o.expectancyR)}
+          sub={grossR === undefined ? 'rata-rata R per trade' : `gross ${fmtR(grossR)} · biaya ${fmtR(grossR === null || o.expectancyR === null ? null : o.expectancyR - grossR)}`}
+        />
         <Tile label="Max drawdown (nilai)" value={fmtMoney(o.maxDrawdown)} sub={<Episode ep={o.maxDrawdownByAmount} show="pct" />} cls={o.maxDrawdown ? 'error' : ''} />
         <Tile label="Max drawdown (%)" value={pct(o.maxDrawdownPct)} sub={<Episode ep={o.maxDrawdownByPct} show="amount" />} cls={o.maxDrawdownPct ? 'error' : ''} />
         <Tile label="Posisi bersamaan maks" value={String(o.peakOpen)} sub={`≈ ${o.peakOpen}× risiko per trade`} />
@@ -352,9 +362,9 @@ function CompareBox({ all, live, off }: { all: Overall; live: Overall; off: stri
   );
 }
 
-type SortKey = 'symbol' | 'trades' | 'winRate' | 'profitFactor' | 'expectancyR' | 'pips' | 'profit' | 'maxDrawdownR' | 'maxLossStreak' | 'perYear';
+type SortKey = 'symbol' | 'trades' | 'winRate' | 'profitFactor' | 'expectancyR' | 'grossR' | 'costR' | 'pips' | 'profit' | 'maxDrawdownR' | 'maxLossStreak' | 'perYear';
 
-function PairsView({ pairs, worst, onPick, onToggle, onSet }: { pairs: PairRow[]; worst: string[]; onPick: (symbol: string) => void; onToggle: (symbol: string) => void; onSet: (off: string[]) => void }) {
+function PairsView({ pairs, worst, net, onPick, onToggle, onSet }: { pairs: PairRow[]; worst: string[]; net: boolean; onPick: (symbol: string) => void; onToggle: (symbol: string) => void; onSet: (off: string[]) => void }) {
   const activeCount = pairs.filter((p) => p.active).length;
   const [key, setKey] = useState<SortKey>('expectancyR');
   const [desc, setDesc] = useState(true);
@@ -388,7 +398,7 @@ function PairsView({ pairs, worst, onPick, onToggle, onSet }: { pairs: PairRow[]
   return (
     <>
       <p className="muted">
-        Kualitas tiap pair dari hasil run yang sama. Nilai: Bagus = expectancy ≥ 0,15R dan profit factor ≥ 1,3; Cukup = positif; Lemah = rugi; di bawah 30 trade tidak dinilai. Klik pair untuk lihat ringkasannya. Hilangkan centang
+        Kualitas tiap pair dari hasil run yang sama{net ? ', setelah spread dan slippage (net)' : ', tanpa biaya (gross)'}. Nilai: Bagus = expectancy ≥ 0,15R dan profit factor ≥ 1,3; Cukup = positif; Lemah = rugi; di bawah 30 trade tidak dinilai. Klik pair untuk lihat ringkasannya. Hilangkan centang
         untuk mengecualikan pair dari perhitungan (hanya backtest; tidak mengubah trading live).
       </p>
       <div className="modal-tools">
@@ -412,7 +422,9 @@ function PairsView({ pairs, worst, onPick, onToggle, onSet }: { pairs: PairRow[]
               {th('trades', 'Trade')}
               {th('winRate', 'Win')}
               {th('profitFactor', 'PF')}
-              {th('expectancyR', 'Expectancy')}
+              {th('expectancyR', net ? 'Exp. net' : 'Expectancy')}
+              {net && th('grossR', 'Exp. gross')}
+              {net && th('costR', 'Biaya/trade')}
               {th('pips', 'Pips')}
               {th('profit', 'Profit')}
               {th('maxDrawdownR', 'DD (R)')}
@@ -436,7 +448,14 @@ function PairsView({ pairs, worst, onPick, onToggle, onSet }: { pairs: PairRow[]
                 <td className="num">{p.trades}</td>
                 <td className="num">{p.winRate === null ? '–' : pct(p.winRate * 100, 0)}</td>
                 <td className="num">{p.profitFactor === null ? '–' : num(p.profitFactor, 2)}</td>
-                <td className={`num ${sign(p.expectancyR)}`}>{p.expectancyR === null ? '–' : `${p.expectancyR >= 0 ? '+' : ''}${num(p.expectancyR, 2)}R`}</td>
+                <td className={`num ${sign(p.expectancyR)}`}>{fmtR(p.expectancyR)}</td>
+                {net && <td className={`num muted`}>{fmtR(p.grossR)}</td>}
+                {net && (
+                  <td className="num" title={p.grossR && p.costR !== null ? `${pct((-p.costR / p.grossR) * 100, 0)} dari edge gross` : undefined}>
+                    {p.costR === null ? '–' : `${num(p.costR, 2)}R`}
+                    {p.grossR !== null && p.grossR > 0 && p.costR !== null && <span className="muted"> ({pct((-p.costR / p.grossR) * 100, 0)})</span>}
+                  </td>
+                )}
                 <td className={`num ${sign(p.pips)}`}>{num(p.pips)}</td>
                 <td className={`num ${sign(p.profit)}`}>{fmtMoney(p.profit)}</td>
                 <td className="num">{num(p.maxDrawdownR, 1)}</td>
@@ -477,6 +496,8 @@ export function BacktestModal({ onClose }: Props) {
   const worker = useRef<Worker | null>(null);
   const [excluded, setExcluded] = useState<Set<string>>(() => new Set());
   const [currentSr, setCurrentSr] = useState<SrParams | null>(null);
+  const [costs, setCosts] = useState<CostSettings>(DEFAULT_COSTS);
+  const [basis, setBasis] = useState<Basis>('net');
   const [candles, setCandles] = useState<WorkerSymbol[] | null>(null);
   const [chartState, setChartState] = useState<{ loading: boolean; failed: string | null }>({ loading: false, failed: null });
   const [saved, setSaved] = useState<SavedBacktest[]>([]);
@@ -505,7 +526,14 @@ export function BacktestModal({ onClose }: Props) {
       if (last) setResult({ ...last, raw: closedOnly(last.raw) });
       setRestored(true);
     })();
-    api.settings().then((s) => !stop && setCurrentSr(s.sr as unknown as SrParams), () => {});
+    api.settings().then(
+      (s) => {
+        if (stop) return;
+        setCurrentSr(s.sr as unknown as SrParams);
+        setCosts({ ...DEFAULT_COSTS, ...s.costs });
+      },
+      () => {},
+    );
     api.savedBacktests().then((r) => !stop && setSaved(r.backtests), () => {});
     return () => {
       stop = true;
@@ -622,13 +650,27 @@ export function BacktestModal({ onClose }: Props) {
     })();
   }, [tab, symbol, result, candles, chartState]);
 
+  // costs come from Pengaturan > Biaya backtest; off there means gross only
+  const net = costs.enabled && basis === 'net';
+  // spread + slippage per pair, for the footnote
+  const costList = useMemo(() => {
+    if (!result) return '';
+    const digits = new Map(result.raw.map((t) => [t.symbol, t.digits]));
+    return result.coverage
+      .filter((c) => digits.has(c.symbol))
+      .map((c) => `${c.symbol} ${num(costPipsOf(c.symbol, digits.get(c.symbol)!, { ...costs, slippagePips: 0 }), 1)}`)
+      .join(', ');
+  }, [result, costs]);
+
   // every view is computed here from the raw trades; balance, risk, pair and excluded pairs
   // cost milliseconds, only dates and S/R settings need a new replay
   const view = useMemo(() => {
     if (!result) return null;
     const initial = money.balance;
-    const all = compound(result.raw, initial, money.riskPct);
-    const live = excluded.size ? compound(result.raw.filter((t) => !excluded.has(t.symbol)), initial, money.riskPct) : all;
+    const raw = net ? withCosts(result.raw, costs) : result.raw;
+    const all = compound(raw, initial, money.riskPct);
+    const live = excluded.size ? compound(raw.filter((t) => !excluded.has(t.symbol)), initial, money.riskPct) : all;
+    const grossOf = (keep: (t: RawTrade) => boolean) => meanR(result.raw.filter(keep));
     const trades = symbol === 'ALL' ? live : live.filter((t) => t.symbol === symbol);
     const group = (ts: BtTrade[]) => {
       const m = new Map<string, BtTrade[]>();
@@ -639,7 +681,10 @@ export function BacktestModal({ onClose }: Props) {
     const kept = group(live);
     const pairs = result.coverage.map((c): PairRow => {
       const active = !excluded.has(c.symbol);
-      return { ...pairStats(c.symbol, (active ? kept : full).get(c.symbol) ?? [], initial), tier: c.tier, years: c.years, gapDays: c.gapDays, active };
+      const st = pairStats(c.symbol, (active ? kept : full).get(c.symbol) ?? [], initial);
+      const grossR = grossOf((t) => t.symbol === c.symbol);
+      const costR = grossR === null || st.expectancyR === null ? null : st.expectancyR - grossR;
+      return { ...st, tier: c.tier, years: c.years, gapDays: c.gapDays, active, grossR: grossR === null ? null : Math.round(grossR * 1000) / 1000, costR };
     });
     // the weakest by the full run, so the suggestion does not move as pairs are switched off
     const worst = result.coverage
@@ -652,6 +697,8 @@ export function BacktestModal({ onClose }: Props) {
       initial,
       trades,
       overall: overall(trades, initial),
+      // expectancy of the same trades before costs, for the Overall tab
+      grossR: net ? grossOf((t) => !excluded.has(t.symbol) && (symbol === 'ALL' || t.symbol === symbol)) : undefined,
       liveAll: symbol === 'ALL' ? null : overall(live, initial),
       baseline: excluded.size ? overall(all, initial) : null,
       monthsPips: monthTable(trades, (t) => t.pips),
@@ -662,7 +709,7 @@ export function BacktestModal({ onClose }: Props) {
       pairs,
       worst,
     };
-  }, [result, money, symbol, excluded]);
+  }, [result, money, symbol, excluded, net, costs]);
 
   const save = (detail: boolean) => {
     if (!view) return;
@@ -904,6 +951,14 @@ export function BacktestModal({ onClose }: Props) {
                 </button>
               ))}
             </span>
+            <span className="seg" role="group" aria-label="Biaya trading">
+              <button type="button" aria-pressed={net} disabled={!costs.enabled} onClick={() => setBasis('net')} title={costs.enabled ? 'Setelah spread dan slippage' : 'Biaya dimatikan di Pengaturan > Biaya backtest'}>
+                Net
+              </button>
+              <button type="button" aria-pressed={!net} onClick={() => setBasis('gross')} title="Tanpa spread, komisi, dan slippage">
+                Gross
+              </button>
+            </span>
             <button type="button" onClick={() => save(false)} disabled={!view.trades.length}>
               Unduh CSV
             </button>
@@ -914,7 +969,7 @@ export function BacktestModal({ onClose }: Props) {
           {symbol !== 'ALL' && <p className="muted">Hanya {symbol}. Profit = bagian pair ini dari run bersama.</p>}
           {view.baseline && <CompareBox all={view.baseline} live={view.liveAll ?? view.overall} off={[...excluded].sort()} />}
 
-          {tab === 'overall' && <OverallView o={view.overall} initial={view.initial} />}
+          {tab === 'overall' && <OverallView o={view.overall} initial={view.initial} grossR={view.grossR} />}
           {tab === 'month' && <MonthView pips={view.monthsPips} money={view.monthsMoney} returns={view.monthsPct} counts={view.monthsTrades} scope={symbol} />}
           {tab === 'growth' && <GrowthChart curve={view.curve} scope={symbol} />}
           {tab === 'chart' &&
@@ -940,6 +995,7 @@ export function BacktestModal({ onClose }: Props) {
             <PairsView
               pairs={view.pairs}
               worst={view.worst}
+              net={net}
               onToggle={(s) => {
                 const next = new Set(excluded);
                 if (next.has(s)) next.delete(s);
@@ -956,7 +1012,17 @@ export function BacktestModal({ onClose }: Props) {
 
           <p className="muted foot-note">
             Candle D1: untuk trade yang entry dan exit-nya satu hari, urutan harga dibaca open-low-high-close (candle naik) atau open-high-low-close (candle turun). {view.overall.ambiguous} dari {view.overall.trades} trade
-            ({view.overall.trades ? pct((view.overall.ambiguous / view.overall.trades) * 100, 1) : '–'}) hasilnya berubah bila urutannya terbalik. Jika SL dan TP kena di candle yang sama setelah posisi terbuka, SL dihitung dulu. Spread, komisi, dan slippage tidak dihitung, jadi hasil lebih optimis dari akun nyata. Warm-up {result.warmup} candle.
+            ({view.overall.trades ? pct((view.overall.ambiguous / view.overall.trades) * 100, 1) : '–'}) hasilnya berubah bila urutannya terbalik. Jika SL dan TP kena di candle yang sama setelah posisi terbuka, SL dihitung dulu.{' '}
+            {net ? (
+              <>
+                Angka <b>net</b>: tiap trade dikurangi spread{costs.slippagePips > 0 ? ` + slippage ${num(costs.slippagePips, 1)} pips` : ''} dalam pips, dan dalam R sebesar biaya / jarak SL trade itu
+                (fill dan exit tetap dari candle bid). Spread (pips): {costList}. Ini perkiraan rata-rata akun Exness Standard, bukan spread broker Anda; spread
+                melebar saat berita dan rollover tidak dihitung, komisi juga tidak. Ubah di Pengaturan &gt; Biaya backtest.
+              </>
+            ) : (
+              <>Angka <b>gross</b>: spread, komisi, dan slippage tidak dihitung, jadi hasil lebih optimis dari akun nyata{costs.enabled ? '; pilih Net untuk hasil setelah spread' : ' (biaya dimatikan di Pengaturan > Biaya backtest)'}.</>
+            )}{' '}
+            Warm-up {result.warmup} candle.
           </p>
         </>
       )}

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { compound, coverageOf, fillDay, replaySymbol, runBacktest, tierOf, withoutPairs, type RawTrade } from './backtest.ts';
-import { DEFAULT_SR } from './sr.ts';
+import { compound, coverageOf, DEFAULT_COSTS, defaultSpreadPips, FALLBACK_SPREAD_PIPS, fillDay, replaySymbol, runBacktest, tierOf, withCosts, withoutPairs, type RawTrade } from './backtest.ts';
+import { DEFAULT_SR, pipSize, roundTo } from './sr.ts';
 import type { Candle } from './types.ts';
 
 const DAY = 86_400_000;
@@ -229,5 +229,36 @@ describe('runBacktest', () => {
     assert.equal(run.coverage.length, 2);
     assert.ok(new Set(run.trades.map((t) => t.symbol)).size === 2);
     assert.ok(run.trades.every((t) => t.result !== 'Open'), 'trades still open at the end are left out');
+  });
+});
+
+describe('withCosts', () => {
+  const costs = { ...DEFAULT_COSTS };
+
+  it('takes spread + slippage off pips and R of closed trades', () => {
+    const [tp, sl] = withCosts([raw({}), raw({ result: 'SL', pips: -10, r: -1 })], { ...costs, slippagePips: 0.5 });
+    // EURUSD spread 1.0 + 0.5 slippage over a 10-pip SL
+    assert.equal(tp!.pips, 18.5);
+    assert.equal(tp!.r, 1.85);
+    assert.equal(sl!.pips, -11.5);
+    assert.equal(sl!.r, -1.15);
+    assert.equal(tp!.result, 'TP');
+  });
+
+  it('leaves the trades as they are when off', () => {
+    const list = [raw({})];
+    assert.equal(withCosts(list, { ...costs, enabled: false }), list);
+  });
+
+  it('a pair override wins over the default', () => {
+    assert.equal(withCosts([raw({})], { ...costs, spreadPips: { EURUSD: 3 } })[0]!.pips, 17);
+  });
+
+  it('gold default is $0.25 whatever the digits', () => {
+    assert.equal(defaultSpreadPips('XAUUSD', 2) * pipSize(2), 0.25);
+    assert.equal(roundTo(defaultSpreadPips('XAUUSD', 3) * pipSize(3), 6), 0.25);
+    assert.equal(defaultSpreadPips('GBPJPY', 3), 2.5);
+    assert.equal(defaultSpreadPips('EURUSDm', 5), 1.0);
+    assert.equal(defaultSpreadPips('XYZABC', 5), FALLBACK_SPREAD_PIPS);
   });
 });
