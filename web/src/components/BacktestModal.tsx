@@ -62,21 +62,15 @@ const WORST_COUNT = 4;
 // has no place in a backtest.
 const closedOnly = (raw: RawTrade[]) => raw.filter((t) => t.result !== 'Open');
 
-const ymd = (d: Date) => d.toISOString().slice(0, 10);
-const lastYears = (n: number): [string, string] => {
-  const d = new Date();
-  d.setUTCFullYear(d.getUTCFullYear() - n);
-  return [ymd(d), ''];
-};
-const RANGES: { label: string; range: () => [string, string] }[] = [
-  { label: 'Semua data', range: () => ['', ''] },
-  { label: '1 th terakhir', range: () => lastYears(1) },
-  { label: '3 th', range: () => lastYears(3) },
-  { label: '5 th', range: () => lastYears(5) },
-  { label: '10 th', range: () => lastYears(10) },
-  { label: '2010–14', range: () => ['2010-01-01', '2014-12-31'] },
-  { label: '2015–19', range: () => ['2015-01-01', '2019-12-31'] },
-  { label: '2020–kini', range: () => ['2020-01-01', ''] },
+// Market-regime blocks, so a pair can be judged on how many regimes it survives. The
+// analyses still read the candles before "Dari" as warm-up.
+const RANGES: { label: string; title: string; range: () => [string, string] }[] = [
+  { label: '2010–12', title: 'Krisis utang Eropa, risk-off', range: () => ['2010-01-01', '2012-12-31'] },
+  { label: '2013–15', title: 'Abenomics (yen melemah), USD menguat 2014', range: () => ['2013-01-01', '2015-12-31'] },
+  { label: '2016–19', title: 'Volatilitas rendah, banyak ranging', range: () => ['2016-01-01', '2019-12-31'] },
+  { label: '2020–21', title: 'COVID, lonjakan volatilitas', range: () => ['2020-01-01', '2021-12-31'] },
+  { label: '2022–24', title: 'Kenaikan suku bunga, yen melemah tajam', range: () => ['2022-01-01', '2024-12-31'] },
+  { label: '2025–kini', title: 'Out-of-sample terbaru', range: () => ['2025-01-01', ''] },
 ];
 
 function holding(days: number | null): string {
@@ -839,6 +833,7 @@ export function BacktestModal({ onClose }: Props) {
             <button
               key={r.label}
               type="button"
+              title={r.title}
               className={f === from && t === to ? 'chip active' : 'chip'}
               onClick={() => {
                 setFrom(f);
