@@ -172,10 +172,12 @@ function OverallView({ o, initial }: { o: Overall; initial: number }) {
   );
 }
 
-function MonthView({ pips, money, returns, scope }: { pips: MonthTable; money: MonthTable; returns: MonthTable; scope: string }) {
-  const [unit, setUnit] = useState<'pips' | 'money' | 'pct'>('pips');
-  const t = unit === 'pips' ? pips : unit === 'money' ? money : returns;
-  const f = (v: number | null) => (v === null ? '-' : unit === 'pips' ? num(v) : unit === 'money' ? fmtMoney(v) : pct(v));
+function MonthView({ pips, money, returns, counts, scope }: { pips: MonthTable; money: MonthTable; returns: MonthTable; counts: MonthTable; scope: string }) {
+  const [unit, setUnit] = useState<'pips' | 'money' | 'pct' | 'trades'>('pips');
+  const t = unit === 'pips' ? pips : unit === 'money' ? money : unit === 'pct' ? returns : counts;
+  const f = (v: number | null) => (v === null ? '-' : unit === 'pips' ? num(v) : unit === 'money' ? fmtMoney(v) : unit === 'pct' ? pct(v) : num(v, 0));
+  // a count has no sign to colour
+  const tone = (v: number | null) => (unit === 'trades' ? '' : sign(v));
   return (
     <>
       <div className="modal-tools">
@@ -188,6 +190,9 @@ function MonthView({ pips, money, returns, scope }: { pips: MonthTable; money: M
           </button>
           <button type="button" aria-pressed={unit === 'pct'} onClick={() => setUnit('pct')}>
             Persentase
+          </button>
+          <button type="button" aria-pressed={unit === 'trades'} onClick={() => setUnit('trades')}>
+            Trades
           </button>
         </span>
         <span className="muted">
@@ -214,18 +219,18 @@ function MonthView({ pips, money, returns, scope }: { pips: MonthTable; money: M
               <tr key={r.year}>
                 <th>{r.year}</th>
                 {r.months.map((v, i) => (
-                  <td key={i} className={`num ${sign(v)}`}>
+                  <td key={i} className={`num ${tone(v)}`}>
                     {f(v)}
                   </td>
                 ))}
-                <td className={`num ${sign(r.ytd)}`}>
+                <td className={`num ${tone(r.ytd)}`}>
                   <b>{f(r.ytd)}</b>
                 </td>
               </tr>
             ))}
             <tr>
               <th colSpan={13}>Total{unit === 'pct' ? ' (majemuk)' : ''}</th>
-              <td className={`num ${sign(t.total)}`}>
+              <td className={`num ${tone(t.total)}`}>
                 <b>{f(t.total)}</b>
               </td>
             </tr>
@@ -625,6 +630,7 @@ export function BacktestModal({ onClose }: Props) {
       monthsPips: monthTable(trades, (t) => t.pips),
       monthsMoney: monthTable(trades, (t) => t.profit),
       monthsPct: monthReturns(trades, initial),
+      monthsTrades: monthTable(trades, () => 1),
       curve: thin(equityCurve(trades, initial), 600),
       pairs,
       worst,
@@ -882,7 +888,7 @@ export function BacktestModal({ onClose }: Props) {
           {view.baseline && <CompareBox all={view.baseline} live={view.liveAll ?? view.overall} off={[...excluded].sort()} />}
 
           {tab === 'overall' && <OverallView o={view.overall} initial={view.initial} />}
-          {tab === 'month' && <MonthView pips={view.monthsPips} money={view.monthsMoney} returns={view.monthsPct} scope={symbol} />}
+          {tab === 'month' && <MonthView pips={view.monthsPips} money={view.monthsMoney} returns={view.monthsPct} counts={view.monthsTrades} scope={symbol} />}
           {tab === 'growth' && <GrowthChart curve={view.curve} scope={symbol} />}
           {tab === 'chart' &&
             (symbol === 'ALL' ? (
