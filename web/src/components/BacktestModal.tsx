@@ -178,6 +178,10 @@ function MonthView({ pips, money, returns, counts, scope }: { pips: MonthTable; 
   const f = (v: number | null) => (v === null ? '-' : unit === 'pips' ? num(v) : unit === 'money' ? fmtMoney(v) : unit === 'pct' ? pct(v) : num(v, 0));
   // a count has no sign to colour
   const tone = (v: number | null) => (unit === 'trades' ? '' : sign(v));
+  // Per calendar month across the years: the average for pips and trades, losing:winning
+  // months for profit and percentage.
+  const byMonth = MONTHS.map((_, i) => t.rows.map((r) => r.months[i]).filter((v): v is number => v !== null));
+  const ratio = unit === 'money' || unit === 'pct';
   return (
     <>
       <div className="modal-tools">
@@ -201,7 +205,7 @@ function MonthView({ pips, money, returns, counts, scope }: { pips: MonthTable; 
             ` Bulan = profit bulan itu / balance awal bulan${scope === 'ALL' ? '' : ` (balance awal + kontribusi ${scope})`}; YTD = return majemuk setahun; Total = balance akhir / balance awal − 1.`}
         </span>
       </div>
-      <div className="table-scroll">
+      <div className="table-full">
         <table className="orders tabular months">
           <thead>
             <tr>
@@ -228,10 +232,33 @@ function MonthView({ pips, money, returns, counts, scope }: { pips: MonthTable; 
                 </td>
               </tr>
             ))}
-            <tr>
-              <th colSpan={13}>Total{unit === 'pct' ? ' (majemuk)' : ''}</th>
+            <tr className="months-total">
+              <th>
+                Total
+                <span className="reason">{ratio ? 'kalah:menang' : 'rata-rata'}</span>
+              </th>
+              {byMonth.map((vs, i) => {
+                if (!vs.length) return <td key={i} className="num">-</td>;
+                if (!ratio) {
+                  const avg = vs.reduce((s, v) => s + v, 0) / vs.length;
+                  return (
+                    <td key={i} className={`num ${tone(avg)}`}>
+                      {unit === 'trades' ? num(avg, 1) : num(avg)}
+                    </td>
+                  );
+                }
+                const lose = vs.filter((v) => v < 0).length;
+                const win = vs.filter((v) => v > 0).length;
+                return (
+                  <td key={i} className="num">
+                    {lose}:{win}
+                    <span className={`reason ${lose > win ? 'error' : 'muted'}`}>{lose + win ? pct((lose / (lose + win)) * 100, 0) : '–'}</span>
+                  </td>
+                );
+              })}
               <td className={`num ${tone(t.total)}`}>
                 <b>{f(t.total)}</b>
+                {unit === 'pct' && <span className="reason muted">majemuk</span>}
               </td>
             </tr>
           </tbody>

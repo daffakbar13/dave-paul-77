@@ -1039,6 +1039,29 @@ tr.focused td {
 .months td {
   white-space: nowrap;
 }
+/* the Per Month table shows whole: no height cap, tighter cells so 14 columns fit */
+.table-full {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.months th,
+.months td {
+  padding-left: 4px;
+  padding-right: 4px;
+}
+.months th {
+  position: static;
+}
+.months-total th,
+.months-total td {
+  border-top: 2px solid var(--border);
+  background: var(--panel-2);
+  vertical-align: top;
+}
+.months-total th {
+  color: var(--text);
+}
 .grade {
   padding: 1px 8px;
   border-radius: 10px;
