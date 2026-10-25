@@ -62,6 +62,13 @@ const WORST_COUNT = 4;
 // has no place in a backtest.
 const closedOnly = (raw: RawTrade[]) => raw.filter((t) => t.result !== 'Open');
 
+// A run always ends on the last day of the previous month (WIB), so every run covers whole
+// months and the current, unfinished month never counts.
+export function lastMonthEnd(now = new Date()): string {
+  const [y, m] = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit' }).format(now).split('-').map(Number);
+  return new Date(Date.UTC(y!, m! - 1, 0)).toISOString().slice(0, 10);
+}
+
 // Market-regime blocks, so a pair can be judged on how many regimes it survives. The
 // analyses still read the candles before "Dari" as warm-up.
 const RANGES: { label: string; title: string; range: () => [string, string] }[] = [
@@ -70,7 +77,7 @@ const RANGES: { label: string; title: string; range: () => [string, string] }[] 
   { label: '2016–19', title: 'Volatilitas rendah, banyak ranging', range: () => ['2016-01-01', '2019-12-31'] },
   { label: '2020–21', title: 'COVID, lonjakan volatilitas', range: () => ['2020-01-01', '2021-12-31'] },
   { label: '2022–24', title: 'Kenaikan suku bunga, yen melemah tajam', range: () => ['2022-01-01', '2024-12-31'] },
-  { label: '2025–kini', title: 'Out-of-sample terbaru', range: () => ['2025-01-01', ''] },
+  { label: '2025–kini', title: 'Out-of-sample terbaru', range: () => ['2025-01-01', lastMonthEnd()] },
 ];
 
 function holding(days: number | null): string {
@@ -479,7 +486,7 @@ export function BacktestModal({ onClose }: Props) {
   // what the numbers are computed with: the inputs once valid, a moment after typing stops
   const [money, setMoney] = useState({ balance: 6000, riskPct: 1 });
   const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
+  const [to, setTo] = useState(lastMonthEnd);
   const [symbol, setSymbol] = useState('ALL');
   const [tab, setTab] = useState<Tab>('overall');
   const [phase, setPhase] = useState<'idle' | 'loading' | 'running'>('idle');
@@ -512,7 +519,7 @@ export function BacktestModal({ onClose }: Props) {
         setRisk(ui.risk);
         if (Number(ui.balance) > 0 && Number(ui.risk) > 0) setMoney({ balance: Number(ui.balance), riskPct: Number(ui.risk) });
         setFrom(ui.from);
-        setTo(ui.to);
+        setTo(ui.to && ui.to <= lastMonthEnd() ? ui.to : lastMonthEnd());
         setSymbol(ui.symbol);
         if (TABS.includes(ui.tab as Tab)) setTab(ui.tab as Tab);
         setExcluded(new Set(ui.excluded));
@@ -562,7 +569,11 @@ export function BacktestModal({ onClose }: Props) {
       setError('Balance dan risk harus lebih dari 0');
       return;
     }
-    if (from && to && from > to) {
+    // an empty or later "Sampai" ends on the last day of last month
+    const end = lastMonthEnd();
+    const runTo = !to || to > end ? end : to;
+    setTo(runTo);
+    if (from && from > runTo) {
       setError('Tanggal "Dari" harus sebelum "Sampai"');
       return;
     }
@@ -573,7 +584,6 @@ export function BacktestModal({ onClose }: Props) {
     try {
       const { sr, symbols } = await api.backtestCandles();
       const runFrom = from;
-      const runTo = to;
       const w = new Worker(new URL('../backtest.worker.ts', import.meta.url), { type: 'module' });
       worker.current = w;
       w.onmessage = (e: MessageEvent<WorkerOut>) => {
@@ -610,7 +620,7 @@ export function BacktestModal({ onClose }: Props) {
         balance: b,
         riskPct: r,
         ...(from ? { from: Date.parse(`${from}T00:00:00Z`) } : {}),
-        ...(to ? { to: Date.parse(`${to}T00:00:00Z`) } : {}),
+        to: Date.parse(`${runTo}T00:00:00Z`),
       };
       w.postMessage(msg);
     } catch (e) {
@@ -820,7 +830,7 @@ export function BacktestModal({ onClose }: Props) {
           Dari <input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} />
         </label>
         <label className="inline">
-          Sampai <input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} />
+          Sampai <input type="date" value={to} min={from || undefined} max={lastMonthEnd()} onChange={(e) => setTo(e.target.value)} />
         </label>
         <button type="button" className="primary" disabled={busy} onClick={() => void start()}>
           {busy ? 'Memproses…' : 'Jalankan'}
@@ -909,7 +919,7 @@ export function BacktestModal({ onClose }: Props) {
               'Hasil terakhir'
             )}
             : rentang {range(result.from, result.to)}, {result.raw.length} trade.
-            {datesChanged && <span className="error"> Tanggal sudah diubah: klik Jalankan untuk menghitung rentang {range(from, to)}.</span>}
+            {datesChanged && <span className="error"> Tanggal sudah diubah: klik Jalankan untuk menghitung rentang {range(from, !to || to > lastMonthEnd() ? lastMonthEnd() : to)}.</span>}
           </p>
           {srChanged && <p className="banner-warn">Hasil ini memakai pengaturan S/R yang berbeda dari pengaturan sekarang. Klik Jalankan untuk menghitung ulang dengan pengaturan sekarang.</p>}
           {(minYears < 2 || shortPairs.length > 0) && (
