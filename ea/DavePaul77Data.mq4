@@ -17,7 +17,7 @@
 //| the user's own S/R lines (only when they change).                |
 //+------------------------------------------------------------------+
 #property copyright "DavePaul77"
-#property version   "1.10"
+#property version   "1.11"
 #property strict
 
 input string ServerUrl       = "";      // URL server (kosong = dari DavePaul77.ini)
@@ -163,9 +163,10 @@ void RefreshList()
    string names[];
    string response;
    int count = 0;
-   if(Http("GET", "/api/ea/mt4/symbols", "", response) == 200)
+   bool listed = Http("GET", "/api/ea/mt4/symbols", "", response) == 200;
+   if(listed)
      {
-      // {"symbols":["AUDJPY","AUDUSD"]}
+      // {"symbols":["AUDJPY","AUDUSD"],"last":{"AUDJPY":1729900800}}
       int open = StringFind(response, "[");
       int close = StringFind(response, "]", open);
       // close == open + 1 is an empty list; StringSubstr with length 0 would return the rest
@@ -219,10 +220,27 @@ void RefreshList()
             g_bfNext[i] = oldNext[j];
             g_bfDone[i] = oldDone[j];
            }
+      // after a restart: continue from the newest candle the server already has
+      if(g_sent[i] == 0 && listed)
+         g_sent[i] = ServerLast(response, names[i]);
       if(!SymbolSelect(names[i] + SymbolSuffix, true))
          Print("DavePaul77: ", names[i] + SymbolSuffix, " tidak ada di MT4 ini. Cek nama atau SymbolSuffix.");
      }
    Print("DavePaul77: ", count, " pair aktif");
+  }
+
+// Open time of the newest candle the server stores for a pair, from the "last" object of
+// /mt4/symbols (0 when the pair has none yet, so the whole HistoryBars window is sent).
+datetime ServerLast(const string response, const string name)
+  {
+   int from = StringFind(response, "\"last\"");
+   if(from < 0)
+      return(0);
+   string key = "\"" + name + "\":";
+   int at = StringFind(response, key, from);
+   if(at < 0)
+      return(0);
+   return((datetime)StringToInteger(StringSubstr(response, at + StringLen(key), 12)));
   }
 
 //+------------------------------------------------------------------+
@@ -246,12 +264,13 @@ void SendCandles(const int i)
    if(lastClosed <= g_sent[i])
       return; // nothing new today
 
-   // first run: the whole history window; afterwards only candles after the last one sent
+   // nothing on the server yet: the whole history window; otherwise only candles after the
+   // last one it has (from /mt4/symbols after a restart, or the last send)
    int last = MathMin(bars - 1, HistoryBars);
    if(g_sent[i] > 0)
      {
       last = 0;
-      while(last + 1 < bars && iTime(broker, PERIOD_D1, last + 1) > g_sent[i] && last < 50)
+      while(last + 1 < bars && iTime(broker, PERIOD_D1, last + 1) > g_sent[i] && last < HistoryBars)
          last++;
      }
    if(last < 1)

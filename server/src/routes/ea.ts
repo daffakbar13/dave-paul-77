@@ -118,10 +118,19 @@ export function eaRoutes(db: Collections, config: Config): Router {
   }
 
   // --- MT4 data EA -----------------------------------------------------------
-  // Active pairs from the web settings, so the tab list is managed in one place.
+  // Active pairs from the web settings, so the tab list is managed in one place. `last` is
+  // the open time (broker seconds) of the newest stored candle per pair, so a restarted EA
+  // sends only the candles after it instead of its whole history window.
   router.get('/mt4/symbols', dataKey, async (_req, res) => {
     const symbols = await db.symbols.find({ active: true }).sort({ order: 1 }).toArray();
-    res.json({ symbols: symbols.map((s) => s.name) });
+    const latest = await Promise.all(symbols.map((s) =>
+      db.candles.find({ symbol: s.name }, { projection: { t: 1 } }).sort({ t: -1 }).limit(1).next()));
+    const last: Record<string, number> = {};
+    symbols.forEach((s, i) => {
+      const t = latest[i]?.t;
+      if (t) last[s.name] = Math.floor(t.getTime() / 1000);
+    });
+    res.json({ symbols: symbols.map((s) => s.name), last });
   });
 
   router.post('/mt4/candles', dataKey, async (req, res) => {
