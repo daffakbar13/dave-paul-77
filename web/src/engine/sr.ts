@@ -214,7 +214,6 @@ function candidateFor(line: Line, side: Side, ctx: Ctx): Candidate {
 function ladderCandidate(line: Line, side: Side, ctx: Ctx): Candidate {
   const id = `${ctx.symbol}:${side}-${line.price.toFixed(ctx.digits)}`;
   const base: Candidate = { id, side, line: roundTo(line.price, ctx.digits) };
-  if (Math.abs(line.price - ctx.ref) < ctx.p.minDistanceAtr * ctx.atr) return { ...base, skipped: 'Terlalu dekat harga' };
   const sg = side === 'buy' ? 1 : -1;
   const beyond = ctx.lines.filter((l) => sg * (l.price - line.price) > 0).sort((a, b) => sg * (a.price - b.price));
   const behind = ctx.lines.filter((l) => sg * (l.price - line.price) < 0).sort((a, b) => sg * (b.price - a.price));
@@ -421,17 +420,22 @@ export function analyze(symbol: string, all: Candle[], p: SrParams, digits: numb
         .map((x) => ({ price: x, touches: 0, low: x, high: x, source: 'manual' }))
     : engineLines(candles, swings, a, p, digits);
   const ctx: Ctx = { inputs, ref, candles, swings, lines, atr: a, p, digits, symbol };
-  // All lines stay (they are TP targets); the limit only drops far lines' orders. Lines
-  // too close to price are listed as skipped and do not use up the limit.
+  // All lines stay (they are TP targets); the limit only drops far lines' orders. Orders
+  // whose entry is too close to price are listed as skipped and do not use up the limit.
   const limit = p.maxLinesPerSide > 0 ? p.maxLinesPerSide : Infinity;
-  const near = (l: Line) => Math.abs(l.price - ref) < p.minDistanceAtr * a;
-  const pick = (side: Line[]) => [...side.filter(near), ...side.filter((l) => !near(l)).slice(0, limit)];
-  const below = pick(lines.filter((l) => l.price < ref).reverse());
-  const above = pick(lines.filter((l) => l.price > ref));
-  const make = p.orderModel === 'ladder' ? ladderCandidate : candidateFor;
+  const make = (l: Line, side: Side): Candidate => {
+    const c = (p.orderModel === 'ladder' ? ladderCandidate : candidateFor)(l, side, ctx);
+    return c.entry !== undefined && Math.abs(c.entry - ref) < p.minDistanceAtr * a ? { id: c.id, side, line: c.line, skipped: 'Terlalu dekat harga' } : c;
+  };
+  const pick = (side: Line[], kind: Side) => {
+    let kept = 0;
+    return side.map((l) => make(l, kind)).filter((c) => c.skipped === 'Terlalu dekat harga' || kept++ < limit);
+  };
+  const below = pick(lines.filter((l) => l.price < ref).reverse(), 'sell');
+  const above = pick(lines.filter((l) => l.price > ref), 'buy');
   const candidates = dedupeEntries([
-    ...below.reverse().map((l) => make(l, 'sell', ctx)),
-    ...above.map((l) => make(l, 'buy', ctx)),
+    ...below.reverse(),
+    ...above,
   ]);
   return { atr: a, price: ref, lastCandleAt: last.t, lines, candidates };
 }

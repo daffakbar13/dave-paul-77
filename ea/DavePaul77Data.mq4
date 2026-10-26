@@ -406,7 +406,8 @@ void SendLines(const int i)
      }
    if(!found)
       return;
-   ArraySort(prices);
+   if(n > 1)
+      ArraySort(prices);
    int digits = (int)MarketInfo(broker, MODE_DIGITS);
    string items = "";
    string last = "";

@@ -190,24 +190,31 @@ export function withoutPairs(trades: BtTrade[], excluded: ReadonlySet<string>, b
 
 // --- trading costs ---------------------------------------------------------------
 // The candles are bid prices and the replay fills and exits on them, so the trades are
-// gross: no spread, no slippage. The cost is taken off each closed trade afterwards:
-// spread + slippage in pips, and that over the trade's SL distance in R. A buy stop fills
+// gross: no spread, commission or slippage. The cost is taken off each closed trade afterwards:
+// spread + commission + slippage in pips, and that over the trade's SL distance in R. A buy stop fills
 // on the ask and a sell closes on the ask, so every round trip pays the spread once.
 // Applied after the replay, the costs (and a Gross/Net switch) change nothing that needs a
 // new run, and saved results get them too.
 
-// spreadPips: per pair, overrides the defaults; slippagePips: extra per trade, every pair
-export type CostSettings = { enabled: boolean; slippagePips: number; spreadPips: Record<string, number> };
+// spreadPips: per pair, overrides the defaults; slippagePips: extra per trade, every pair;
+// commissionPerLot: USD per lot for the round trip (open + close), 0 = none
+export type CostSettings = { enabled: boolean; slippagePips: number; spreadPips: Record<string, number>; commissionPerLot: number };
 
-export const DEFAULT_COSTS: CostSettings = { enabled: true, slippagePips: 0, spreadPips: {} };
+export const DEFAULT_COSTS: CostSettings = { enabled: true, slippagePips: 0, spreadPips: {}, commissionPerLot: 10 };
 
-// Typical average spreads of an Exness Standard account, in pips (pipSize). Assumed, not
-// measured: the user has no spread data from the broker.
+// The "start from" spreads of a Maxrich Premium account, in pips (pipSize). These are the
+// tightest the broker quotes, so real averages (news, rollover) run wider; the account
+// pays USD 10 per lot commission on top (DEFAULT_COSTS.commissionPerLot).
 export const DEFAULT_SPREAD_PIPS: Record<string, number> = {
-  EURUSD: 1.0, GBPUSD: 1.2, USDJPY: 1.1, USDCHF: 1.4, USDCAD: 1.5, AUDUSD: 1.0, NZDUSD: 1.6,
-  EURJPY: 1.8, GBPJPY: 2.5, AUDJPY: 1.8, CHFJPY: 2.6, NZDJPY: 2.4, CADJPY: 2.1, EURGBP: 1.3, EURNZD: 3.5,
+  EURUSD: 0.5, USDCHF: 0.5,
+  USDJPY: 0.8, GBPUSD: 0.8, AUDUSD: 0.8, NZDUSD: 0.8, USDCAD: 0.8,
+  EURGBP: 1, AUDJPY: 1,
+  AUDCAD: 1.5, AUDCHF: 1.5, CADJPY: 1.5, CHFJPY: 1.5, EURAUD: 1.5, EURCHF: 1.5, EURJPY: 1.5,
+  GBPJPY: 2, EURCAD: 2, AUDNZD: 2, NZDJPY: 2,
+  EURNZD: 2.5, GBPAUD: 2.5, GBPCAD: 2.5,
+  GBPNZD: 4.5,
 };
-const GOLD_SPREAD = 0.25; // XAUUSD in price ($); its pip depends on the broker's digits
+const GOLD_SPREAD = 0.3; // XAUUSD in price ($); its pip depends on the broker's digits
 export const FALLBACK_SPREAD_PIPS = 2;
 
 export function defaultSpreadPips(symbol: string, digits: number): number {
@@ -220,9 +227,25 @@ export function spreadPipsOf(symbol: string, digits: number, costs: CostSettings
   return costs.spreadPips[symbol] ?? defaultSpreadPips(symbol, digits);
 }
 
-// The cost of one trade in pips; 0 when costs are off.
+// Rough USD value of one unit of the quote currency (a pip's money depends on it). Fixed
+// round rates are enough: the commission is a small part of the cost.
+const QUOTE_TO_USD: Record<string, number> = { USD: 1, JPY: 1 / 150, CAD: 0.72, CHF: 1.25, GBP: 1.3, AUD: 0.65, NZD: 0.6, EUR: 1.1 };
+
+// USD one pip is worth on one lot: 100,000 units of a forex pair, 100 oz of gold.
+export function pipValuePerLot(symbol: string, digits: number): number {
+  const s = symbol.toUpperCase();
+  if (s.startsWith('XAUUSD')) return 100 * pipSize(digits);
+  return 100_000 * pipSize(digits) * (QUOTE_TO_USD[s.slice(3, 6)] ?? 1);
+}
+
+// The commission of a round trip, in pips of the pair.
+export function commissionPipsOf(symbol: string, digits: number, costs: CostSettings): number {
+  return costs.commissionPerLot > 0 ? costs.commissionPerLot / pipValuePerLot(symbol, digits) : 0;
+}
+
+// The cost of one trade in pips (spread + commission + slippage); 0 when costs are off.
 export function costPipsOf(symbol: string, digits: number, costs: CostSettings): number {
-  return costs.enabled ? spreadPipsOf(symbol, digits, costs) + costs.slippagePips : 0;
+  return costs.enabled ? spreadPipsOf(symbol, digits, costs) + commissionPipsOf(symbol, digits, costs) + costs.slippagePips : 0;
 }
 
 // The trades net of costs. A TP whose cost is larger than its distance becomes a loss in

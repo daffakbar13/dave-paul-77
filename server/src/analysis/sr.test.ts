@@ -266,12 +266,21 @@ describe('analyze (ladder model)', () => {
     assert.equal(b.sl, roundTo(1.1133 - 0.01, 5));
   });
 
-  it('skips lines too close to price without using up the per-side limit', () => {
-    const close = analyze('EURUSD', quiet, { ...MANUAL, maxLinesPerSide: 1 }, 5, 1.1095, { manualLines: lines });
+  it('skips orders whose entry is too close to price without using up the per-side limit', () => {
+    // entry 1.1133 is 0.0038 from 1.1095, inside 2 ATR (about 0.008); 1.125's entry is far
+    const close = analyze('EURUSD', quiet, { ...MANUAL, maxLinesPerSide: 1, minDistanceAtr: 2 }, 5, 1.1095, { manualLines: lines });
     const buys = close.candidates.filter((c) => c.side === 'buy');
     assert.equal(buys[0]!.skipped, 'Terlalu dekat harga');
     assert.equal(buys.filter((c) => !c.skipped).length, 1);
     assert.equal(buys.find((c) => !c.skipped)!.line, 1.125);
+  });
+
+  it('keeps a line near price when its entry is far enough', () => {
+    // line 1.11 is 0.0005 from 1.1095 (inside 0.3 ATR) but its entry 1.1133 is not
+    const near = analyze('EURUSD', quiet, { ...MANUAL, minDistanceAtr: 0.3 }, 5, 1.1095, { manualLines: lines });
+    const b = near.candidates.find((c) => c.side === 'buy' && c.line === 1.11)!;
+    assert.equal(b.skipped, undefined);
+    assert.equal(b.entry, 1.1133);
   });
 
   it('gives about 1.9 RR on evenly spaced lines', () => {

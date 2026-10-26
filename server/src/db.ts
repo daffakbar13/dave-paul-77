@@ -17,7 +17,7 @@ export type Settings = {
   quoteMaxAgeMinutes: number;
   sr: SrParams;
   colors: { sr: string; entry: string; sltp: string };
-  costs: CostSettings; // backtest only: spread and slippage taken off each trade
+  costs: CostSettings; // backtest only: spread, commission and slippage taken off each trade
 };
 
 export const DEFAULT_SETTINGS: Omit<Settings, '_id'> = {

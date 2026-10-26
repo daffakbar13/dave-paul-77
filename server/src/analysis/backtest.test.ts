@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { compound, coverageOf, DEFAULT_COSTS, defaultSpreadPips, FALLBACK_SPREAD_PIPS, fillDay, replaySymbol, runBacktest, tierOf, withCosts, withoutPairs, type RawTrade } from './backtest.ts';
+import { commissionPipsOf, compound, coverageOf, DEFAULT_COSTS, defaultSpreadPips, FALLBACK_SPREAD_PIPS, fillDay, replaySymbol, runBacktest, tierOf, withCosts, withoutPairs, type RawTrade } from './backtest.ts';
 import { DEFAULT_SR, pipSize, roundTo } from './sr.ts';
 import type { Candle } from './types.ts';
 
@@ -233,15 +233,15 @@ describe('runBacktest', () => {
 });
 
 describe('withCosts', () => {
-  const costs = { ...DEFAULT_COSTS };
+  const costs = { ...DEFAULT_COSTS, commissionPerLot: 0 };
 
   it('takes spread + slippage off pips and R of closed trades', () => {
     const [tp, sl] = withCosts([raw({}), raw({ result: 'SL', pips: -10, r: -1 })], { ...costs, slippagePips: 0.5 });
-    // EURUSD spread 1.0 + 0.5 slippage over a 10-pip SL
-    assert.equal(tp!.pips, 18.5);
-    assert.equal(tp!.r, 1.85);
-    assert.equal(sl!.pips, -11.5);
-    assert.equal(sl!.r, -1.15);
+    // EURUSD spread 0.5 + 0.5 slippage over a 10-pip SL
+    assert.equal(tp!.pips, 19);
+    assert.equal(tp!.r, 1.9);
+    assert.equal(sl!.pips, -11);
+    assert.equal(sl!.r, -1.1);
     assert.equal(tp!.result, 'TP');
   });
 
@@ -254,11 +254,24 @@ describe('withCosts', () => {
     assert.equal(withCosts([raw({})], { ...costs, spreadPips: { EURUSD: 3 } })[0]!.pips, 17);
   });
 
-  it('gold default is $0.25 whatever the digits', () => {
-    assert.equal(defaultSpreadPips('XAUUSD', 2) * pipSize(2), 0.25);
-    assert.equal(roundTo(defaultSpreadPips('XAUUSD', 3) * pipSize(3), 6), 0.25);
-    assert.equal(defaultSpreadPips('GBPJPY', 3), 2.5);
-    assert.equal(defaultSpreadPips('EURUSDm', 5), 1.0);
+  it('commission per lot becomes pips through the pip value', () => {
+    const c = { ...costs, commissionPerLot: 10 };
+    assert.equal(commissionPipsOf('EURUSD', 5, c), 1); // USD 10 a pip on one lot
+    assert.equal(roundTo(commissionPipsOf('USDJPY', 3, c), 2), 1.5); // 1000 JPY a pip, about USD 6.67
+    assert.equal(commissionPipsOf('XAUUSD', 2, c), 1); // 100 oz x 0.1
+    assert.equal(commissionPipsOf('EURUSD', 5, costs), 0);
+    // EURUSD spread 0.5 + commission 1 off a 20-pip TP over a 10-pip SL
+    const [tp] = withCosts([raw({})], c);
+    assert.equal(tp!.pips, 18.5);
+    assert.equal(tp!.r, 1.85);
+  });
+
+  it('gold default is $0.30 whatever the digits', () => {
+    assert.equal(roundTo(defaultSpreadPips('XAUUSD', 2) * pipSize(2), 6), 0.3);
+    assert.equal(roundTo(defaultSpreadPips('XAUUSD', 3) * pipSize(3), 6), 0.3);
+    assert.equal(defaultSpreadPips('GBPJPY', 3), 2);
+    assert.equal(defaultSpreadPips('EURUSDm', 5), 0.5);
+    assert.equal(defaultSpreadPips('GBPNZD', 5), 4.5);
     assert.equal(defaultSpreadPips('XYZABC', 5), FALLBACK_SPREAD_PIPS);
   });
 });

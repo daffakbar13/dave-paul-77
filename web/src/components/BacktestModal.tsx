@@ -656,7 +656,7 @@ export function BacktestModal({ onClose }: Props) {
 
   // costs come from Pengaturan > Biaya backtest; off there means gross only
   const net = costs.enabled && basis === 'net';
-  // spread + slippage per pair, for the footnote
+  // spread + commission per pair, for the footnote
   const costList = useMemo(() => {
     if (!result) return '';
     const digits = new Map(result.raw.map((t) => [t.symbol, t.digits]));
@@ -1020,9 +1020,9 @@ export function BacktestModal({ onClose }: Props) {
             ({view.overall.trades ? pct((view.overall.ambiguous / view.overall.trades) * 100, 1) : '–'}) hasilnya berubah bila urutannya terbalik. Jika SL dan TP kena di candle yang sama setelah posisi terbuka, SL dihitung dulu.{' '}
             {net ? (
               <>
-                Angka <b>net</b>: tiap trade dikurangi spread{costs.slippagePips > 0 ? ` + slippage ${num(costs.slippagePips, 1)} pips` : ''} dalam pips, dan dalam R sebesar biaya / jarak SL trade itu
-                (fill dan exit tetap dari candle bid). Spread (pips): {costList}. Ini perkiraan rata-rata akun Exness Standard, bukan spread broker Anda; spread
-                melebar saat berita dan rollover tidak dihitung, komisi juga tidak. Ubah di Pengaturan &gt; Biaya backtest.
+                Angka <b>net</b>: tiap trade dikurangi spread{costs.commissionPerLot > 0 ? ` + komisi USD ${num(costs.commissionPerLot, 0)}/lot` : ''}{costs.slippagePips > 0 ? ` + slippage ${num(costs.slippagePips, 1)} pips` : ''} dalam pips, dan dalam R sebesar biaya / jarak SL trade itu
+                (fill dan exit tetap dari candle bid). Biaya spread + komisi (pips): {costList}. Spread memakai angka "mulai dari" akun Maxrich Premium (terendah, bukan rata-rata nyata); pelebaran saat berita
+                dan rollover tidak dihitung. Ubah di Pengaturan &gt; Biaya backtest.
               </>
             ) : (
               <>Angka <b>gross</b>: spread, komisi, dan slippage tidak dihitung, jadi hasil lebih optimis dari akun nyata{costs.enabled ? '; pilih Net untuk hasil setelah spread' : ' (biaya dimatikan di Pengaturan > Biaya backtest)'}.</>

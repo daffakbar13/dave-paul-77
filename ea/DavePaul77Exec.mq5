@@ -7,6 +7,12 @@
 //| placed again while they run. Deals of those positions (fill, SL, |
 //| TP, closed by hand) are reported for the trade journal.          |
 //| Open positions and manual orders are never touched.              |
+//| If the app's pending orders already equal the command (symbol,   |
+//| side, entry, SL, TP, lot) nothing is touched. Otherwise all are  |
+//| deleted and placed again sorted by symbol ascending, entry       |
+//| descending (MT5 mobile lists orders by creation order). An order |
+//| refused for the broker's pending limit is retried for a while,   |
+//| because deleted orders keep counting for a moment.               |
 //|                                                                  |
 //| DryRun is ON by default: it only logs what it would do and       |
 //| reports that to the web. Turn it off only on a tested account.   |
@@ -32,6 +38,7 @@ input int    PollSeconds   = 5;      // jeda ambil perintah
 input int    StatusSeconds = 60;     // jeda lapor balance dan spesifikasi simbol
 input int    TimeoutMs     = 30000;  // Render gratis bisa butuh 30-50 detik untuk bangun
 input int    DealDays      = 40;     // histori deal yang dibaca untuk jurnal (hari)
+input int    LimitWaitSec  = 120;    // tunggu maks bila broker menolak "limit order" (order terhapus belum dilepas dari hitungan)
 
 CTrade   g_trade;
 string   g_url = "";
@@ -422,33 +429,6 @@ void SendDeals()
    Print("DavePaul77: ", count, " deal dikirim ke jurnal");
   }
 
-//+------------------------------------------------------------------+
-//| Command: delete the app's pending orders, place the new ones      |
-//+------------------------------------------------------------------+
-int AppPendings(const bool remove)
-  {
-   int n = 0;
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      ulong ticket = OrderGetTicket(i);
-      if(ticket == 0 || OrderGetInteger(ORDER_MAGIC) != MagicNumber)
-         continue;
-      ENUM_ORDER_TYPE type = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
-      if(type != ORDER_TYPE_BUY_STOP && type != ORDER_TYPE_SELL_STOP && type != ORDER_TYPE_BUY_LIMIT && type != ORDER_TYPE_SELL_LIMIT)
-         continue;
-      if(!remove)
-        {
-         n++;
-         continue;
-        }
-      if(g_trade.OrderDelete(ticket))
-         n++;
-      else
-         Print("DavePaul77: gagal hapus order #", ticket, ": ", g_trade.ResultRetcode(), " ", g_trade.ResultRetcodeDescription());
-     }
-   return(n);
-  }
-
 double NormalizeLot(const string symbol, const double lot)
   {
    double step = SymbolInfoDouble(symbol, SYMBOL_VOLUME_STEP);
@@ -460,6 +440,32 @@ double NormalizeLot(const string symbol, const double lot)
    v = MathMax(vmin, MathMin(vmax, v));
    int decimals = (int)MathMax(0, MathCeil(-MathLog10(step)));
    return(NormalizeDouble(v, decimals));
+  }
+
+//+------------------------------------------------------------------+
+//| Command: delete the app's pending orders, place the new ones      |
+//+------------------------------------------------------------------+
+// Sends one stop order. Brokers keep counting just-deleted pending orders toward the
+// pending limit for a short while (retcode 10033), so that refusal is retried until
+// LimitWaitSec has passed instead of being reported as a failure right away.
+bool SendStop(const bool isBuy, const double vol, const double entry, const string symbol,
+              const double sl, const double tp, const string ref, uint &rc)
+  {
+   uint started = GetTickCount();
+   bool warned = false;
+   while(true)
+     {
+      bool sent = isBuy
+                  ? g_trade.BuyStop(vol, entry, symbol, sl, tp, ORDER_TIME_GTC, 0, ref)
+                  : g_trade.SellStop(vol, entry, symbol, sl, tp, ORDER_TIME_GTC, 0, ref);
+      rc = g_trade.ResultRetcode();
+      if(rc != TRADE_RETCODE_LIMIT_ORDERS || (GetTickCount() - started) >= (uint)LimitWaitSec * 1000)
+         return(sent);
+      if(!warned)
+         Print("DavePaul77: batas pending order broker penuh, menunggu hitungan order terhapus turun (maks ", LimitWaitSec, " dtk)");
+      warned = true;
+      Sleep(2000);
+     }
   }
 
 void PollCommand()
@@ -479,12 +485,12 @@ void PollCommand()
    int end = StringFind(response, "]", start);
    string orders = StringSubstr(response, start + 10, end - start - 10);
 
-   int deleted = AppPendings(!DryRun);
-   Print("DavePaul77: perintah ", id, DryRun ? " (DRY-RUN): " : ": ", deleted, " pending order aplikasi ", DryRun ? "akan dihapus" : "dihapus");
-
-   string results = "";
-   int placed = 0;
-   int failed = 0;
+   // 1. read the command
+   string refs[], syms[], sides[];
+   double entries[], sls[], tps[], vols[];
+   ulong  keptTicket[];
+   string badSymbol[];
+   int total = 0;
    int pos = 0;
    while(true)
      {
@@ -495,28 +501,127 @@ void PollCommand()
       string obj = StringSubstr(orders, o, c - o + 1);
       pos = c + 1;
 
-      string ref = JsonString(obj, "ref");
-      string symbol = JsonString(obj, "symbol");
-      string side = JsonString(obj, "side");
-      double entry = StringToDouble(JsonRaw(obj, "entry"));
-      double sl = StringToDouble(JsonRaw(obj, "sl"));
-      double tp = StringToDouble(JsonRaw(obj, "tp"));
-      double lot = StringToDouble(JsonRaw(obj, "lot"));
-
-      bool ok = false;
-      ulong ticket = 0;
-      string error = "";
-      if(!SymbolSelect(symbol, true))
-         error = "simbol " + symbol + " tidak ada";
+      ArrayResize(refs, total + 1);
+      ArrayResize(syms, total + 1);
+      ArrayResize(sides, total + 1);
+      ArrayResize(entries, total + 1);
+      ArrayResize(sls, total + 1);
+      ArrayResize(tps, total + 1);
+      ArrayResize(vols, total + 1);
+      ArrayResize(keptTicket, total + 1);
+      ArrayResize(badSymbol, total + 1);
+      refs[total] = JsonString(obj, "ref");
+      syms[total] = JsonString(obj, "symbol");
+      sides[total] = JsonString(obj, "side");
+      entries[total] = StringToDouble(JsonRaw(obj, "entry"));
+      sls[total] = StringToDouble(JsonRaw(obj, "sl"));
+      tps[total] = StringToDouble(JsonRaw(obj, "tp"));
+      vols[total] = StringToDouble(JsonRaw(obj, "lot"));
+      keptTicket[total] = 0;
+      badSymbol[total] = "";
+      if(!SymbolSelect(syms[total], true))
+         badSymbol[total] = "simbol " + syms[total] + " tidak ada";
       else
         {
+         int digits = (int)SymbolInfoInteger(syms[total], SYMBOL_DIGITS);
+         entries[total] = NormalizeDouble(entries[total], digits);
+         sls[total] = NormalizeDouble(sls[total], digits);
+         tps[total] = NormalizeDouble(tps[total], digits);
+         vols[total] = NormalizeLot(syms[total], vols[total]);
+        }
+      total++;
+     }
+
+   // 2. nothing to do when the app's pending orders already equal the command; otherwise
+   //    delete them all so the new ones can be placed in sorted order
+   ulong appTickets[];
+   int appCount = 0;
+   int kept = 0;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      ulong ticket = OrderGetTicket(i);
+      if(ticket == 0 || OrderGetInteger(ORDER_MAGIC) != MagicNumber)
+         continue;
+      ENUM_ORDER_TYPE type = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
+      if(type != ORDER_TYPE_BUY_STOP && type != ORDER_TYPE_SELL_STOP && type != ORDER_TYPE_BUY_LIMIT && type != ORDER_TYPE_SELL_LIMIT)
+         continue;
+      ArrayResize(appTickets, appCount + 1);
+      appTickets[appCount++] = ticket;
+      string osym = OrderGetString(ORDER_SYMBOL);
+      double point = SymbolInfoDouble(osym, SYMBOL_POINT);
+      bool isBuy = type == ORDER_TYPE_BUY_STOP || type == ORDER_TYPE_BUY_LIMIT;
+      for(int j = 0; j < total; j++)
+        {
+         if(keptTicket[j] != 0 || StringLen(badSymbol[j]) > 0 || syms[j] != osym || (sides[j] == "buy") != isBuy)
+            continue;
+         if(type != (isBuy ? ORDER_TYPE_BUY_STOP : ORDER_TYPE_SELL_STOP))
+            continue;
+         if(MathAbs(OrderGetDouble(ORDER_PRICE_OPEN) - entries[j]) < point / 2
+            && MathAbs(OrderGetDouble(ORDER_SL) - sls[j]) < point / 2
+            && MathAbs(OrderGetDouble(ORDER_TP) - tps[j]) < point / 2
+            && MathAbs(OrderGetDouble(ORDER_VOLUME_CURRENT) - vols[j]) < 1e-8)
+           {
+            keptTicket[j] = ticket;
+            kept++;
+            break;
+           }
+        }
+     }
+   bool identical = kept == total && appCount == total;
+   int deleted = 0;
+   if(!identical)
+     {
+      ArrayInitialize(keptTicket, 0);
+      for(int i = 0; i < appCount; i++)
+        {
+         if(DryRun || g_trade.OrderDelete(appTickets[i]))
+            deleted++;
+         else
+            Print("DavePaul77: gagal hapus order #", appTickets[i], ": ", g_trade.ResultRetcode(), " ", g_trade.ResultRetcodeDescription());
+        }
+     }
+   Print("DavePaul77: perintah ", id, DryRun ? " (DRY-RUN): " : ": ", deleted, " pending order aplikasi ", DryRun ? "akan dihapus" : "dihapus",
+         identical ? ", semua sudah sama persis (tidak diubah)" : "");
+
+   // sort: symbol ascending, entry descending
+   int order[];
+   ArrayResize(order, total);
+   for(int i = 0; i < total; i++)
+      order[i] = i;
+   for(int i = 1; i < total; i++)
+     {
+      int cur = order[i];
+      int k = i - 1;
+      while(k >= 0 && (syms[order[k]] > syms[cur] || (syms[order[k]] == syms[cur] && entries[order[k]] < entries[cur])))
+        {
+         order[k + 1] = order[k];
+         k--;
+        }
+      order[k + 1] = cur;
+     }
+
+   // 3. place them in that order
+   string results = "";
+   int placed = 0;
+   int failed = 0;
+   for(int n = 0; n < total; n++)
+     {
+      int j = order[n];
+      string symbol = syms[j];
+      string ref = refs[j];
+      bool ok = false;
+      ulong ticket = 0;
+      string error = badSymbol[j];
+      if(keptTicket[j] != 0)
+        {
+         ok = true;
+         ticket = keptTicket[j];
+        }
+      else if(StringLen(error) == 0)
+        {
          int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
-         entry = NormalizeDouble(entry, digits);
-         sl = NormalizeDouble(sl, digits);
-         tp = NormalizeDouble(tp, digits);
-         double vol = NormalizeLot(symbol, lot);
-         string what = side + " stop " + symbol + " " + DoubleToString(vol, 2) + " @ " + DoubleToString(entry, digits)
-                       + " SL " + DoubleToString(sl, digits) + " TP " + DoubleToString(tp, digits);
+         string what = sides[j] + " stop " + symbol + " " + DoubleToString(vols[j], 2) + " @ " + DoubleToString(entries[j], digits)
+                       + " SL " + DoubleToString(sls[j], digits) + " TP " + DoubleToString(tps[j], digits);
          if(DryRun)
            {
             ok = true;
@@ -524,10 +629,8 @@ void PollCommand()
            }
          else
            {
-            bool sent = side == "buy"
-                        ? g_trade.BuyStop(vol, entry, symbol, sl, tp, ORDER_TIME_GTC, 0, ref)
-                        : g_trade.SellStop(vol, entry, symbol, sl, tp, ORDER_TIME_GTC, 0, ref);
-            uint rc = g_trade.ResultRetcode();
+            uint rc = 0;
+            bool sent = SendStop(sides[j] == "buy", vols[j], entries[j], symbol, sls[j], tps[j], ref, rc);
             if(sent && (rc == TRADE_RETCODE_DONE || rc == TRADE_RETCODE_PLACED))
               {
                ok = true;

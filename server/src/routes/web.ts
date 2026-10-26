@@ -97,6 +97,7 @@ const settingsSchema = z.object({
   costs: z.object({
     enabled: z.boolean(),
     slippagePips: z.number().min(0).max(100),
+    commissionPerLot: z.number().min(0).max(1000),
     spreadPips: z.record(symbolName, z.number().min(0).max(1000)),
   }).partial(),
 }).partial();

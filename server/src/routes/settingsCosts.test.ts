@@ -38,7 +38,7 @@ after(async () => {
 describe('settings: backtest costs', () => {
   it('defaults to on, no slippage, default spreads', async () => {
     const s = await (await call('GET')).json();
-    assert.deepEqual(s.costs, { enabled: true, slippagePips: 0, spreadPips: {} });
+    assert.deepEqual(s.costs, { enabled: true, slippagePips: 0, spreadPips: {}, commissionPerLot: 10 });
   });
 
   it('saves costs without a new settings version', async () => {
@@ -46,8 +46,14 @@ describe('settings: backtest costs', () => {
     const res = await call('PUT', { costs: { slippagePips: 0.3, spreadPips: { eurgbp: 1.5 } } });
     assert.equal(res.status, 200);
     const s = await res.json();
-    assert.deepEqual(s.costs, { enabled: true, slippagePips: 0.3, spreadPips: { EURGBP: 1.5 } });
+    assert.deepEqual(s.costs, { enabled: true, slippagePips: 0.3, spreadPips: { EURGBP: 1.5 }, commissionPerLot: 10 });
     assert.equal(s.version, before.version);
+  });
+
+  it('saves the commission per lot', async () => {
+    const s = await (await call('PUT', { costs: { commissionPerLot: 7 } })).json();
+    assert.equal(s.costs.commissionPerLot, 7);
+    assert.equal((await call('PUT', { costs: { commissionPerLot: -1 } })).status, 400);
   });
 
   it('rejects a negative spread', async () => {
