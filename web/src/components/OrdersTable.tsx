@@ -20,6 +20,8 @@ const STATUS_TEXT: Record<OrderRow['status'], string> = {
 // rows are sent.
 export function OrdersTable({ rows, onCancel, onRestore, busyId }: Props) {
   if (!rows.length) return <p className="muted pad">Belum ada kandidat order.</p>;
+  // pair A-Z, then price high to low (a skipped row has no entry, so its line stands in)
+  const sorted = [...rows].sort((a, b) => a.symbol.localeCompare(b.symbol) || (b.entry ?? b.line) - (a.entry ?? a.line));
   return (
     <div className="table-scroll">
       <table className="orders tabular">
@@ -38,7 +40,7 @@ export function OrdersTable({ rows, onCancel, onRestore, busyId }: Props) {
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => {
+          {sorted.map((r) => {
             const d = digitsOf(r.symbol);
             const cls = [`row-${r.status}`, r.status === 'valid' && r.lowRr ? 'row-low-rr' : ''].join(' ');
             return (

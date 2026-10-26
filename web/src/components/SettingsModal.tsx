@@ -29,7 +29,7 @@ const LADDER_FIELDS: Field[] = [
   { key: 'entryGap', label: 'Entry: garis + … x g', hint: 'Dari order Anda: 0,22', step: 0.01 },
   { key: 'slGap', label: 'SL: garis − … x g', hint: 'Seberang garis yang sama. Dari order Anda: 0,16', step: 0.01 },
   { key: 'tpGap', label: 'TP: garis berikutnya − … x g', hint: 'Dari order Anda: 0,07', step: 0.01 },
-  { key: 'minDistanceAtr', label: 'Lewati garis lebih dekat dari … x ATR ke harga', hint: '', step: 0.05 },
+  { key: 'minDistanceAtr', label: 'Lewati order dengan entry lebih dekat dari … x ATR ke harga', hint: '', step: 0.05 },
   { key: 'maxLinesPerSide', label: 'Garis berorder per sisi', hint: 'Garis terdekat dari harga; 0 = semua', step: 1 },
   { key: 'autoTpRr', label: 'RR TP di garis terakhir', hint: 'Tidak ada garis berikutnya', step: 0.1 },
 ];

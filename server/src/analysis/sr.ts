@@ -29,7 +29,7 @@ export const DEFAULT_SR: SrParams = {
   entryGap: 0.22,
   slGap: 0.16,
   tpGap: 0.07,
-  minDistanceAtr: 0.3,
+  minDistanceAtr: 0.15,
   // the user's own SLs sit ~0.38 ATR from entry, tighter than any D1 candle low allows, so
   // the candle SL is an option rather than the default
   slSource: 'ladder',

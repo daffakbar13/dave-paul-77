@@ -50,7 +50,7 @@ export type SrParams = {
   entryGap: number; // entry = line + entryGap x g
   slGap: number; // SL = line - slGap x g (other side of the same line)
   tpGap: number; // TP = next line - tpGap x g
-  minDistanceAtr: number; // lines closer than this to price get no order
+  minDistanceAtr: number; // orders whose entry is closer than this to price are skipped
   // ladder SL source: 'candle' = beyond the nearest strong D1 candle on the SL side of the
   // line (low - buffer for buy, high + buffer for sell), falling back to the ladder SL;
   // 'ladder' = always line - slGap x g
