@@ -96,19 +96,15 @@ export async function replaySymbol(symbol: string, data: SymbolData, p: SrParams
   const cs = data.candles;
   const pip = pipSize(data.digits);
   const trades: RawTrade[] = [];
-  // `line` is the level price when the trade filled. Lines are recomputed every day and drift
-  // a few pips, so a level is recognised by price (within one cluster width), not by its id.
-  const open = new Map<string, { tr: RawTrade; line: number }>();
+  const open = new Map<string, RawTrade>();
   const start = Math.max(opts.warmup, 10);
 
   for (let i = start; i < cs.length; i++) {
     const day = cs[i]!;
     if (opts.to !== undefined && day.t > opts.to) break;
 
-    // trades opened on an earlier day run on; the day's orders are placed in the morning, while
-    // they are still open, so a level that closes today stays blocked for today
-    const heldAtOpen = [...open.values()];
-    for (const [id, { tr }] of open) {
+    // trades opened on an earlier day run on
+    for (const [id, tr] of open) {
       const x = exitIn(tr.side, day, tr.sl, tr.tp);
       if (!x) continue;
       tr.result = x.result;
@@ -123,12 +119,9 @@ export async function replaySymbol(symbol: string, data: SymbolData, p: SrParams
 
     const a = analyze(symbol, cs.slice(Math.max(0, i - p.lookback), i), p, data.digits, undefined, data.inputs);
     if (pause) await pause();
-    const sameLevel = p.clusterAtr * a.atr;
     for (const c of a.candidates) {
       if (c.skipped || c.entry === undefined || c.sl === undefined || c.tp === undefined) continue;
-      if (!usable(c.side, c.entry, c.sl, c.tp, a.price, pip)) continue;
-      // one position per level: skip while a trade of this side from the same level is still open
-      if (heldAtOpen.some((o) => o.tr.side === c.side && Math.abs(o.line - c.line) <= sameLevel)) continue;
+      if (open.has(c.id) || !usable(c.side, c.entry, c.sl, c.tp, a.price, pip)) continue;
       const rising = day.c >= day.o;
       const day1 = fillDay(c.side, day, c.entry, c.sl, c.tp, rising);
       if (!day1) continue;
@@ -156,9 +149,7 @@ export async function replaySymbol(symbol: string, data: SymbolData, p: SrParams
         // the other traversal of the candle gives another result: the D1 data cannot say
         tr.ambiguous = fillDay(c.side, day, c.entry, c.sl, c.tp, !rising)?.exit !== day1.exit;
       } else {
-        const held = { tr, line: c.line };
-        open.set(c.id, held);
-        heldAtOpen.push(held);
+        open.set(c.id, tr);
       }
       trades.push(tr);
     }
