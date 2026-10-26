@@ -64,6 +64,22 @@ describe('replaySymbol', async () => {
     }
   });
 
+  it('does not re-enter a level whose line drifted while its trade is still open', () => {
+    // lines are recomputed daily and move a few pips, so the id of one level changes; two trades
+    // of the same side that overlap in time must then still be separate levels, not one level twice
+    const pip = pipSize(5);
+    for (let i = 0; i < trades.length; i++) {
+      for (let j = i + 1; j < trades.length; j++) {
+        const a = trades[i]!;
+        const b = trades[j]!;
+        if (a.side !== b.side || a.symbol !== b.symbol) continue;
+        const overlap = b.entryAt <= (a.exitAt ?? Infinity) && a.entryAt <= (b.exitAt ?? Infinity);
+        if (!overlap) continue;
+        assert.ok(Math.abs(a.entry - b.entry) / pip >= 5, `${a.side} ${a.entry} and ${b.entry} are open together`);
+      }
+    }
+  });
+
   it('has no look-ahead: changing later candles does not change earlier trades', async () => {
     const cut = 450;
     const altered = candles.map((c, i) => (i < cut ? c : { ...c, h: c.h + 0.02, l: c.l - 0.02, c: c.c + 0.01 }));
