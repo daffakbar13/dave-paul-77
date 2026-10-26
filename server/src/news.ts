@@ -184,11 +184,20 @@ async function fetchAndStore(db: Collections, provider: NewsProvider): Promise<N
   }
 }
 
+// The window runs `hours` from the 05:00 WIB nearest to now (the morning briefing time), not from now:
+// Tue 07:00 -> anchor Tue 05:00 -> ends Thu 05:00; Tue 23:00 -> anchor Wed 05:00 -> ends Fri 05:00.
+const ANCHOR_UTC_HOUR = 22; // 05:00 WIB = 22:00 UTC the day before
+export function newsWindowEnd(now: number, hours: number): number {
+  const day = 24 * HOUR;
+  const anchor = Math.round((now - ANCHOR_UTC_HOUR * HOUR) / day) * day + ANCHOR_UTC_HOUR * HOUR;
+  return anchor + hours * HOUR;
+}
+
 // Red news from one hour ago (still shown after release) to the end of the window.
 export async function upcomingRed(db: Collections, settings: Settings): Promise<NewsDoc[]> {
   const now = Date.now();
   return db.news
-    .find({ impact: 'high', at: { $gte: new Date(now - HOUR), $lte: new Date(now + settings.newsWindowHours * HOUR) } })
+    .find({ impact: 'high', at: { $gte: new Date(now - HOUR), $lte: new Date(newsWindowEnd(now, settings.newsWindowHours)) } })
     .sort({ at: 1 })
     .toArray();
 }

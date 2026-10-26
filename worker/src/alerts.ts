@@ -10,6 +10,7 @@ const STALE_AFTER = 12 * HOUR;
 const KEEP_SENT = 2 * 24 * HOUR;
 
 export const STAGES = [
+  { id: '48h', ms: 48 * HOUR, label: '48 jam lagi' },
   { id: '24h', ms: 24 * HOUR, label: '24 jam lagi' },
   { id: '4h', ms: 4 * HOUR, label: '4 jam lagi' },
   { id: '1h', ms: HOUR, label: '1 jam lagi' },
@@ -78,8 +79,8 @@ function currentStage(remaining: number): Stage | null {
 function alertText(at: number, items: NewsItem[], stage: Stage, now: number, pairs: string[]): string {
   const remaining = at - now;
   // On time it reads "1 jam lagi"; an event first seen late (or a late run) shows the real gap.
-  const label = stage.id !== '24h' && remaining > stage.ms - 10 * MINUTE ? stage.label : `${fmtRemaining(remaining)} lagi`;
-  const head = stage.id === '24h' ? '🔴' : '⏰';
+  const label = stage.id !== STAGES[0].id && remaining > stage.ms - 10 * MINUTE ? stage.label : `${fmtRemaining(remaining)} lagi`;
+  const head = stage.ms >= 24 * HOUR ? '🔴' : '⏰';
   const lines = [`${head} <b>High impact · ${label}</b>`, `${fmtDay(at)} · ${fmtTime(at)} WIB`];
   for (const n of items) lines.push(`• ${n.currency} · ${escape(n.title)}`);
   const affected = pairsFor([...new Set(items.map((n) => n.currency))], pairs);
@@ -146,18 +147,18 @@ export function planOthers(cal: Calendar, log: SentLog, now: number, pairs: stri
 }
 
 // --- Daily Outlook ----------------------------------------------------------
-// 05:00 WIB every day, weekends included, listing every impact for the 24 hours from
-// 05:00. Runs until 08:00 retry a failed send.
+// 05:00 WIB every day, weekends included, listing every impact for the 48 hours from
+// 05:00 (an order placed in the morning must see tomorrow's morning news too). Runs until 08:00 retry a failed send.
 export function planDigest(cal: Calendar, log: SentLog, now: number): Outgoing | null {
   const d = wib(now);
   const date = wibDate(now);
   if (d.getUTCHours() < DIGEST_HOUR || d.getUTCHours() >= DIGEST_LATEST_HOUR) return null;
   if (log.digests.includes(date)) return null;
   const start = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), DIGEST_HOUR) - WIB;
-  const end = start + 24 * HOUR;
+  const end = start + 48 * HOUR;
   const items = cal.items.filter((n) => Date.parse(n.at) >= start && Date.parse(n.at) < end);
 
-  const lines = [`📅 <b>Daily Outlook · ${fmtDay(now)}</b>`, `Semua berita 05:00 WIB s.d. besok 05:00 WIB`, ''];
+  const lines = [`📅 <b>Daily Outlook · ${fmtDay(now)}</b>`, `Semua berita 05:00 WIB s.d. lusa 05:00 WIB`, ''];
   if (!items.length) lines.push('Tidak ada berita.');
   let day = '';
   for (const n of items) {

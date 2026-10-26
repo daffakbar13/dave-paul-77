@@ -57,7 +57,7 @@ Panduan langkah demi langkah lewat website (Render, Vercel, Atlas, lalu arahkan 
   Produksi memakai `worker`: salinan kalender dari Cloudflare Worker (`worker/`), jadi Render tidak kena rate limit feed.
   `npm run dev:memory` selalu memakai `sample` (berita contoh tetap) agar restart lokal tidak kena rate limit
   feed; tambahkan `-- --live-news` untuk memakai feed sungguhan.
-- **Banner**: berita merah (High) dari 1 jam lalu sampai jendela ke depan (default 24 jam), dengan jam rilis WIB.
+- **Banner**: berita merah (High) dari 1 jam lalu sampai jendela ke depan (default 48 jam dihitung dari jam 05:00 WIB terdekat; Selasa 07:00 s.d. Kamis 05:00, Selasa 23:00 s.d. Jumat 05:00), dengan jam rilis WIB.
 - **Aggressive**, tiga mode per sesi browser:
   - *auto* (setiap aplikasi dibuka): pengali akun berlaku untuk pair yang mata uangnya punya berita merah di jendela,
     hanya untuk akun dengan "Aggressive otomatis" menyala. Pair terkait diberi tanda `!` di tab.
@@ -67,7 +67,7 @@ Panduan langkah demi langkah lewat website (Render, Vercel, Atlas, lalu arahkan 
 ## Alert berita Telegram (Cloudflare Worker)
 
 `worker/` jalan setiap 5 menit di Cloudflare (tanpa laptop/Render): alert berita high impact ke topik **News Alert**
-(24 jam, 4 jam, 1 jam, 30 menit sebelum rilis, masing-masing sekali) dan **Daily Outlook** 05:00 WIB. Setup dan
+(48 jam, 24 jam, 4 jam, 1 jam, 30 menit sebelum rilis, masing-masing sekali) dan **Daily Outlook** 05:00 WIB (48 jam ke depan). Setup dan
 deploy: `worker/README.md`.
 
 ## Tahap 4: EA MT5 eksekutor

@@ -5,13 +5,13 @@ Cloudflare Worker gratis yang jalan **setiap 5 menit**, tanpa laptop dan tanpa R
 - Mengambil feed ForexFactory paling sering 4 jam sekali (1 jam sebelum Daily Outlook) dan menyimpannya di KV. Versi
   XML dulu (JSON hampir selalu kena rate limit dari IP Cloudflare yang dipakai bersama), JSON sebagai cadangan.
 - **News Alert** (topik grup Telegram): setiap berita *high impact* (semua mata uang) dikirim saat masuk jendela
-  24 jam, lalu 4 jam, 1 jam dan 30 menit sebelum rilis. Berita di jam yang sama digabung dalam satu pesan. Tiap tahap
+  48 jam, 24 jam, lalu 4 jam, 1 jam dan 30 menit sebelum rilis. Berita di jam yang sama digabung dalam satu pesan. Tiap tahap
   hanya sekali; jika run telat, hanya tahap terdekat yang dikirim. Jadwal berubah = berita baru, alert mulai lagi.
 - **Other News** (topik sendiri, opsional): berita *medium* 🟠 dan *low* 🟡 semua mata uang, sekali 30 menit
   sebelum rilis, digabung per jam rilis. Berita merah tetap hanya di News Alert. Tidak dikirim sebelum
   `TOPIC_OTHER_NEWS` diisi.
 - **Daily Outlook** (topik lain): 05:00 WIB setiap hari termasuk Sabtu dan Minggu, semua berita (🔴 high, 🟠 medium,
-  🟡 low) 05:00 s.d. besok 05:00 WIB. Jika 05:00 gagal, dicoba lagi sampai 08:00.
+  🟡 low) 05:00 s.d. lusa 05:00 WIB (48 jam). Jika 05:00 gagal, dicoba lagi sampai 08:00.
 - Peringatan sekali di News Alert jika kalender gagal diperbarui lebih dari 12 jam, dan pesan saat kembali normal.
 - `GET /calendar`: salinan kalender untuk server Render (`NEWS_SOURCE=worker`), jadi Render tidak pernah memanggil
   ForexFactory sendiri.
@@ -69,7 +69,7 @@ Wrangler mencetak URL: `https://dave-paul-77-news.davepaul77.workers.dev` (deplo
 - Run pertama dalam ≤5 menit. Lihat log: `npx wrangler tail` atau dashboard > Workers > dave-paul-77-news > Logs.
   Baris `calendar: N items` = feed berhasil; `sent alert: ...` = pesan terkirim.
 - Buka `https://dave-paul-77-news.<akun>.workers.dev/calendar`: `fetchedAt` terisi dan `error` `null`.
-- Jika ada berita high impact dalam 24 jam, News Alert langsung menerima pesan pertama.
+- Jika ada berita high impact dalam 48 jam, News Alert langsung menerima pesan pertama.
 
 ### 4. Render memakai worker
 

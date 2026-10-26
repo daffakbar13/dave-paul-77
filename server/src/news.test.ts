@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { after, describe, it } from 'node:test';
 import { ObjectId } from 'mongodb';
 import type { AccountDoc } from './db.ts';
-import { isAffected, isWeekend, parseForexFactory, parseWorkerCalendar, type Aggressive } from './news.ts';
+import { isAffected, isWeekend, newsWindowEnd, parseForexFactory, parseWorkerCalendar, type Aggressive } from './news.ts';
 import { multiplierFor } from './service.ts';
 
 describe('isWeekend', () => {
@@ -11,6 +11,16 @@ describe('isWeekend', () => {
     assert.equal(isWeekend(new Date('2026-10-24T12:00:00Z')), true); // Saturday
     assert.equal(isWeekend(new Date('2026-10-25T20:59:00Z')), true); // Sunday before open
     assert.equal(isWeekend(new Date('2026-10-25T21:00:00Z')), false); // Sunday open
+  });
+});
+
+describe('newsWindowEnd', () => {
+  const wib = (iso: string) => Date.parse(`${iso}+07:00`);
+  it('counts from the 05:00 WIB nearest to now', () => {
+    assert.equal(newsWindowEnd(wib('2026-10-27T07:00:00'), 48), wib('2026-10-29T05:00:00')); // Tue 07:00 -> Thu 05:00
+    assert.equal(newsWindowEnd(wib('2026-10-27T23:00:00'), 48), wib('2026-10-30T05:00:00')); // Tue 23:00 -> Fri 05:00
+    assert.equal(newsWindowEnd(wib('2026-10-28T02:00:00'), 48), wib('2026-10-30T05:00:00')); // Wed 02:00 -> Fri 05:00
+    assert.equal(newsWindowEnd(wib('2026-10-27T05:00:00'), 48), wib('2026-10-29T05:00:00'));
   });
 });
 

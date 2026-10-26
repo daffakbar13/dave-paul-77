@@ -38,10 +38,11 @@ function simulate(c: Calendar, from: number, to: number, log = fresh()): string[
 }
 
 describe('planAlerts', () => {
-  it('sends 24h, 4h, 1h and 30m once each, then nothing after the release', () => {
-    const at = NOW + 30 * H;
+  it('sends 48h, 24h, 4h, 1h and 30m once each, then nothing after the release', () => {
+    const at = NOW + 50 * H;
     const sent = simulate(cal([item(at)]), NOW, at + H);
     assert.deepEqual(sent, [
+      '🔴 <b>High impact · 48 jam lagi</b>',
       '🔴 <b>High impact · 24 jam lagi</b>',
       '⏰ <b>High impact · 4 jam lagi</b>',
       '⏰ <b>High impact · 1 jam lagi</b>',
@@ -71,7 +72,7 @@ describe('planAlerts', () => {
     const [o] = planAlerts(cal([item(at)]), log, NOW, PAIRS);
     assert.match(o!.text, /High impact · 2 jam 10 menit lagi/);
     o!.mark(log);
-    assert.deepEqual(log.events[eventKey(item(at))], ['24h', '4h']);
+    assert.deepEqual(log.events[eventKey(item(at))], ['48h', '24h', '4h']);
     assert.equal(planAlerts(cal([item(at)]), log, NOW + 5 * M, PAIRS).length, 0);
   });
 
@@ -117,22 +118,24 @@ describe('planDigest', () => {
     item(Date.parse('2026-10-23T12:30:00Z')), // 19:30 WIB
     item(Date.parse('2026-10-23T12:30:00Z'), 'EUR', 'CPI', 'medium'),
     item(Date.parse('2026-10-23T18:00:00Z'), 'NZD', 'GDP q/q'), // Sat 01:00 WIB
-    item(Date.parse('2026-10-23T22:00:00Z'), 'JPY', 'After window'), // Sat 05:00 WIB
+    item(Date.parse('2026-10-23T22:00:00Z'), 'JPY', 'Next day'), // Sat 05:00 WIB
+    item(Date.parse('2026-10-24T22:00:00Z'), 'CHF', 'After window'), // Sun 05:00 WIB
   ];
 
-  it('lists news of every impact from 05:00 WIB for 24 hours, once', () => {
+  it('lists news of every impact from 05:00 WIB for 48 hours, once', () => {
     const log = fresh();
     const d = planDigest(cal(items), log, fivePastFive);
     assert.equal(
       d!.text,
       [
         '📅 <b>Daily Outlook · Jum, 23 Okt</b>',
-        'Semua berita 05:00 WIB s.d. besok 05:00 WIB',
+        'Semua berita 05:00 WIB s.d. lusa 05:00 WIB',
         '',
         '19:30 · 🔴 USD · Non-Farm Employment Change',
         '19:30 · 🟠 EUR · CPI',
         '<i>Sab, 24 Okt</i>',
         '01:00 · 🔴 NZD · GDP q/q',
+        '05:00 · 🔴 JPY · Next day',
       ].join('\n'),
     );
     d!.mark(log);
