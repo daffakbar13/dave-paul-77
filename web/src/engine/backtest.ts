@@ -3,7 +3,7 @@
 // Every trading day the engine analyses only the candles that closed before that day, which
 // gives the same buy/sell stop orders the live app would have placed that morning. Those
 // orders live for that day only ("Execute every day"). A fill opens a trade that then runs
-// until its SL or TP is touched; a level whose trade is still open is not placed again.
+// until its SL or TP is touched; a pair holds at most one position per side (buy / sell).
 // Money is added afterwards (`compound`): every trade risks riskPct of the balance on the
 // day it fills, and the balance only counts trades that closed on an earlier day.
 import type { BtTrade } from './backtestStats.ts';
@@ -103,6 +103,11 @@ export async function replaySymbol(symbol: string, data: SymbolData, p: SrParams
     const day = cs[i]!;
     if (opts.to !== undefined && day.t > opts.to) break;
 
+    // One position per pair and side. The day's orders are placed in the morning, so a side
+    // that is open now (even if it closes today) gets no new order today, and neither does a
+    // side that fills earlier today. The other side may still be placed while this one runs.
+    const taken = new Set<Side>([...open.values()].map((t) => t.side));
+
     // trades opened on an earlier day run on
     for (const [id, tr] of open) {
       const x = exitIn(tr.side, day, tr.sl, tr.tp);
@@ -119,12 +124,15 @@ export async function replaySymbol(symbol: string, data: SymbolData, p: SrParams
 
     const a = analyze(symbol, cs.slice(Math.max(0, i - p.lookback), i), p, data.digits, undefined, data.inputs);
     if (pause) await pause();
-    for (const c of a.candidates) {
+    // the stop nearest the open is reached first, so it takes the side's one position
+    const byReach = [...a.candidates].sort((x, y) => Math.abs((x.entry ?? Infinity) - day.o) - Math.abs((y.entry ?? Infinity) - day.o));
+    for (const c of byReach) {
       if (c.skipped || c.entry === undefined || c.sl === undefined || c.tp === undefined) continue;
-      if (open.has(c.id) || !usable(c.side, c.entry, c.sl, c.tp, a.price, pip)) continue;
+      if (taken.has(c.side) || open.has(c.id) || !usable(c.side, c.entry, c.sl, c.tp, a.price, pip)) continue;
       const rising = day.c >= day.o;
       const day1 = fillDay(c.side, day, c.entry, c.sl, c.tp, rising);
       if (!day1) continue;
+      taken.add(c.side);
       const tr: RawTrade = {
         symbol,
         side: c.side,

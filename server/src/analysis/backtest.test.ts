@@ -64,6 +64,18 @@ describe('replaySymbol', async () => {
     }
   });
 
+  it('holds at most one position per side; the other side may run alongside', () => {
+    for (const side of ['buy', 'sell'] as const) {
+      const list = trades.filter((t) => t.side === side).sort((a, b) => a.entryAt - b.entryAt);
+      for (let i = 1; i < list.length; i++) {
+        const prev = list[i - 1]!;
+        // orders are placed in the morning: the next one waits for a later day than the exit
+        assert.ok(prev.exitAt !== null && prev.exitAt < list[i]!.entryAt, `${side} ${list[i]!.entry} opened while ${prev.entry} was still open`);
+      }
+    }
+    assert.ok(trades.some((t) => trades.some((u) => u.side !== t.side && u.entryAt > t.entryAt && u.entryAt <= (t.exitAt ?? Infinity))), 'a sell can fill while a buy runs');
+  });
+
   it('has no look-ahead: changing later candles does not change earlier trades', async () => {
     const cut = 450;
     const altered = candles.map((c, i) => (i < cut ? c : { ...c, h: c.h + 0.02, l: c.l - 0.02, c: c.c + 0.01 }));
