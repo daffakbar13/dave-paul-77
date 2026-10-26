@@ -8,14 +8,14 @@ const DAY = 86_400_000;
 const T0 = Date.parse('2020-01-01T00:00:00Z');
 
 // deterministic noisy random walk around a slow wave, so swings and ranges exist
-function series(n: number, seed = 7, start = 1.1): Candle[] {
+function series(n: number, seed = 7, start = 1.1, gap = 0): Candle[] {
   let s = seed;
   const rnd = () => ((s = (s * 1664525 + 1013904223) % 4294967296) / 4294967296);
   const out: Candle[] = [];
   let price = start;
   for (let i = 0; i < n; i++) {
     const drift = Math.sin(i / 25) * 0.0012;
-    const o = price;
+    const o = price + (gap ? (rnd() - 0.5) * gap : 0);
     const c = o + drift + (rnd() - 0.5) * 0.008;
     const h = Math.max(o, c) + rnd() * 0.003;
     const l = Math.min(o, c) - rnd() * 0.003;
@@ -49,9 +49,41 @@ describe('replaySymbol', async () => {
       } else {
         assert.ok(t.exitAt! >= t.entryAt);
         assert.equal(t.result === 'TP' ? t.pips > 0 : t.pips < 0, true);
-        assert.equal(t.r, t.result === 'TP' ? Math.round((t.tpPips / t.slPips) * 1e4) / 1e4 : -1);
+        // planned risk is the unit; a stop that filled at a gapped open wins less / loses more
+        const planned = t.result === 'TP' ? t.tpPips / t.slPips : -1;
+        assert.ok(t.result === 'TP' ? t.r <= planned + 1e-3 : t.r <= -1 + 1e-3, `${t.result} r ${t.r} planned ${planned}`);
+        const planned0 = t.side === 'buy' ? t.tp - t.tpPips * pipSize(5) : t.tp + t.tpPips * pipSize(5);
+        const gapped = Math.abs(t.entry - planned0) > 1e-5;
+        if (!gapped) assert.equal(t.r, t.result === 'TP' ? Math.round(planned * 1e4) / 1e4 : -1);
       }
     }
+  });
+
+  it('a gap fill is priced at the open, on the planned risk', async () => {
+    const withGaps = await replaySymbol('EURUSD', { candles: series(600, 7, 1.1, 0.012), digits: 5 }, params, opts);
+    const gapped = withGaps.filter((t) => {
+      const planned0 = t.side === 'buy' ? t.tp - t.tpPips * pipSize(5) : t.tp + t.tpPips * pipSize(5);
+      return Math.abs(t.entry - planned0) > 1e-5 && t.result !== 'Open';
+    });
+    assert.ok(gapped.length > 0, 'the series has gap fills');
+    for (const t of gapped) {
+      const worse = t.side === 'buy' ? t.entry > t.tp - t.tpPips * pipSize(5) : t.entry < t.tp + t.tpPips * pipSize(5);
+      assert.ok(worse, 'filled at a worse price than planned');
+      const move = (t.result === 'TP' ? Math.abs(t.tp - t.entry) : -Math.abs(t.entry - t.sl)) / pipSize(5);
+      assert.ok(Math.abs(t.pips - move) < 0.01);
+      assert.ok(Math.abs(t.r - t.pips / t.slPips) < 1e-3);
+    }
+  });
+
+  it('maxCostR skips orders that cost too much of their own risk', async () => {
+    const costs = { ...DEFAULT_COSTS, maxCostR: 0.1 };
+    const cut = await replaySymbol('EURUSD', { candles, digits: 5 }, params, { ...opts, costs });
+    assert.ok(cut.length > 0 && cut.length < trades.length, `${cut.length} of ${trades.length}`);
+    const cost = commissionPipsOf('EURUSD', 5, costs) + defaultSpreadPips('EURUSD', 5);
+    for (const t of cut) assert.ok(cost / t.slPips <= 0.1 + 1e-9, `cost ${cost} over SL ${t.slPips}`);
+    // off when costs are off, or the limit is 0
+    assert.equal((await replaySymbol('EURUSD', { candles, digits: 5 }, params, { ...opts, costs: { ...costs, enabled: false } })).length, trades.length);
+    assert.equal((await replaySymbol('EURUSD', { candles, digits: 5 }, params, { ...opts, costs: DEFAULT_COSTS })).length, trades.length);
   });
 
   it('never has the same level open twice', () => {
@@ -112,24 +144,33 @@ describe('fillDay', () => {
     // rising candle: the low comes first, so the stop below the entry is not touched yet
     // and the close stays above it; the same candle falling reaches the entry first
     const candle = c(1.0, 0.99, 1.03, 1.02);
-    assert.deepEqual(fillDay('buy', candle, 1.01, 1.005, 1.05, true), { exit: null });
-    assert.deepEqual(fillDay('buy', candle, 1.01, 1.005, 1.05, false), { exit: 'SL' });
+    assert.deepEqual(fillDay('buy', candle, 1.01, 1.005, 1.05, true), { exit: null, fill: 1.01 });
+    assert.deepEqual(fillDay('buy', candle, 1.01, 1.005, 1.05, false), { exit: 'SL', fill: 1.01 });
   });
 
   it('a TP inside the rise after the fill wins', () => {
-    assert.deepEqual(fillDay('buy', c(1.0, 0.99, 1.03, 1.02), 1.01, 1.005, 1.02, true), { exit: 'TP' });
+    assert.deepEqual(fillDay('buy', c(1.0, 0.99, 1.03, 1.02), 1.01, 1.005, 1.02, true), { exit: 'TP', fill: 1.01 });
   });
 
   it('works mirrored for a sell stop', () => {
     // falling candle (open-high-low-close): the rise to 1.01 is before the fill, so the
     // stop at 0.995 is not met; the drop through 0.99 reaches the TP at 0.975
-    assert.deepEqual(fillDay('sell', c(1.0, 0.97, 1.01, 0.98), 0.99, 0.995, 0.975, false), { exit: 'TP' });
+    assert.deepEqual(fillDay('sell', c(1.0, 0.97, 1.01, 0.98), 0.99, 0.995, 0.975, false), { exit: 'TP', fill: 0.99 });
     // rising candle (open-low-high-close): the drop fills it, the rise back to 1.01 hits the stop
-    assert.deepEqual(fillDay('sell', c(1.0, 0.985, 1.01, 1.005), 0.99, 0.995, 0.96, true), { exit: 'SL' });
+    assert.deepEqual(fillDay('sell', c(1.0, 0.985, 1.01, 1.005), 0.99, 0.995, 0.96, true), { exit: 'SL', fill: 0.99 });
   });
 
-  it('a candle opening beyond a buy entry fills at the open', () => {
-    assert.deepEqual(fillDay('buy', c(1.02, 1.015, 1.04, 1.03), 1.01, 1.0, 1.05, true), { exit: null });
+  it('a candle opening beyond a buy entry fills at the open, not at the entry', () => {
+    assert.deepEqual(fillDay('buy', c(1.02, 1.015, 1.04, 1.03), 1.01, 1.0, 1.05, true), { exit: null, fill: 1.02 });
+  });
+
+  it('a sell stop jumped over fills at the open, and its SL still counts', () => {
+    assert.deepEqual(fillDay('sell', c(0.98, 0.97, 1.01, 1.0), 0.99, 1.005, 0.95, true), { exit: 'SL', fill: 0.98 });
+  });
+
+  it('is not filled when the open is already beyond the TP', () => {
+    assert.equal(fillDay('buy', c(1.06, 1.05, 1.07, 1.06), 1.01, 1.0, 1.05, true), null);
+    assert.equal(fillDay('sell', c(0.94, 0.93, 0.96, 0.95), 0.99, 1.0, 0.95, false), null);
   });
 });
 

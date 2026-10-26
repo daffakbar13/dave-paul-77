@@ -134,7 +134,7 @@ export function SettingsModal({ onClose, onChanged }: Props) {
       const spreadPips = Object.fromEntries(
         Object.entries(c.spreadPips).filter(([k, v]) => Number.isFinite(v) && v >= 0 && v !== defaultSpreadPips(k, digits.get(k) ?? 5)),
       );
-      setSettings(await api.saveSettings({ costs: { ...c, slippagePips: Number.isFinite(c.slippagePips) ? c.slippagePips : 0, commissionPerLot: Number.isFinite(c.commissionPerLot) ? c.commissionPerLot : 0, spreadPips } }));
+      setSettings(await api.saveSettings({ costs: { ...c, slippagePips: Number.isFinite(c.slippagePips) ? c.slippagePips : 0, commissionPerLot: Number.isFinite(c.commissionPerLot) ? c.commissionPerLot : 0, maxCostR: Number.isFinite(c.maxCostR) ? c.maxCostR : 0, spreadPips } }));
     }, 'Biaya backtest disimpan. Buka Backtest untuk melihat hasil net.');
 
   const importTemplates = (files: FileList | null) => {
@@ -393,6 +393,13 @@ export function SettingsModal({ onClose, onChanged }: Props) {
               step={0.1}
               value={settings.costs.slippagePips}
               onChange={(v) => set({ costs: { ...settings.costs, slippagePips: v } })}
+            />
+            <NumberField
+              label="Batas biaya per trade (R)"
+              hint="Order yang biayanya lebih dari ini (spread + komisi + slippage, dibagi jarak SL-nya) tidak dibuka di backtest; 0 = tanpa batas. Mengubahnya perlu Jalankan ulang"
+              step={0.01}
+              value={settings.costs.maxCostR}
+              onChange={(v) => set({ costs: { ...settings.costs, maxCostR: v } })}
             />
           </div>
           <table className="orders tabular spreads">

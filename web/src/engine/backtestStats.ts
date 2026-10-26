@@ -6,8 +6,8 @@ import type { Side } from './types.ts';
 
 export const DAY = 86_400_000;
 
-// One simulated trade. Times are the UTC start of the D1 candle; entry/tp/sl are the
-// planned levels. pips use the 4-digit convention (pipSize), r is the result in risk units.
+// One simulated trade. Times are the UTC start of the D1 candle; entry is the fill price
+// (the open after a gap), tp/sl the planned levels. pips use the 4-digit convention (pipSize), r is the result in risk units.
 export type BtTrade = {
   symbol: string;
   side: Side;
@@ -17,8 +17,8 @@ export type BtTrade = {
   tp: number;
   sl: number;
   result: 'TP' | 'SL' | 'Open';
-  tpPips: number; // distance entry -> TP
-  slPips: number; // distance entry -> SL
+  tpPips: number; // planned distance entry -> TP
+  slPips: number; // planned distance entry -> SL (the risk the trade is sized on)
   pips: number; // realised, signed; 0 while open
   r: number; // realised, signed; 0 while open
   riskMoney: number; // balance at the fill day x risk %

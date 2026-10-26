@@ -267,6 +267,7 @@ export type SavedBacktest = {
   excluded: string[];
   sr: SrParams;
   warmup: number;
+  maxCostR?: number;
   coverage: Coverage[];
   fingerprint: Fingerprint[];
   tradeCount: number;

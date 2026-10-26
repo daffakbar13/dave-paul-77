@@ -498,6 +498,8 @@ export function BacktestModal({ onClose }: Props) {
   const [excluded, setExcluded] = useState<Set<string>>(() => new Set());
   const [currentSr, setCurrentSr] = useState<SrParams | null>(null);
   const [costs, setCosts] = useState<CostSettings>(DEFAULT_COSTS);
+  // orders costing more than this many R of their own risk are left out of a run; 0 = none
+  const costFilter = costs.enabled ? costs.maxCostR : 0;
   const [basis, setBasis] = useState<Basis>('net');
   const [candles, setCandles] = useState<WorkerSymbol[] | null>(null);
   const [chartState, setChartState] = useState<{ loading: boolean; failed: string | null }>({ loading: false, failed: null });
@@ -591,7 +593,7 @@ export function BacktestModal({ onClose }: Props) {
         if (m.type === 'progress') setProgress({ done: m.done, total: m.total });
         else if (m.type === 'done') {
           const names = new Set(m.run.coverage.map((c) => c.symbol));
-          setResult({ raw: toRaw(m.run.trades), coverage: m.run.coverage, warmup: m.run.warmup, sr, from: runFrom, to: runTo, fingerprint: fingerprintOf(symbols) });
+          setResult({ raw: toRaw(m.run.trades), coverage: m.run.coverage, warmup: m.run.warmup, sr, maxCostR: costFilter, from: runFrom, to: runTo, fingerprint: fingerprintOf(symbols) });
           setMoney({ balance: b, riskPct: r });
           // a pair that is not in this run cannot stay excluded or selected
           setExcluded((prev) => new Set([...prev].filter((s) => names.has(s))));
@@ -619,6 +621,7 @@ export function BacktestModal({ onClose }: Props) {
         sr,
         balance: b,
         riskPct: r,
+        costs,
         ...(from ? { from: Date.parse(`${from}T00:00:00Z`) } : {}),
         to: Date.parse(`${runTo}T00:00:00Z`),
       };
@@ -751,6 +754,7 @@ export function BacktestModal({ onClose }: Props) {
         excluded: [...excluded].sort(),
         sr: result.sr as unknown as SavedBacktest['sr'],
         warmup: result.warmup,
+        ...(result.maxCostR ? { maxCostR: result.maxCostR } : {}),
         coverage: result.coverage,
         fingerprint: result.fingerprint,
         trades: result.raw.map(pack),
@@ -772,6 +776,7 @@ export function BacktestModal({ onClose }: Props) {
         coverage: b.coverage,
         warmup: b.warmup,
         sr: b.sr as unknown as SrParams,
+        ...(b.maxCostR ? { maxCostR: b.maxCostR } : {}),
         from: b.from ?? '',
         to: b.to ?? '',
         fingerprint: b.fingerprint,
@@ -814,6 +819,7 @@ export function BacktestModal({ onClose }: Props) {
   const busy = phase === 'loading' || phase === 'running';
   const datesChanged = !!result && (from !== result.from || to !== result.to);
   const srChanged = !!result && !!currentSr && !sameSr(result.sr, currentSr);
+  const costFilterChanged = !!result && (result.maxCostR ?? 0) !== costFilter;
   const chartData = symbol === 'ALL' ? undefined : candles?.find((s) => s.name === symbol);
   const range = (f: string, t: string) => `${f || 'awal data'} – ${t || 'candle terakhir'}`;
 
@@ -857,7 +863,7 @@ export function BacktestModal({ onClose }: Props) {
       </div>
       <p className="muted">
         Compounding: tiap trade berisiko {risk || '…'}% dari balance saat fill (hanya trade yang sudah close sebelum hari itu). Semua pair aktif, satu balance. Memakai pengaturan S/R yang tersimpan.
-        Dihitung di browser Anda; server hanya mengirim candle. Balance dan risk langsung dihitung ulang; Jalankan hanya perlu bila tanggal atau pengaturan S/R berubah.
+        Dihitung di browser Anda; server hanya mengirim candle. Balance dan risk langsung dihitung ulang; Jalankan hanya perlu bila tanggal, pengaturan S/R, atau batas biaya berubah.
       </p>
       <div className="modal-tools saved-bar">
         <label className="inline">
@@ -921,6 +927,11 @@ export function BacktestModal({ onClose }: Props) {
             : rentang {range(result.from, result.to)}, {result.raw.length} trade.
             {datesChanged && <span className="error"> Tanggal sudah diubah: klik Jalankan untuk menghitung rentang {range(from, !to || to > lastMonthEnd() ? lastMonthEnd() : to)}.</span>}
           </p>
+          {costFilterChanged && (
+            <p className="banner-warn">
+              Hasil ini memakai batas biaya {result!.maxCostR ? `${num(result!.maxCostR, 2)}R` : 'tanpa batas'}, pengaturan sekarang {costFilter ? `${num(costFilter, 2)}R` : 'tanpa batas'}. Klik Jalankan untuk menghitung ulang.
+            </p>
+          )}
           {srChanged && <p className="banner-warn">Hasil ini memakai pengaturan S/R yang berbeda dari pengaturan sekarang. Klik Jalankan untuk menghitung ulang dengan pengaturan sekarang.</p>}
           {(minYears < 2 || shortPairs.length > 0) && (
             <p className="banner-warn">

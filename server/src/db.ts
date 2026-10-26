@@ -164,6 +164,7 @@ export type BacktestDoc = {
   excluded: string[];
   sr: Record<string, unknown>; // the S/R settings the run used
   warmup: number;
+  maxCostR?: number; // the cost filter the run used (costs.maxCostR); absent = none
   coverage: Record<string, unknown>[];
   fingerprint: { symbol: string; candles: number; first: number | null; last: number | null }[];
   tradeCount: number;

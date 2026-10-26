@@ -26,6 +26,7 @@ const createSchema = z.object({
   excluded: z.array(z.string().max(20)).max(100),
   sr: z.record(z.string(), z.unknown()),
   warmup: z.number().int().min(0),
+  maxCostR: z.number().min(0).max(10).optional(), // cost filter the run used; absent on older saves = none
   coverage: z.array(z.record(z.string(), z.unknown())).max(100),
   fingerprint: z.array(z.object({ symbol: z.string().max(20), candles: z.number().int(), first: z.number().nullable(), last: z.number().nullable() })).max(100),
   trades: z.array(compactTrade).max(200_000),

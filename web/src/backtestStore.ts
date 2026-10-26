@@ -14,6 +14,7 @@ export type BtResult = {
   coverage: Coverage[];
   warmup: number;
   sr: SrParams;
+  maxCostR?: number; // cost filter of the run (0 / absent = none)
   from: string;
   to: string;
   fingerprint: Fingerprint[];

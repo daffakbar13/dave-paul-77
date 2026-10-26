@@ -19,6 +19,9 @@ export type ReplayOptions = {
   warmup: number; // closed candles an analysis needs before the first test day
   from?: number; // first day tested (ms); earlier days only serve as history
   to?: number; // last day tested (ms)
+  // with costs enabled and costs.maxCostR > 0, an order whose round-trip cost is more than
+  // that many R of its own risk is never placed (it leaves the side free for the next one)
+  costs?: CostSettings;
 };
 
 type Exit = { result: 'TP' | 'SL'; both: boolean };
@@ -30,10 +33,14 @@ const pathOf = (c: Candle, rising: boolean): number[] => (rising ? [c.o, c.l, c.
 
 // Walks a candle's price path for a stop order that is not filled yet: the entry must be
 // reached first, only then do SL and TP count. A candle that opens beyond the entry fills
-// at the open. Returns null when the order does not fill, else how the trade ended that day.
-export function fillDay(side: Side, c: Candle, entry: number, sl: number, tp: number, rising: boolean): { exit: 'TP' | 'SL' | null } | null {
+// at the open (`fill`), a worse price than the order's; SL and TP stay where they were
+// placed. An order whose TP is already behind the open is not filled. Returns null when
+// the order does not fill, else the fill price and how the trade ended that day.
+export function fillDay(side: Side, c: Candle, entry: number, sl: number, tp: number, rising: boolean): { exit: 'TP' | 'SL' | null; fill: number } | null {
   const path = pathOf(c, rising);
   let filled = side === 'buy' ? c.o >= entry : c.o <= entry;
+  if (filled && (side === 'buy' ? c.o >= tp : c.o <= tp)) return null;
+  const fill = filled ? c.o : entry;
   let at = path[0]!;
   for (let k = 1; k < path.length; k++) {
     const to = path[k]!;
@@ -50,12 +57,12 @@ export function fillDay(side: Side, c: Candle, entry: number, sl: number, tp: nu
     const tpIn = between(tp);
     if (slIn || tpIn) {
       // the level nearer to where the segment starts is met first
-      if (slIn && tpIn) return { exit: Math.abs(sl - at) <= Math.abs(tp - at) ? 'SL' : 'TP' };
-      return { exit: slIn ? 'SL' : 'TP' };
+      if (slIn && tpIn) return { exit: Math.abs(sl - at) <= Math.abs(tp - at) ? 'SL' : 'TP', fill };
+      return { exit: slIn ? 'SL' : 'TP', fill };
     }
     at = to;
   }
-  return filled ? { exit: null } : null;
+  return filled ? { exit: null, fill } : null;
 }
 
 // Which exit a candle reaches for a trade that was already open. A candle that reaches
@@ -67,6 +74,16 @@ function exitIn(side: Side, c: Candle, sl: number, tp: number): Exit | null {
   if (slHit) return { result: 'SL', both: tpHit };
   if (tpHit) return { result: 'TP', both: false };
   return null;
+}
+
+// Closes a trade at its SL or TP. The result is measured from the fill price (which is
+// the open after a gap) and sized on the planned risk, so a gap fill loses more than 1R and
+// wins less than the planned reward.
+function settle(tr: RawTrade, result: 'TP' | 'SL', pip: number): void {
+  tr.result = result;
+  const move = result === 'TP' ? Math.abs(tr.tp - tr.entry) : -Math.abs(tr.entry - tr.sl);
+  tr.pips = roundTo(move / pip, 2);
+  tr.r = roundTo(tr.pips / tr.slPips, 4);
 }
 
 // Orders must have sane geometry; one with SL on its entry (no risk) is dropped.
@@ -112,10 +129,8 @@ export async function replaySymbol(symbol: string, data: SymbolData, p: SrParams
     for (const [id, tr] of open) {
       const x = exitIn(tr.side, day, tr.sl, tr.tp);
       if (!x) continue;
-      tr.result = x.result;
+      settle(tr, x.result, pip);
       tr.exitAt = day.t;
-      tr.pips = roundTo(x.result === 'TP' ? tr.tpPips : -tr.slPips, 2);
-      tr.r = roundTo(x.result === 'TP' ? tr.tpPips / tr.slPips : -1, 4);
       tr.ambiguous = x.both;
       open.delete(id);
     }
@@ -125,10 +140,13 @@ export async function replaySymbol(symbol: string, data: SymbolData, p: SrParams
     const a = analyze(symbol, cs.slice(Math.max(0, i - p.lookback), i), p, data.digits, undefined, data.inputs);
     if (pause) await pause();
     // the stop nearest the open is reached first, so it takes the side's one position
+    const maxCostR = opts.costs?.enabled ? opts.costs.maxCostR : 0;
+    const costPips = maxCostR > 0 ? costPipsOf(symbol, data.digits, opts.costs!) : 0;
     const byReach = [...a.candidates].sort((x, y) => Math.abs((x.entry ?? Infinity) - day.o) - Math.abs((y.entry ?? Infinity) - day.o));
     for (const c of byReach) {
       if (c.skipped || c.entry === undefined || c.sl === undefined || c.tp === undefined) continue;
       if (taken.has(c.side) || open.has(c.id) || !usable(c.side, c.entry, c.sl, c.tp, a.price, pip)) continue;
+      if (maxCostR > 0 && costPips / (Math.abs(c.entry - c.sl) / pip) > maxCostR) continue;
       const rising = day.c >= day.o;
       const day1 = fillDay(c.side, day, c.entry, c.sl, c.tp, rising);
       if (!day1) continue;
@@ -138,10 +156,11 @@ export async function replaySymbol(symbol: string, data: SymbolData, p: SrParams
         side: c.side,
         entryAt: day.t,
         exitAt: null,
-        entry: c.entry,
+        entry: day1.fill,
         tp: c.tp,
         sl: c.sl,
         result: 'Open',
+        // planned distances: they size the trade, whatever price it filled at
         tpPips: roundTo(Math.abs(c.tp - c.entry) / pip, 2),
         slPips: roundTo(Math.abs(c.entry - c.sl) / pip, 2),
         pips: 0,
@@ -150,10 +169,8 @@ export async function replaySymbol(symbol: string, data: SymbolData, p: SrParams
         digits: data.digits,
       };
       if (day1.exit) {
-        tr.result = day1.exit;
+        settle(tr, day1.exit, pip);
         tr.exitAt = day.t;
-        tr.pips = roundTo(day1.exit === 'TP' ? tr.tpPips : -tr.slPips, 2);
-        tr.r = roundTo(day1.exit === 'TP' ? tr.tpPips / tr.slPips : -1, 4);
         // the other traversal of the candle gives another result: the D1 data cannot say
         tr.ambiguous = fillDay(c.side, day, c.entry, c.sl, c.tp, !rising)?.exit !== day1.exit;
       } else {
@@ -206,9 +223,10 @@ export function withoutPairs(trades: BtTrade[], excluded: ReadonlySet<string>, b
 
 // spreadPips: per pair, overrides the defaults; slippagePips: extra per trade, every pair;
 // commissionPerLot: USD per lot for the round trip (open + close), 0 = none
-export type CostSettings = { enabled: boolean; slippagePips: number; spreadPips: Record<string, number>; commissionPerLot: number };
+// maxCostR: orders costing more than this many R of their own risk are skipped; 0 = no limit
+export type CostSettings = { enabled: boolean; slippagePips: number; spreadPips: Record<string, number>; commissionPerLot: number; maxCostR: number };
 
-export const DEFAULT_COSTS: CostSettings = { enabled: true, slippagePips: 0, spreadPips: {}, commissionPerLot: 10 };
+export const DEFAULT_COSTS: CostSettings = { enabled: true, slippagePips: 0, spreadPips: {}, commissionPerLot: 10, maxCostR: 0 };
 
 // The "start from" spreads of a Maxrich Premium account, in pips (pipSize). These are the
 // tightest the broker quotes, so real averages (news, rollover) run wider; the account
@@ -332,6 +350,7 @@ export type BacktestInput = {
   warmup?: number;
   from?: number;
   to?: number;
+  costs?: CostSettings; // only for the maxCostR filter; the Net/Gross switch applies costs afterwards
   onProgress?: (done: number, total: number) => void;
   pause?: () => Promise<void>; // default: give the event loop a turn every ~10 ms; a worker passes a no-op
 };
@@ -343,7 +362,12 @@ export type BacktestRun = { trades: BtTrade[]; coverage: Coverage[]; warmup: num
 // replay runs they still count, so their level is not placed again.
 export async function runBacktest(input: BacktestInput): Promise<BacktestRun> {
   const warmup = input.warmup ?? Math.min(input.params.lookback, 260);
-  const opts: ReplayOptions = { warmup, ...(input.from !== undefined ? { from: input.from } : {}), ...(input.to !== undefined ? { to: input.to } : {}) };
+  const opts: ReplayOptions = {
+    warmup,
+    ...(input.from !== undefined ? { from: input.from } : {}),
+    ...(input.to !== undefined ? { to: input.to } : {}),
+    ...(input.costs ? { costs: input.costs } : {}),
+  };
   const names = [...input.data.keys()].sort();
   const raw: RawTrade[] = [];
   const coverage: Coverage[] = [];
