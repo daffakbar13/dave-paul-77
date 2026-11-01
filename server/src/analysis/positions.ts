@@ -2,6 +2,7 @@
 // Execute never places a level again while its position is still running.
 import type { OrderRow } from './orders.ts';
 import type { Side } from './types.ts';
+import { tr } from '../i18n.ts';
 
 export type OpenPosition = {
   ticket: number;
@@ -52,6 +53,6 @@ export function markRunning(rows: OrderRow[], positions: OpenPosition[]): OrderR
   return rows.map((r) => {
     const p = byRow.get(r.id);
     if (!p) return r;
-    return { ...r, status: 'running', reason: `Posisi berjalan #${p.ticket}: ${p.volume} lot @ ${p.openPrice}`, position: p.ticket };
+    return { ...r, status: 'running', reason: tr(`Posisi berjalan #${p.ticket}: ${p.volume} lot @ ${p.openPrice}`, `Open position #${p.ticket}: ${p.volume} lot @ ${p.openPrice}`), position: p.ticket };
   });
 }

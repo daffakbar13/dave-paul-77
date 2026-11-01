@@ -8,6 +8,7 @@ import { journalFor } from '../journal.ts';
 import { defaultMinSlPips, parseTpl, setManualLines } from '../lines.ts';
 import { aggressiveContext, isAffected, newsStatus, refreshNews, upcomingAll, upcomingRed, type NewsProvider } from '../news.ts';
 import { accountInfo, freshQuote, getAnalysis, loadCandles, ordersForAccount, refreshAnalysis, rowsFor } from '../service.ts';
+import { tr } from '../i18n.ts';
 
 const HOUR = 3_600_000;
 const symbolName = z.string().trim().toUpperCase().regex(/^[A-Z0-9._-]{3,20}$/, 'Nama simbol tidak valid');
@@ -38,7 +39,7 @@ function publicCommand(c: CommandDoc) {
 
 async function findAccount(db: Collections, id: unknown): Promise<AccountDoc> {
   const account = await db.accounts.findOne({ _id: parseId(id, 'Akun') });
-  if (!account) throw notFound('Akun tidak ditemukan');
+  if (!account) throw notFound(tr('Akun tidak ditemukan', 'Account not found'));
   return account;
 }
 
@@ -64,17 +65,7 @@ const settingsSchema = z.object({
   balanceStaleMinutes: z.number().int().min(1).max(10_080),
   quoteMaxAgeMinutes: z.number().int().min(1).max(10_080),
   sr: z.object({
-    lineSource: z.enum(['auto', 'manual']),
-    lookback: z.number().int().min(50).max(5000),
-    fractal: z.number().int().min(1).max(10),
-    atrPeriod: z.number().int().min(2).max(100),
-    clusterAtr: z.number().positive().max(10),
-    minTouches: z.number().int().min(1).max(20),
-    rangeMinBars: z.number().int().min(2).max(100),
-    rangeMaxAtr: z.number().positive().max(20),
-    rangeWeight: z.number().min(0).max(20),
-    minSpacingAtr: z.number().min(0).max(10),
-    zoneMergeAtr: z.number().min(0).max(10),
+    // the line settings (SR_LINES) are fixed in the engine; sent values are dropped
     strongBodyPct: z.number().min(0).max(1),
     strongAtr: z.number().min(0).max(10),
     strongMaxDistanceAtr: z.number().positive().max(20),
@@ -186,7 +177,7 @@ export function webRoutes(db: Collections, news: NewsProvider | null): Router {
   router.put('/symbols/:symbol/lines', async (req, res) => {
     const symbol = parse(symbolName, req.params.symbol);
     const { lines } = parse(z.object({ lines: z.array(z.number().positive().finite()).max(300) }), req.body);
-    if (!(await db.symbols.findOne({ name: symbol }))) throw notFound('Pair tidak ditemukan');
+    if (!(await db.symbols.findOne({ name: symbol }))) throw notFound(tr('Pair tidak ditemukan', 'Pair not found'));
     await setManualLines(db, symbol, lines, 'web');
     res.json({ symbol, lines: lines.length });
   });
@@ -198,18 +189,18 @@ export function webRoutes(db: Collections, news: NewsProvider | null): Router {
     for (const f of files) {
       const tpl = parseTpl(f.content);
       if (!tpl) {
-        results.push({ file: f.name, error: 'Bukan template chart (tidak ada symbol=)' });
+        results.push({ file: f.name, error: tr('Bukan template chart (tidak ada symbol=)', 'Not a chart template (no symbol=)') });
         continue;
       }
       // a broker suffix (EURUSDm, EURUSD.pro) falls back to the 6-letter pair
       const sym = (await db.symbols.findOne({ name: tpl.symbol })) ?? (await db.symbols.findOne({ name: tpl.symbol.slice(0, 6) }));
       const name = tpl.symbol;
       if (!sym) {
-        results.push({ file: f.name, symbol: name, error: 'Pair belum ada di daftar' });
+        results.push({ file: f.name, symbol: name, error: tr('Pair belum ada di daftar', 'Pair is not in the list') });
         continue;
       }
       if (!tpl.lines.length) {
-        results.push({ file: f.name, symbol: sym.name, error: 'Tidak ada garis horizontal' });
+        results.push({ file: f.name, symbol: sym.name, error: tr('Tidak ada garis horizontal', 'No horizontal lines') });
         continue;
       }
       await setManualLines(db, sym.name, tpl.lines, 'import');
@@ -225,7 +216,7 @@ export function webRoutes(db: Collections, news: NewsProvider | null): Router {
     const settings = await getSettings(db);
     const aggressive = await aggressiveFor(q.aggressive);
     const analysis = await getAnalysis(db, symbol, settings);
-    if (!analysis) throw notFound('Belum ada data candle untuk simbol ini');
+    if (!analysis) throw notFound(tr('Belum ada data candle untuk simbol ini', 'No candle data for this symbol yet'));
     const account = q.accountId ? await findAccount(db, q.accountId) : null;
     const quote = freshQuote(await db.quotes.findOne({ _id: symbol }), settings);
     const candles = await loadCandles(db, symbol, settings.sr.lookback);
@@ -264,7 +255,7 @@ export function webRoutes(db: Collections, news: NewsProvider | null): Router {
       const symbol = id.split(':')[0]!;
       const update = action === 'cancel' ? { $addToSet: { cancelled: id } } : { $pull: { cancelled: id } };
       const result = await db.analyses.updateOne({ _id: symbol, 'candidates.id': id }, update);
-      if (!result.matchedCount) throw notFound('Kandidat order tidak ditemukan (analisa mungkin sudah diperbarui)');
+      if (!result.matchedCount) throw notFound(tr('Kandidat order tidak ditemukan (analisa mungkin sudah diperbarui)', 'Order candidate not found (the analysis may have been refreshed)'));
       res.json({ ok: true });
     });
   }
@@ -357,7 +348,7 @@ export function webRoutes(db: Collections, news: NewsProvider | null): Router {
     const account = await findAccount(db, q.accountId);
     const from = new Date(q.from);
     const to = new Date(q.to);
-    if (!(to > from)) throw new HttpError(400, 'Periode tidak valid');
+    if (!(to > from)) throw new HttpError(400, tr('Periode tidak valid', 'Invalid period'));
     res.json({ currency: account.currency, ...(await journalFor(db, account._id, from, to)) });
   });
 
@@ -436,7 +427,7 @@ export function webRoutes(db: Collections, news: NewsProvider | null): Router {
       }),
       req.body,
     );
-    if (await db.accounts.findOne({ number: input.number })) throw new HttpError(409, 'Nomor akun sudah terdaftar.');
+    if (await db.accounts.findOne({ number: input.number })) throw new HttpError(409, tr('Nomor akun sudah terdaftar.', 'Account number is already registered.'));
     const { key, keyHash } = newAccountKey();
     const account: AccountDoc = { _id: new ObjectId(), ...input, keyHash, balance: null, currency: null, balanceAt: null, specs: {}, createdAt: new Date() };
     await db.accounts.insertOne(account);
@@ -447,7 +438,7 @@ export function webRoutes(db: Collections, news: NewsProvider | null): Router {
     const account = await findAccount(db, req.params.id);
     const patch = parse(z.object(accountFields).partial(), req.body);
     if (patch.number && patch.number !== account.number && (await db.accounts.findOne({ number: patch.number }))) {
-      throw new HttpError(409, 'Nomor akun sudah terdaftar.');
+      throw new HttpError(409, tr('Nomor akun sudah terdaftar.', 'Account number is already registered.'));
     }
     await db.accounts.updateOne({ _id: account._id }, { $set: patch });
     res.json({ account: publicAccount({ ...account, ...patch }) });

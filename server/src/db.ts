@@ -1,6 +1,6 @@
 import { MongoClient, type Binary, type Collection, type Db, type ObjectId } from 'mongodb';
 import { DEFAULT_COSTS, type CostSettings } from './analysis/backtest.ts';
-import { DEFAULT_SR } from './analysis/sr.ts';
+import { DEFAULT_SR, lockLines } from './analysis/sr.ts';
 import type { Deal, TradePlan, TradeState } from './analysis/journal.ts';
 import type { OpenPosition } from './analysis/positions.ts';
 import type { Candidate, Line, Side, SrParams, SymbolSpec } from './analysis/types.ts';
@@ -223,7 +223,7 @@ export async function ensureIndexes(c: Collections): Promise<void> {
 
 export async function getSettings(c: Collections): Promise<Settings> {
   const found = await c.settings.findOne({ _id: 'main' });
-  if (found) return { ...DEFAULT_SETTINGS, ...found, sr: { ...DEFAULT_SR, ...found.sr }, costs: { ...DEFAULT_COSTS, ...found.costs } };
+  if (found) return { ...DEFAULT_SETTINGS, ...found, sr: lockLines({ ...DEFAULT_SR, ...found.sr }), costs: { ...DEFAULT_COSTS, ...found.costs } };
   const fresh: Settings = { _id: 'main', ...DEFAULT_SETTINGS };
   await c.settings.updateOne({ _id: 'main' }, { $setOnInsert: fresh }, { upsert: true });
   return fresh;

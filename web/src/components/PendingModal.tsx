@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, type Account, type AggressiveMode, type AccountOrders, type Command, type OrderRow } from '../api.ts';
 import { ago, fmtWib } from '../format.ts';
+import { tr, useT } from '../i18n.ts';
 import { Modal } from './Modal.tsx';
 import { OrdersTable } from './OrdersTable.tsx';
 import { Summary } from './Summary.tsx';
@@ -13,16 +14,18 @@ type Props = {
   onChanged: () => void;
 };
 
-const COMMAND_STATUS: Record<Command['status'], string> = {
-  pending: 'Menunggu',
-  taken: 'Diambil EA',
-  done: 'Berhasil',
-  failed: 'Gagal',
-  expired: 'Kedaluwarsa',
-  superseded: 'Diganti',
-};
+const commandStatus = (): Record<Command['status'], string> => ({
+  pending: tr('Menunggu', 'Waiting'),
+  taken: tr('Diambil EA', 'Taken by EA'),
+  done: tr('Berhasil', 'Succeeded'),
+  failed: tr('Gagal', 'Failed'),
+  expired: tr('Kedaluwarsa', 'Expired'),
+  superseded: tr('Diganti', 'Superseded'),
+});
 
 export function PendingModal({ account, accounts, aggressive, onClose, onChanged }: Props) {
+  const t = useT();
+  const COMMAND_STATUS = commandStatus();
   const [tab, setTab] = useState<'orders' | 'commands'>('orders');
   const [data, setData] = useState<AccountOrders | null>(null);
   const [commands, setCommands] = useState<Command[] | null>(null);
@@ -79,25 +82,25 @@ export function PendingModal({ account, accounts, aggressive, onClose, onChanged
       <div className="modal-tools">
         <div className="seg" role="tablist">
           <button type="button" role="tab" aria-selected={tab === 'orders'} onClick={() => setTab('orders')}>
-            Kandidat{account ? ` · ${account.name}` : ''}
+            {t('Kandidat', 'Candidates')}{account ? ` · ${account.name}` : ''}
           </button>
           <button type="button" role="tab" aria-selected={tab === 'commands'} onClick={() => setTab('commands')}>
-            Perintah ke MT5
+            {t('Perintah ke MT5', 'Commands to MT5')}
           </button>
         </div>
         {tab === 'orders' && (
           <label className="check">
-            <input type="checkbox" checked={hideSkipped} onChange={(e) => setHideSkipped(e.target.checked)} /> Sembunyikan yang dilewati
+            <input type="checkbox" checked={hideSkipped} onChange={(e) => setHideSkipped(e.target.checked)} /> {t('Sembunyikan yang dilewati', 'Hide skipped')}
           </label>
         )}
         {tab === 'orders' && cancelled > 0 && (
-          <button type="button" className="restore-all" disabled={busyId !== null} title="Kembalikan semua order yang dibatalkan dengan X, di semua pair" onClick={restoreAll}>
-            Pulihkan semua ({cancelled})
+          <button type="button" className="restore-all" disabled={busyId !== null} title={t('Kembalikan semua order yang dibatalkan dengan X, di semua pair', 'Restore all orders cancelled with X, on all pairs')} onClick={restoreAll}>
+            {t('Pulihkan semua', 'Restore all')} ({cancelled})
           </button>
         )}
       </div>
       {error && <p className="error">{error}</p>}
-      {tab === 'orders' && !account && <p className="muted pad">Tambahkan akun MT5 di Pengaturan dulu.</p>}
+      {tab === 'orders' && !account && <p className="muted pad">{t('Tambahkan akun MT5 di Pengaturan dulu.', 'Add an MT5 account in Settings first.')}</p>}
       {tab === 'orders' && data && (
         <OrdersTable rows={rows} busyId={busyId} onCancel={(r) => act(r, api.cancel)} onRestore={(r) => act(r, api.restore)} />
       )}
@@ -107,11 +110,11 @@ export function PendingModal({ account, accounts, aggressive, onClose, onChanged
             <table className="orders tabular">
               <thead>
                 <tr>
-                  <th>Dibuat</th>
-                  <th>Akun</th>
+                  <th>{t('Dibuat', 'Created')}</th>
+                  <th>{t('Akun', 'Account')}</th>
                   <th className="num">Order</th>
                   <th>Status</th>
-                  <th>Hasil</th>
+                  <th>{t('Hasil', 'Result')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -130,11 +133,11 @@ export function PendingModal({ account, accounts, aggressive, onClose, onChanged
                       </td>
                       <td>
                         {c.results
-                          ? `${c.results.length - failed.length} berhasil, ${failed.length} gagal`
+                          ? t(`${c.results.length - failed.length} berhasil, ${failed.length} gagal`, `${c.results.length - failed.length} succeeded, ${failed.length} failed`)
                           : '–'}
                         {c.deleted !== undefined && (
                           <span className="reason">
-                            {c.deleted} pending order lama {c.dryRun ? 'akan dihapus' : 'dihapus'}
+                            {t(`${c.deleted} pending order lama ${c.dryRun ? 'akan dihapus' : 'dihapus'}`, `${c.deleted} old pending orders ${c.dryRun ? 'would be deleted' : 'deleted'}`)}
                           </span>
                         )}
                         {failed.map((f) => (
@@ -150,7 +153,7 @@ export function PendingModal({ account, accounts, aggressive, onClose, onChanged
             </table>
           </div>
         ) : (
-          <p className="muted pad">Belum ada perintah.</p>
+          <p className="muted pad">{t('Belum ada perintah.', 'No commands yet.')}</p>
         )
       )}
     </Modal>

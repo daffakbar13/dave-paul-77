@@ -15,6 +15,7 @@ import type { BtTrade } from '../engine/backtestStats.ts';
 import { analyze } from '../engine/sr.ts';
 import type { Candle, SrParams, SymbolInputs } from '../engine/types.ts';
 import { fmtDate, fmtMoney, fmtPrice } from '../format.ts';
+import { locale, useT } from '../i18n.ts';
 import { BUY, exitPrice, SELL, TradeHistory } from './tradeHistory.ts';
 
 type Props = { symbol: string; digits: number; candles: number[][]; inputs: SymbolInputs; sr: SrParams; trades: BtTrade[] };
@@ -46,6 +47,7 @@ function barIndex(candles: number[][], ms: number): number {
 // and exit arrows joined by a dotted line, blue for buys, red for sells. Hover an arrow
 // for the details; click it (or a row of the table) to pick the trade.
 export function BacktestChart({ symbol, digits, candles, inputs, sr, trades }: Props) {
+  const t = useT();
   const box = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
@@ -174,29 +176,32 @@ export function BacktestChart({ symbol, digits, candles, inputs, sr, trades }: P
     <>
       <div className="modal-tools">
         <span className="muted">
-          {symbol} D1 · {trades.length} trade. <span style={{ color: BUY }}>⬆ buy</span> / <span style={{ color: SELL }}>⬇ sell</span>: entry ke exit, garis putus-putus seperti riwayat trade
-          MT5. Arahkan ke panah untuk detail, klik untuk menandai.
+          {symbol} D1 · {t(`${trades.length} trade`, `${trades.length} ${trades.length === 1 ? 'trade' : 'trades'}`)}. <span style={{ color: BUY }}>⬆ buy</span> / <span style={{ color: SELL }}>⬇ sell</span>
+          {t(': entry ke exit, garis putus-putus seperti riwayat trade MT5. Arahkan ke panah untuk detail, klik untuk menandai.', ': entry to exit, dotted line like the MT5 trade history. Hover an arrow for details, click to pick it.')}
         </span>
         <label className="inline">
           <input type="checkbox" checked={showSr} onChange={(e) => setShowSr(e.target.checked)} /> S/R
         </label>
         {showSr && srAnalysis && candles[srDay] && (
           <span className="muted">
-            <span style={{ color: SR }}>━</span> {srAnalysis.lines.length} garis S/R engine, pagi {fmtDate(candles[srDay]![0]!)}
-            {focus ? ' (hari entry trade terpilih' + (tradeLine === null ? ')' : '; garis tebal = dasar order-nya)') : ' (candle terakhir yang terlihat)'}
+            <span style={{ color: SR }}>━</span>{' '}
+            {t(`${srAnalysis.lines.length} garis S/R engine, pagi ${fmtDate(candles[srDay]![0]!)}`, `${srAnalysis.lines.length} engine S/R lines, morning of ${fmtDate(candles[srDay]![0]!)}`)}
+            {focus
+              ? t(' (hari entry trade terpilih', ' (entry day of the picked trade') + (tradeLine === null ? ')' : t('; garis tebal = dasar order-nya)', '; thick line = basis of its order)'))
+              : t(' (candle terakhir yang terlihat)', ' (last visible candle)')}
           </span>
         )}
       </div>
       <div className="bt-chart-wrap">
-        <div ref={box} className="bt-chart" role="img" aria-label={`Grafik ${symbol} dengan trade backtest`} />
+        <div ref={box} className="bt-chart" role="img" aria-label={t(`Grafik ${symbol} dengan trade backtest`, `${symbol} chart with backtest trades`)} />
         {h && hover && (
           <div className="bt-tip tabular" style={{ left: hover.x > (box.current?.clientWidth ?? 0) - 240 ? hover.x - 230 : hover.x + 14, top: hover.y + 14 }}>
             <b style={{ color: h.side === 'buy' ? BUY : SELL }}>{h.side === 'buy' ? 'Buy' : 'Sell'}</b> {fmtPrice(h.entry, h.digits)} · {fmtDate(h.entryAt)}
             <br />
             <span className={h.result === 'TP' ? 'ok' : 'error'}>{h.result}</span> {fmtPrice(hExit, h.digits)} · {h.exitAt === null ? '' : fmtDate(h.exitAt)}
             <br />
-            {h.pips.toLocaleString('id-ID', { maximumFractionDigits: 1 })} pips · {fmtMoney(h.profit)}
-            {h.ambiguous ? ' · urutan intraday ambigu' : ''}
+            {h.pips.toLocaleString(locale(), { maximumFractionDigits: 1 })} pips · {fmtMoney(h.profit)}
+            {h.ambiguous ? t(' · urutan intraday ambigu', ' · ambiguous intraday order') : ''}
           </div>
         )}
       </div>
@@ -206,11 +211,11 @@ export function BacktestChart({ symbol, digits, candles, inputs, sr, trades }: P
             <tr>
               <th>Entry</th>
               <th>Exit</th>
-              <th>Arah</th>
+              <th>{t('Arah', 'Side')}</th>
               <th className="num">Entry</th>
               <th className="num">TP</th>
               <th className="num">SL</th>
-              <th>Hasil</th>
+              <th>{t('Hasil', 'Result')}</th>
               <th className="num">Pips</th>
               <th className="num">Profit</th>
             </tr>
@@ -232,7 +237,7 @@ export function BacktestChart({ symbol, digits, candles, inputs, sr, trades }: P
                   {t.result}
                   {t.ambiguous ? ' *' : ''}
                 </td>
-                <td className="num">{t.pips.toLocaleString('id-ID', { maximumFractionDigits: 1 })}</td>
+                <td className="num">{t.pips.toLocaleString(locale(), { maximumFractionDigits: 1 })}</td>
                 <td className="num">{fmtMoney(t.profit)}</td>
               </tr>
             ))}

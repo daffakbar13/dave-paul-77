@@ -14,6 +14,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Analysis, Candle, Colors, OrderRow } from '../api.ts';
 import { fmtDate, fmtLot, fmtPrice, fmtRr } from '../format.ts';
+import { engineText, useT } from '../i18n.ts';
 
 type Props = {
   analysis: Analysis;
@@ -44,6 +45,7 @@ const timeMs = (t: Time) => (typeof t === 'number' ? t * 1000 : 0);
 const drawable = (r: OrderRow) => r.entry !== null && r.sl !== null && r.tp !== null && r.status !== 'cancelled' && r.status !== 'skipped';
 
 export function Chart({ analysis, colors, focusId, onlyFocused, onFocus, onCancel }: Props) {
+  const t = useT();
   const box = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
@@ -192,7 +194,7 @@ export function Chart({ analysis, colors, focusId, onlyFocused, onFocus, onCance
               <div key={l.key} className="chart-label sltp" style={{ top: l.y - 8, color: colors.sltp }}>
                 {l.kind}
                 {l.kind === 'tp' && r.tpAuto && <span className="tag">TP auto</span>}
-                {l.kind === 'sl' && r.slFrom === 'ladder' && <span className="tag">SL tangga</span>}
+                {l.kind === 'sl' && r.slFrom === 'ladder' && <span className="tag">{t('SL tangga', 'SL ladder')}</span>}
               </div>
             );
           }
@@ -207,7 +209,7 @@ export function Chart({ analysis, colors, focusId, onlyFocused, onFocus, onCance
             >
               {r.status === 'running' ? (
                 <span className="tabular">
-                  {r.side} · posisi #{r.position}
+                  {r.side} · {t('posisi', 'position')} #{r.position}
                 </span>
               ) : (
                 <span className="tabular">
@@ -216,12 +218,12 @@ export function Chart({ analysis, colors, focusId, onlyFocused, onFocus, onCance
                 </span>
               )}
               <span className={`tabular${r.lowRr ? ' low-rr-text' : ''}`}>RR {fmtRr(r.rr)}</span>
-              {r.status === 'invalid' && <span className="invalid-text">{r.reason}</span>}
+              {r.status === 'invalid' && <span className="invalid-text">{engineText(r.reason)}</span>}
               {r.status !== 'running' && (
               <button
                 type="button"
                 className="x"
-                aria-label={`Batalkan ${r.type} ${fmtPrice(r.entry, digits)}`}
+                aria-label={t(`Batalkan ${r.type} ${fmtPrice(r.entry, digits)}`, `Cancel ${r.type} ${fmtPrice(r.entry, digits)}`)}
                 onClick={(e) => {
                   e.stopPropagation();
                   onCancel(r);

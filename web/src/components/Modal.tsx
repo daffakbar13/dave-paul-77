@@ -1,9 +1,11 @@
 import { useEffect, useRef, type ReactNode } from 'react';
+import { useT } from '../i18n.ts';
 
 type Props = { title: string; onClose: () => void; children: ReactNode; footer?: ReactNode; wide?: boolean };
 
 // Native <dialog>: focus trap, Esc and inert background come from the browser.
 export function Modal({ title, onClose, children, footer, wide }: Props) {
+  const t = useT();
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const d = ref.current!;
@@ -22,7 +24,7 @@ export function Modal({ title, onClose, children, footer, wide }: Props) {
     >
       <header className="modal-head">
         <h2 id="modal-title">{title}</h2>
-        <button type="button" className="x" aria-label="Tutup" onClick={onClose}>
+        <button type="button" className="x" aria-label={t('Tutup', 'Close')} onClick={onClose}>
           ×
         </button>
       </header>

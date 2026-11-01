@@ -1,11 +1,12 @@
 import { Router } from 'express';
 import { ObjectId } from 'mongodb';
 import { z } from 'zod';
-import { compareAll, lineFitAll, lineSweep, sweep, type ManualOrder, type SymbolData } from '../analysis/calibrate.ts';
+import { compareAll, lineFitAll, sweep, type ManualOrder, type SymbolData } from '../analysis/calibrate.ts';
 import { getSettings, type Collections, type ManualOrderDoc } from '../db.ts';
 import { notFound, parse, parseId } from '../http.ts';
 import { symbolInputs } from '../lines.ts';
 import { defaultDigits } from './web.ts';
+import { tr } from '../i18n.ts';
 
 const price = z.number().positive().finite();
 
@@ -80,7 +81,7 @@ export function calibrationRoutes(db: Collections): Router {
 
   router.delete('/orders/:id', async (req, res) => {
     const result = await db.manualOrders.deleteOne({ _id: parseId(req.params.id, 'Order manual') });
-    if (!result.deletedCount) throw notFound('Order manual tidak ditemukan');
+    if (!result.deletedCount) throw notFound(tr('Order manual tidak ditemukan', 'Manual order not found'));
     res.status(204).end();
   });
 
@@ -103,11 +104,6 @@ export function calibrationRoutes(db: Collections): Router {
   router.get('/lines', async (_req, res) => {
     const settings = await getSettings(db);
     res.json({ ...lineFitAll(await referenceData(), settings.sr), sr: settings.sr });
-  });
-
-  router.post('/lines/sweep', async (_req, res) => {
-    const settings = await getSettings(db);
-    res.json(lineSweep(await referenceData(), settings.sr));
   });
 
   return router;

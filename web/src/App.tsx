@@ -9,6 +9,7 @@ import { NewsModal } from './components/NewsModal.tsx';
 import { PendingModal } from './components/PendingModal.tsx';
 import { SettingsModal } from './components/SettingsModal.tsx';
 import { ago, fmtDate, fmtMoney, fmtNewsTime } from './format.ts';
+import { engineText, getLang, setLang, useLang, useT } from './i18n.ts';
 
 const ACCOUNT_KEY = 'dp77-account';
 const AGGRESSIVE_KEY = 'dp77-aggressive';
@@ -36,7 +37,18 @@ function remember(key: string, value?: string): string | null {
   return null;
 }
 
+function LangToggle({ className }: { className?: string }) {
+  const t = useT();
+  const other = getLang() === 'id' ? 'en' : 'id';
+  return (
+    <button type="button" className={className} title={t('Ganti bahasa ke English', 'Switch language to Indonesian')} onClick={() => setLang(other)}>
+      {other.toUpperCase()}
+    </button>
+  );
+}
+
 export function App() {
+  useLang();
   const [signedIn, setSignedIn] = useState(hasToken());
   useEffect(() => {
     const out = () => setSignedIn(false);
@@ -47,6 +59,7 @@ export function App() {
 }
 
 function Login({ onDone }: { onDone: () => void }) {
+  const t = useT();
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -67,13 +80,14 @@ function Login({ onDone }: { onDone: () => void }) {
       <form onSubmit={submit}>
         <h1>DavePaul77</h1>
         <label className="field">
-          <span>Password</span>
+          <span>{t('Password', 'Password')}</span>
           <input type="password" autoFocus autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
         </label>
         {error && <p className="error">{error}</p>}
         <button type="submit" className="primary" disabled={busy || !password}>
-          {busy ? 'Masuk…' : 'Masuk'}
+          {busy ? t('Masuk…', 'Signing in…') : t('Masuk', 'Sign in')}
         </button>
+        <LangToggle className="link" />
       </form>
     </main>
   );
@@ -84,6 +98,7 @@ type ModalKind = 'pending' | 'execute' | 'settings' | 'calibration' | 'journal' 
 const MT4_STALE_MINUTES = 10;
 
 function Main({ onLogout }: { onLogout: () => void }) {
+  const t = useT();
   const [symbols, setSymbols] = useState<SymbolItem[]>([]);
   const [colors, setColors] = useState<Colors>({ sr: '#FFD60A', entry: '#FFFFFF', sltp: '#FF453A' });
   const [symbol, setSymbol] = useState<string | null>(remember(SYMBOL_KEY));
@@ -181,17 +196,25 @@ function Main({ onLogout }: { onLogout: () => void }) {
   const aggrActive = aggressive === 'on' || autoActive;
   const mult = account ? `${account.aggressiveMultiplier}x` : '';
   const aggrLabel =
-    aggressive === 'on' ? `Aggressive ${mult} semua pair` : autoActive ? `Aggressive ${mult} auto (${affected.join(', ')})` : aggressive === 'off' ? 'Aggressive mati' : 'Aggressive';
-  const aggrTitle = aggrActive ? 'Klik untuk mematikan Aggressive selama sesi ini' : 'Klik untuk menyalakan Aggressive di semua pair';
+    aggressive === 'on'
+      ? t(`Aggressive ${mult} semua pair`, `Aggressive ${mult} all pairs`)
+      : autoActive
+        ? `Aggressive ${mult} auto (${affected.join(', ')})`
+        : aggressive === 'off'
+          ? t('Aggressive mati', 'Aggressive off')
+          : 'Aggressive';
+  const aggrTitle = aggrActive
+    ? t('Klik untuk mematikan Aggressive selama sesi ini', 'Click to turn Aggressive off for this session')
+    : t('Klik untuk menyalakan Aggressive di semua pair', 'Click to turn Aggressive on for all pairs');
   const newsNote =
     aggressive === 'off'
-      ? 'Aggressive dimatikan untuk sesi ini.'
+      ? t('Aggressive dimatikan untuk sesi ini.', 'Aggressive is off for this session.')
       : aggressive === 'on'
-        ? 'Aggressive manual aktif untuk semua pair.'
+        ? t('Aggressive manual aktif untuk semua pair.', 'Manual Aggressive is on for all pairs.')
         : autoActive
-          ? 'Aggressive aktif untuk pair terkait.'
+          ? t('Aggressive aktif untuk pair terkait.', 'Aggressive is on for the related pairs.')
           : account && !account.aggressiveAuto
-            ? 'Aggressive otomatis nonaktif untuk akun ini.'
+            ? t('Aggressive otomatis nonaktif untuk akun ini.', 'Automatic Aggressive is off for this account.')
             : '';
   const stale = account && (!account.balanceAt || analysis?.account?.stale);
 
@@ -200,19 +223,19 @@ function Main({ onLogout }: { onLogout: () => void }) {
       <header className="toolbar">
         <div className="acct tabular">
           <label>
-            <span className="sr-only">Akun</span>
-            <select value={accountId ?? ''} onChange={(e) => setAccountId(e.target.value || null)} aria-label="Akun">
-              {!accounts.length && <option value="">Belum ada akun</option>}
+            <span className="sr-only">{t('Akun', 'Account')}</span>
+            <select value={accountId ?? ''} onChange={(e) => setAccountId(e.target.value || null)} aria-label={t('Akun', 'Account')}>
+              {!accounts.length && <option value="">{t('Belum ada akun', 'No accounts yet')}</option>}
               {accounts.map((a) => (
                 <option key={a.id} value={a.id}>
-                  Akun: {a.name}
+                  {t('Akun', 'Account')}: {a.name}
                 </option>
               ))}
             </select>
           </label>
           {account && (
             <span className={stale ? 'warn' : 'muted'}>
-              Balance {fmtMoney(account.balance)} {account.currency ?? ''} (sinkron {ago(account.balanceAt)})
+              Balance {fmtMoney(account.balance)} {account.currency ?? ''} ({t('sinkron', 'synced')} {ago(account.balanceAt)})
             </span>
           )}
         </div>
@@ -227,7 +250,7 @@ function Main({ onLogout }: { onLogout: () => void }) {
             {aggrLabel}
           </button>
           <button type="button" onClick={() => setModal('news')}>
-            Berita
+            {t('Berita', 'News')}
           </button>
           <button type="button" onClick={() => setModal('pending')}>
             Pending Orders
@@ -236,19 +259,20 @@ function Main({ onLogout }: { onLogout: () => void }) {
             Execute
           </button>
           <button type="button" onClick={() => setModal('journal')}>
-            Jurnal
+            {t('Jurnal', 'Journal')}
           </button>
           <button type="button" onClick={() => setModal('backtest')}>
             Backtest
           </button>
           <button type="button" onClick={() => setModal('calibration')}>
-            Kalibrasi
+            {t('Kalibrasi', 'Calibration')}
           </button>
-          <button type="button" className="icon" aria-label="Pengaturan" title="Pengaturan" onClick={() => setModal('settings')}>
+          <LangToggle />
+          <button type="button" className="icon" aria-label={t('Pengaturan', 'Settings')} title={t('Pengaturan', 'Settings')} onClick={() => setModal('settings')}>
             ⚙
           </button>
           <button type="button" className="link" onClick={onLogout}>
-            Keluar
+            {t('Keluar', 'Log out')}
           </button>
         </div>
       </header>
@@ -257,14 +281,14 @@ function Main({ onLogout }: { onLogout: () => void }) {
         <div className="news" role="status">
           {feed.news.map((n) => (
             <span key={n.id} className={new Date(n.at).getTime() < Date.now() ? 'past' : ''}>
-              Berita merah {n.currency} {fmtNewsTime(n.at)}: {n.title}
+              {t('Berita merah', 'Red news')} {n.currency} {fmtNewsTime(n.at)}: {n.title}
             </span>
           ))}
           {feed.news.length > 0 && <span className="news-note">{newsNote}</span>}
           <button type="button" className="news-more" onClick={() => setModal('news')}>
-            Semua berita
+            {t('Semua berita', 'All news')}
           </button>
-          {feed.status.error && <span className="error">Kalender gagal diambil ({feed.status.error}); data terakhir dipakai.</span>}
+          {feed.status.error && <span className="error">{t(`Kalender gagal diambil (${feed.status.error}); data terakhir dipakai.`, `Calendar fetch failed (${engineText(feed.status.error)}); last data in use.`)}</span>}
         </div>
       )}
       {error && <div className="error-bar">{error}</div>}
@@ -275,30 +299,30 @@ function Main({ onLogout }: { onLogout: () => void }) {
             <Chart analysis={analysis} colors={colors} focusId={focusId} onlyFocused={onlyFocused} onFocus={setFocusId} onCancel={cancel} />
             <div className="chart-tools">
               <span className="muted tabular">
-                {analysis.lines.length} garis {analysis.lines[0]?.source === 'manual' ? 'manual' : 'mesin'}{analysis.referenceLines.length > 0 && analysis.lines[0]?.source !== 'manual' ? ` (+${analysis.referenceLines.length} referensi Anda)` : ''} · {analysis.rows.filter((r) => r.status === 'valid').length} order valid · candle terakhir{' '}
+                {analysis.lines.length} {t('garis', 'lines')} {analysis.lines[0]?.source === 'manual' ? t('manual', 'manual') : t('mesin', 'engine')}{analysis.referenceLines.length > 0 && analysis.lines[0]?.source !== 'manual' ? t(` (+${analysis.referenceLines.length} referensi Anda)`, ` (+${analysis.referenceLines.length} of your references)`) : ''} · {analysis.rows.filter((r) => r.status === 'valid').length} {t('order valid', 'valid orders')} · {t('candle terakhir', 'last candle')}{' '}
                 {fmtDate(new Date(analysis.lastCandleAt).getTime())} ·{' '}
                 <span className={mt4 && Date.now() - new Date(mt4.lastSeenAt).getTime() < MT4_STALE_MINUTES * 60_000 ? '' : 'warn'}>
-                  MT4 {mt4 ? `terakhir kirim ${ago(mt4.lastSeenAt)}` : 'belum pernah kirim data'}
-                  {mt4?.brokerOffsetMinutes !== undefined && ` (server broker UTC${mt4.brokerOffsetMinutes >= 0 ? '+' : ''}${mt4.brokerOffsetMinutes / 60})`}
+                  MT4 {mt4 ? t(`terakhir kirim ${ago(mt4.lastSeenAt)}`, `last sent ${ago(mt4.lastSeenAt)}`) : t('belum pernah kirim data', 'has never sent data')}
+                  {mt4?.brokerOffsetMinutes !== undefined && ` ({t('server broker', 'broker server')} UTC${mt4.brokerOffsetMinutes >= 0 ? '+' : ''}${mt4.brokerOffsetMinutes / 60})`}
                 </span>
               </span>
               {cancelledHere > 0 && (
-                <button type="button" className="restore-all" title={`Kembalikan semua order ${analysis.symbol} yang dibatalkan dengan X`} onClick={restoreAll}>
-                  Pulihkan semua ({cancelledHere})
+                <button type="button" className="restore-all" title={t(`Kembalikan semua order ${analysis.symbol} yang dibatalkan dengan X`, `Restore all ${analysis.symbol} orders cancelled with X`)} onClick={restoreAll}>
+                  {t('Pulihkan semua', 'Restore all')} ({cancelledHere})
                 </button>
               )}
               <div className="seg">
                 <button type="button" aria-pressed={!onlyFocused} onClick={() => setOnlyFocused(false)}>
-                  Semua
+                  {t('Semua', 'All')}
                 </button>
                 <button type="button" aria-pressed={onlyFocused} disabled={!focusId} onClick={() => setOnlyFocused(true)}>
-                  Hanya dipilih
+                  {t('Hanya dipilih', 'Selected only')}
                 </button>
               </div>
             </div>
           </>
         ) : (
-          <div className="empty muted">{symbol ? 'Memuat…' : 'Belum ada pair aktif. Atur di Pengaturan.'}</div>
+          <div className="empty muted">{symbol ? t('Memuat…', 'Loading…') : t('Belum ada pair aktif. Atur di Pengaturan.', 'No active pairs yet. Set them up in Settings.')}</div>
         )}
       </main>
 
@@ -306,9 +330,9 @@ function Main({ onLogout }: { onLogout: () => void }) {
         {symbols.map((s) => (
           <button key={s.name} type="button" className={s.name === symbol ? 'active' : ''} aria-current={s.name === symbol} onClick={() => setSymbol(s.name)}>
             {s.name}
-            {s.candidates > 0 && <span className="dot" aria-label={`${s.candidates} kandidat`}>•</span>}
+            {s.candidates > 0 && <span className="dot" aria-label={t(`${s.candidates} kandidat`, `${s.candidates} candidates`)}>•</span>}
             {newsPairs.has(s.name) && (
-              <span className="news-mark" title="Ada berita merah untuk mata uang pair ini" aria-label="berita merah">
+              <span className="news-mark" title={t('Ada berita merah untuk mata uang pair ini', 'Red news for this pair\'s currencies')} aria-label={t('berita merah', 'red news')}>
                 !
               </span>
             )}

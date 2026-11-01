@@ -5,6 +5,7 @@ import { Binary, ObjectId } from 'mongodb';
 import { z } from 'zod';
 import type { BacktestDoc, Collections } from '../db.ts';
 import { HttpError, notFound, parse, parseId } from '../http.ts';
+import { tr } from '../i18n.ts';
 
 const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);
@@ -64,7 +65,7 @@ export function backtestsRoutes(db: Collections): Router {
 
   router.post('/', async (req, res) => {
     const { trades, ...b } = parse(createSchema, req.body);
-    if ((await db.backtests.countDocuments()) >= MAX_SAVED) throw new HttpError(400, `Maksimal ${MAX_SAVED} hasil tersimpan; hapus yang lama dulu`);
+    if ((await db.backtests.countDocuments()) >= MAX_SAVED) throw new HttpError(400, tr(`Maksimal ${MAX_SAVED} hasil tersimpan; hapus yang lama dulu`, `At most ${MAX_SAVED} saved results; delete an old one first`));
     const zipped = await gzipAsync(JSON.stringify(trades));
     const now = new Date();
     const doc: BacktestDoc = { _id: new ObjectId(), ...b, tradeCount: trades.length, trades: new Binary(zipped), size: zipped.length, createdAt: now, updatedAt: now };

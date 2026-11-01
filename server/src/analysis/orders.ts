@@ -1,5 +1,6 @@
 import { roundTo } from './sr.ts';
 import type { Candidate, Side, SymbolSpec } from './types.ts';
+import { tr } from '../i18n.ts';
 
 // running: an open position came from this level, so it is not placed again
 export type RowStatus = 'valid' | 'skipped' | 'invalid' | 'cancelled' | 'running';
@@ -81,7 +82,7 @@ export function evaluate(input: EvalInput): OrderRow {
     status: 'valid',
   };
   if (c.skipped || row.entry === null || row.sl === null || row.tp === null) {
-    return { ...row, status: 'skipped', reason: c.skipped ?? 'Level tidak lengkap' };
+    return { ...row, status: 'skipped', reason: c.skipped ?? tr('Level tidak lengkap', 'Incomplete levels') };
   }
   const entry = row.entry;
   const sl = row.sl;
@@ -96,18 +97,18 @@ export function evaluate(input: EvalInput): OrderRow {
   }
 
   const invalid = (reason: string): OrderRow => ({ ...row, status: 'invalid', reason });
-  if (input.cancelled) return { ...row, status: 'cancelled', reason: 'Dibatalkan' };
-  if (!spec) return invalid('Spesifikasi simbol belum dikirim EA MT5');
+  if (input.cancelled) return { ...row, status: 'cancelled', reason: tr('Dibatalkan', 'Cancelled') };
+  if (!spec) return invalid(tr('Spesifikasi simbol belum dikirim EA MT5', 'Symbol spec not sent by the MT5 EA yet'));
   if (quote) {
     const ask = quote.ask + offset;
     const bid = quote.bid + offset;
-    if (c.side === 'buy' ? ask >= entry : bid <= entry) return invalid('Harga sudah melewati entry');
+    if (c.side === 'buy' ? ask >= entry : bid <= entry) return invalid(tr('Harga sudah melewati entry', 'Price is already past the entry'));
     const minDist = spec.stopsLevel * spec.point;
     const fromMarket = c.side === 'buy' ? entry - ask : bid - entry;
-    if (fromMarket < minDist) return invalid('Entry terlalu dekat harga (stops level)');
-    if (Math.abs(entry - sl) < minDist || Math.abs(tp - entry) < minDist) return invalid('SL/TP terlalu dekat entry (stops level)');
+    if (fromMarket < minDist) return invalid(tr('Entry terlalu dekat harga (stops level)', 'Entry too close to price (stops level)'));
+    if (Math.abs(entry - sl) < minDist || Math.abs(tp - entry) < minDist) return invalid(tr('SL/TP terlalu dekat entry (stops level)', 'SL/TP too close to entry (stops level)'));
   }
-  if (row.lot === null || row.lot < spec.volumeMin) return invalid(`Lot di bawah minimum broker (${spec.volumeMin})`);
+  if (row.lot === null || row.lot < spec.volumeMin) return invalid(tr(`Lot di bawah minimum broker (${spec.volumeMin})`, `Lot below the broker minimum (${spec.volumeMin})`));
   return row;
 }
 

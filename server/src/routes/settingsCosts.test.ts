@@ -62,3 +62,22 @@ describe('settings: backtest costs', () => {
     assert.equal((await call('PUT', { costs: { spreadPips: { EURUSD: -1 } } })).status, 400);
   });
 });
+
+describe('settings: fixed S/R lines', () => {
+  it('ignores line settings sent from the web', async () => {
+    const res = await call('PUT', { sr: { clusterAtr: 0.9, lookback: 100, lineSource: 'manual', entryGap: 0.3 } });
+    assert.equal(res.status, 200);
+    const s = await res.json();
+    assert.equal(s.sr.clusterAtr, 0.3);
+    assert.equal(s.sr.lookback, 520);
+    assert.equal(s.sr.lineSource, 'auto');
+    assert.equal(s.sr.entryGap, 0.3);
+  });
+
+  it('reads the fixed values even when the stored settings differ', async () => {
+    await db.settings.updateOne({ _id: 'main' }, { $set: { 'sr.clusterAtr': 0.5, 'sr.minTouches': 4 } });
+    const s = await (await call('GET')).json();
+    assert.equal(s.sr.clusterAtr, 0.3);
+    assert.equal(s.sr.minTouches, 2);
+  });
+});

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, type News, type NewsFeed } from '../api.ts';
 import { ago, fmtWib } from '../format.ts';
+import { engineText, locale, tr, useT } from '../i18n.ts';
 import { Modal } from './Modal.tsx';
 
 type Props = { pairs: string[]; onClose: () => void; onChanged: () => void };
@@ -8,11 +9,11 @@ type Props = { pairs: string[]; onClose: () => void; onChanged: () => void };
 type ImpactFilter = 'high' | 'medium' | 'all';
 const FILTER_KEY = 'dp77-news-filter-v2'; // v2: default changed to every impact
 
-const IMPACT_LABEL: Record<string, string> = { high: 'Merah', medium: 'Oranye', low: 'Kuning' };
+const impactLabel = (impact: string): string => (impact === 'high' ? tr('Merah', 'Red') : impact === 'medium' ? tr('Oranye', 'Orange') : tr('Kuning', 'Yellow'));
 const RANK: Record<string, number> = { high: 3, medium: 2, low: 1 };
 const MIN_RANK: Record<ImpactFilter, number> = { high: 3, medium: 2, all: 1 };
 
-const dayLabelFmt = new Intl.DateTimeFormat('id-ID', { weekday: 'long', day: 'numeric', month: 'short', timeZone: 'Asia/Jakarta' });
+const dayLabel = (d: Date) => new Intl.DateTimeFormat(locale(), { weekday: 'long', day: 'numeric', month: 'short', timeZone: 'Asia/Jakarta' }).format(d);
 const wibDay = (ms: number) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date(ms));
 
 function loadFilter(): { impact: ImpactFilter; mine: boolean } {
@@ -27,14 +28,15 @@ function loadFilter(): { impact: ImpactFilter; mine: boolean } {
 // "dalam 45 mnt", "dalam 3 jam", "dalam 2 hari"
 function until(ms: number): string {
   const min = Math.round((ms - Date.now()) / 60_000);
-  if (min <= 0) return 'sudah rilis';
-  if (min < 60) return `dalam ${min} mnt`;
+  if (min <= 0) return tr('sudah rilis', 'already released');
+  if (min < 60) return tr(`dalam ${min} mnt`, `in ${min} min`);
   const h = Math.round(min / 60);
-  return h < 48 ? `dalam ${h} jam` : `dalam ${Math.round(h / 24)} hari`;
+  return h < 48 ? tr(`dalam ${h} jam`, `in ${h} h`) : tr(`dalam ${Math.round(h / 24)} hari`, `in ${Math.round(h / 24)} days`);
 }
 
 // The whole calendar ahead (the feed covers the current week), grouped by WIB day.
 export function NewsModal({ pairs, onClose, onChanged }: Props) {
+  const t = useT();
   const [news, setNews] = useState<News[] | null>(null);
   const [status, setStatus] = useState<NewsFeed['status'] | null>(null);
   const [filter, setFilterState] = useState(loadFilter);
@@ -86,7 +88,7 @@ export function NewsModal({ pairs, onClose, onChanged }: Props) {
       if (filter.mine && !mine.has(n.currency)) continue;
       const ms = new Date(n.at).getTime();
       const day = wibDay(ms);
-      if (out.at(-1)?.day !== day) out.push({ day, label: day === wibDay(Date.now()) ? 'Hari ini' : dayLabelFmt.format(new Date(ms)), items: [] });
+      if (out.at(-1)?.day !== day) out.push({ day, label: day === wibDay(Date.now()) ? tr('Hari ini', 'Today') : dayLabel(new Date(ms)), items: [] });
       out.at(-1)!.items.push(n);
     }
     return out;
@@ -94,39 +96,39 @@ export function NewsModal({ pairs, onClose, onChanged }: Props) {
 
   return (
     <Modal
-      title="Berita mendatang"
+      title={t('Berita mendatang', 'Upcoming news')}
       onClose={onClose}
       footer={
         <>
           <span className="muted">
-            Sumber {status?.source ?? '–'}, diambil {ago(status?.fetchedAt ?? null)}. Kalender hanya mencakup minggu ini.
+            {t(`Sumber ${status?.source ?? '–'}, diambil ${ago(status?.fetchedAt ?? null)}. Kalender hanya mencakup minggu ini.`, `Source ${status?.source ?? '–'}, fetched ${ago(status?.fetchedAt ?? null)}. The calendar only covers this week.`)}
           </span>
           <button type="button" onClick={refresh} disabled={busy}>
-            {busy ? 'Memuat…' : 'Muat ulang'}
+            {busy ? t('Memuat…', 'Loading…') : t('Muat ulang', 'Reload')}
           </button>
         </>
       }
     >
       <div className="modal-tools">
-        <div className="seg" role="group" aria-label="Dampak">
+        <div className="seg" role="group" aria-label={t('Dampak', 'Impact')}>
           {(['high', 'medium', 'all'] as const).map((k) => (
             <button key={k} type="button" aria-pressed={filter.impact === k} onClick={() => setFilter({ ...filter, impact: k })}>
-              {k === 'high' ? 'Merah' : k === 'medium' ? '+ Oranye' : 'Semua'}
+              {k === 'high' ? t('Merah', 'Red') : k === 'medium' ? t('+ Oranye', '+ Orange') : t('Semua', 'All')}
             </button>
           ))}
         </div>
         <label className="check">
           <input type="checkbox" checked={filter.mine} onChange={(e) => setFilter({ ...filter, mine: e.target.checked })} />
-          Mata uang pair aktif saja
+          {t('Mata uang pair aktif saja', 'Active pair currencies only')}
         </label>
-        <span className="muted">Waktu WIB</span>
+        <span className="muted">{t('Waktu WIB', 'WIB time')}</span>
       </div>
       {error && <p className="error">{error}</p>}
-      {status?.error && <p className="error">Kalender gagal diambil ({status.error}); data terakhir dipakai.</p>}
+      {status?.error && <p className="error">{t(`Kalender gagal diambil (${status.error}); data terakhir dipakai.`, `Calendar fetch failed (${engineText(status.error)}); last data in use.`)}</p>}
       {!news ? (
-        <p className="muted pad">Memuat…</p>
+        <p className="muted pad">{t('Memuat…', 'Loading…')}</p>
       ) : !days.length ? (
-        <p className="muted pad">Tidak ada berita untuk filter ini sampai akhir minggu.</p>
+        <p className="muted pad">{t('Tidak ada berita untuk filter ini sampai akhir minggu.', 'No news for this filter until the end of the week.')}</p>
       ) : (
         days.map((d) => (
           <section key={d.day} className="news-day">
@@ -138,7 +140,7 @@ export function NewsModal({ pairs, onClose, onChanged }: Props) {
                 return (
                   <li key={n.id} className={past ? 'past' : ''}>
                     <span className="tabular news-time">{fmtWib(n.at).replace(' WIB', '')}</span>
-                    <span className={`impact impact-${n.impact}`} title={IMPACT_LABEL[n.impact]} aria-label={`dampak ${IMPACT_LABEL[n.impact]}`} />
+                    <span className={`impact impact-${n.impact}`} title={impactLabel(n.impact)} aria-label={t(`dampak ${impactLabel(n.impact)}`, `${impactLabel(n.impact)} impact`)} />
                     <b className="news-cur">{n.currency}</b>
                     <span className="news-title">{n.title}</span>
                     <span className="muted news-until">{until(ms)}</span>

@@ -3,6 +3,7 @@
 // units so pairs with different price scales can be averaged.
 import { analyze, atr, engineLines, fractals, roundTo } from './sr.ts';
 import type { Candidate, Candle, Side, SrParams, SymbolData, SymbolInputs } from './types.ts';
+import { tr } from '../i18n.ts';
 
 export type { SymbolData };
 
@@ -65,9 +66,9 @@ const missing = (o: ManualOrder, reason: string, atr = 0): Comparison => ({
 function compareGroup(g: Group, p: SrParams): Comparison[] {
   const { orders, candles } = g;
   const first = orders[0]!;
-  if (!candles) return orders.map((o) => missing(o, 'Belum ada data candle'));
+  if (!candles) return orders.map((o) => missing(o, tr('Belum ada data candle', 'No candle data yet')));
   if (candles.length < 10) {
-    return orders.map((o) => missing(o, 'Candle sebelum tanggal ini belum cukup'));
+    return orders.map((o) => missing(o, tr('Candle sebelum tanggal ini belum cukup', 'Not enough candles before this date')));
   }
   // every line gets a candidate here; the per-side limit is a display choice, not a level rule
   const a = analyze(first.symbol, candles, { ...p, maxLinesPerSide: 0 }, g.digits, undefined, g.inputs);
@@ -81,7 +82,7 @@ function compareGroup(g: Group, p: SrParams): Comparison[] {
       (best, c) => (best === null || Math.abs(c.entry! - o.entry) < Math.abs(best.entry! - o.entry) ? c : best),
       null,
     );
-    if (!auto) return { ...missing(o, `Tidak ada kandidat ${o.side} stop`, a.atr), nearestLine };
+    if (!auto) return { ...missing(o, tr(`Tidak ada kandidat ${o.side} stop`, `No ${o.side} stop candidate`), a.atr), nearestLine };
     const dEntry = (auto.entry! - o.entry) / a.atr;
     const dSl = (auto.sl! - o.sl) / a.atr;
     const dTp = o.tp !== null ? (auto.tp! - o.tp) / a.atr : null;
@@ -120,18 +121,15 @@ export function compareAll(orders: ManualOrder[], data: Map<string, SymbolData>,
   return evaluate(prepare(orders, data), orders, p);
 }
 
-// Values tried by the sweep. Everything else stays at the current settings.
+// Values tried by the sweep. Everything else stays at the current settings; the line
+// settings are fixed (SR_LINES) and never swept.
 export const LADDER_GRID = {
   entryGap: [0.16, 0.19, 0.22, 0.25, 0.28],
   slGap: [0.1, 0.13, 0.16, 0.19, 0.22],
   tpGap: [0.03, 0.05, 0.07, 0.1],
-  clusterAtr: [0.2, 0.3, 0.5],
-  minTouches: [1, 2],
 };
 
 export const SWEEP_GRID = {
-  clusterAtr: [0.3, 0.5, 0.8],
-  minTouches: [2, 3],
   strongBodyPct: [0.5, 0.6, 0.7],
   strongAtr: [0.6, 0.8, 1.0],
   strongPick: ['recent', 'nearest'] as const,
@@ -154,24 +152,21 @@ export function sweep(orders: ManualOrder[], data: Map<string, SymbolData>, base
     for (const entryGap of l.entryGap)
       for (const slGap of l.slGap)
         for (const tpGap of l.tpGap)
-          for (const clusterAtr of l.clusterAtr)
-            for (const minTouches of l.minTouches) {
-              const params = { entryGap, slGap, tpGap, clusterAtr, minTouches };
-              results.push({ params, score: evaluate(prepared, orders, { ...base, ...params }).score });
-            }
+          {
+            const params = { entryGap, slGap, tpGap };
+            results.push({ params, score: evaluate(prepared, orders, { ...base, ...params }).score });
+          }
     return rank();
   }
   const g = SWEEP_GRID;
-  for (const clusterAtr of g.clusterAtr)
-    for (const minTouches of g.minTouches)
-      for (const strongBodyPct of g.strongBodyPct)
-        for (const strongAtr of g.strongAtr)
-          for (const strongPick of g.strongPick)
-            for (const wickRatio of g.wickRatio)
-              for (const bufferAtr of g.bufferAtr) {
-                const params = { clusterAtr, minTouches, strongBodyPct, strongAtr, strongPick, wickRatio, bufferAtr };
-                results.push({ params, score: evaluate(prepared, orders, { ...base, ...params }).score });
-              }
+  for (const strongBodyPct of g.strongBodyPct)
+    for (const strongAtr of g.strongAtr)
+      for (const strongPick of g.strongPick)
+        for (const wickRatio of g.wickRatio)
+          for (const bufferAtr of g.bufferAtr) {
+            const params = { strongBodyPct, strongAtr, strongPick, wickRatio, bufferAtr };
+            results.push({ params, score: evaluate(prepared, orders, { ...base, ...params }).score });
+          }
   return rank();
 }
 
@@ -247,30 +242,4 @@ export function lineFitAll(data: Map<string, SymbolData>, p: SrParams): { fits: 
     fits,
     score: { pairs: fits.length, f1: mean(fits.map((f) => f.f1)), precision: mean(fits.map((f) => f.precision)), recall: mean(fits.map((f) => f.recall)) },
   };
-}
-
-export const LINE_GRID = {
-  fractal: [2, 3],
-  clusterAtr: [0.3, 0.4, 0.5],
-  minTouches: [2, 3],
-  rangeWeight: [0, 2, 3],
-  minSpacingAtr: [0, 0.4, 0.5],
-  zoneMergeAtr: [0, 0.2],
-};
-
-export type LineSweepResult = { params: Partial<SrParams>; score: LineScore };
-
-export function lineSweep(data: Map<string, SymbolData>, base: SrParams, top = 5): { current: LineScore; best: LineSweepResult[]; tried: number } {
-  const results: LineSweepResult[] = [];
-  for (const fractal of LINE_GRID.fractal)
-    for (const clusterAtr of LINE_GRID.clusterAtr)
-      for (const minTouches of LINE_GRID.minTouches)
-        for (const rangeWeight of LINE_GRID.rangeWeight)
-          for (const minSpacingAtr of LINE_GRID.minSpacingAtr)
-            for (const zoneMergeAtr of LINE_GRID.zoneMergeAtr) {
-              const params = { fractal, clusterAtr, minTouches, rangeWeight, minSpacingAtr, zoneMergeAtr };
-              results.push({ params, score: lineFitAll(data, { ...base, ...params }).score });
-            }
-  results.sort((a, b) => b.score.f1 - a.score.f1);
-  return { current: lineFitAll(data, base).score, best: results.slice(0, top), tried: results.length };
 }

@@ -1,19 +1,32 @@
 import type { Analysis, Candidate, Candle, Line, Side, SrParams, SymbolInputs } from './types.ts';
 
-export const DEFAULT_SR: SrParams = {
+// The S/R lines are fixed here and nowhere else: settings, the web and the calibration
+// cannot change them, so every strategy reads the same lines. Values are the ones the live
+// app has drawn with since Sep 2026 (settings in the DB, Nov 2026); clusterAtr 0.4 fitted
+// the user's own lines a little better (F1 0.58) but the user chose the lines they see.
+export const SR_LINES = {
   lineSource: 'auto',
   lookback: 520,
   fractal: 2,
   atrPeriod: 14,
-  // fitted to the user's lines on 13 pairs (Oct 2026): swings alone gave F1 0.51
-  clusterAtr: 0.4,
+  clusterAtr: 0.3,
   minTouches: 2,
   rangeMinBars: 5,
   rangeMaxAtr: 2,
   rangeWeight: 2,
-  // one reaction area = one line (the user's CHFJPY 198-199.4 zone, Oct 2026); F1 0.58
+  // one reaction area = one line (the user's CHFJPY 198-199.4 zone, Oct 2026)
   minSpacingAtr: 0.4,
   zoneMergeAtr: 0.2,
+} as const satisfies Partial<SrParams>;
+
+export type SrLineKey = keyof typeof SR_LINES;
+export const SR_LINE_KEYS = Object.keys(SR_LINES) as SrLineKey[];
+
+// Any settings object with the fixed line values put back.
+export const lockLines = <T extends SrParams>(p: T): T => ({ ...p, ...SR_LINES });
+
+export const DEFAULT_SR: SrParams = {
+  ...SR_LINES,
   strongBodyPct: 0.6,
   strongAtr: 0.8,
   strongMaxDistanceAtr: 1,

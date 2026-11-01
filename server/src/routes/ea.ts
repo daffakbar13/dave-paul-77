@@ -9,6 +9,7 @@ import { recordDeals, recordPlacements } from '../journal.ts';
 import { setManualLines } from '../lines.ts';
 import { refreshAnalysis } from '../service.ts';
 import { defaultDigits } from './web.ts';
+import { tr } from '../i18n.ts';
 
 const DAY = 86_400_000;
 const symbolName = z.string().trim().toUpperCase().regex(/^[A-Z0-9._-]{3,20}$/);
@@ -168,7 +169,7 @@ export function eaRoutes(db: Collections, config: Config): Router {
   // means the lines were removed: the pair goes back to automatic lines.
   router.post('/mt4/lines', dataKey, async (req, res) => {
     const input = parse(z.object({ symbol: symbolName, lines: z.array(price).max(300) }), req.body);
-    if (!(await db.symbols.findOne({ name: input.symbol }))) throw notFound('Pair belum dikenal');
+    if (!(await db.symbols.findOne({ name: input.symbol }))) throw notFound(tr('Pair belum dikenal', 'Unknown pair'));
     await setManualLines(db, input.symbol, input.lines, 'mt4');
     res.json({ stored: input.lines.length });
   });
@@ -187,7 +188,7 @@ export function eaRoutes(db: Collections, config: Config): Router {
   router.post('/mt5/status', accountKey, async (req, res) => {
     const account = keyAccount(res);
     const input = parse(statusSchema, req.body);
-    if (input.account !== account.number) throw new HttpError(403, 'Key ini milik akun lain.');
+    if (input.account !== account.number) throw new HttpError(403, tr('Key ini milik akun lain.', 'This key belongs to another account.'));
     const byBroker = new Map(Object.entries(account.symbolMap).map(([app, broker]) => [broker, app]));
     const specs = { ...account.specs };
     for (const [broker, spec] of Object.entries(input.symbols)) specs[byBroker.get(broker) ?? broker] = spec;
@@ -202,7 +203,7 @@ export function eaRoutes(db: Collections, config: Config): Router {
   router.post('/mt5/deals', accountKey, async (req, res) => {
     const account = keyAccount(res);
     const input = parse(dealsSchema, req.body);
-    if (input.account !== account.number) throw new HttpError(403, 'Key ini milik akun lain.');
+    if (input.account !== account.number) throw new HttpError(403, tr('Key ini milik akun lain.', 'This key belongs to another account.'));
     const byBroker = new Map(Object.entries(account.symbolMap).map(([app, broker]) => [broker, app]));
     const offsetMs = Math.round((input.now * 1000 - Date.now()) / 1_800_000) * 1_800_000;
     const deals = input.deals.map((d) => ({ ...d, symbol: byBroker.get(d.symbol) ?? d.symbol, time: new Date(d.time * 1000 - offsetMs) }));
@@ -240,8 +241,8 @@ export function eaRoutes(db: Collections, config: Config): Router {
     const id = parseId(req.params.id, 'Perintah');
     const { dryRun, deleted, results } = parse(resultSchema, req.body);
     const command = await db.commands.findOne({ _id: id, accountId: account._id });
-    if (!command) throw notFound('Perintah tidak ditemukan');
-    if (command.status !== 'taken') throw new HttpError(409, `Perintah berstatus ${command.status}.`);
+    if (!command) throw notFound(tr('Perintah tidak ditemukan', 'Command not found'));
+    if (command.status !== 'taken') throw new HttpError(409, tr(`Perintah berstatus ${command.status}.`, `Command is ${command.status}.`));
     const status = results.every((r) => r.ok) ? 'done' : 'failed';
     const finishedAt = new Date();
     await db.commands.updateOne({ _id: id }, { $set: { status, results, dryRun, deleted, finishedAt } });

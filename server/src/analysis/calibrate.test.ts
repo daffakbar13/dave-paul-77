@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { candlesAsOf, compareAll, lineFit, lineSweep, matchLines, sweep, type ManualOrder, type SymbolData } from './calibrate.ts';
+import { candlesAsOf, compareAll, lineFit, matchLines, sweep, type ManualOrder, type SymbolData } from './calibrate.ts';
 import { analyze, DEFAULT_SR } from './sr.ts';
 import type { Candle, SrParams } from './types.ts';
 
@@ -81,10 +81,7 @@ describe('engine lines vs reference lines', () => {
     assert.equal(fit.recall, 0.5);
   });
 
-  it('skips pairs without reference lines and sweeps the line parameters', () => {
+  it('skips pairs without reference lines', () => {
     assert.equal(lineFit('TEST', { candles: SERIES, digits: 3 }, STRONG), null);
-    const r = lineSweep(new Map([['TEST', { candles: SERIES, digits: 3, inputs: { manualLines: [100.2, 97.5] } }]]), STRONG);
-    assert.equal(r.tried, 216);
-    assert.ok(r.best[0]!.score.f1 >= r.current.f1);
   });
 });

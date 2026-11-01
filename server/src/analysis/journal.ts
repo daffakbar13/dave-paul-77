@@ -2,6 +2,7 @@
 // over closed trades. Pure functions; storage is in ../journal.ts.
 import { roundTo } from './sr.ts';
 import type { Side } from './types.ts';
+import { tr } from '../i18n.ts';
 
 export type DealEntry = 'in' | 'out' | 'inout' | 'out_by';
 export type CloseReason = 'sl' | 'tp' | 'so' | 'expert' | 'manual';
@@ -221,58 +222,58 @@ const MIN_GROUP = 3; // fewer trades in a group say nothing
 export function findings(a: Omit<Audit, 'findings'>): Finding[] {
   const out: Finding[] = [];
   const s = a.stats;
-  if (!s.trades) return [{ level: 'info', text: 'Belum ada trade yang close di periode ini.' }];
+  if (!s.trades) return [{ level: 'info', text: tr('Belum ada trade yang close di periode ini.', 'No trades closed in this period yet.') }];
 
   if (s.trades < 20)
-    out.push({ level: 'info', text: `Sampel kecil (${s.trades} trade). Pakai sebagai catatan; ubah parameter hanya jika pola yang sama muncul lagi bulan depan.` });
+    out.push({ level: 'info', text: tr(`Sampel kecil (${s.trades} trade). Pakai sebagai catatan; ubah parameter hanya jika pola yang sama muncul lagi bulan depan.`, `Small sample (${s.trades} trades). Treat it as a note; change parameters only if the same pattern shows up again next month.`) });
 
   if (s.profitFactor !== null && s.profitFactor < 1)
-    out.push({ level: 'warn', text: `Profit factor ${s.profitFactor} (< 1): total rugi lebih besar dari total untung.` });
+    out.push({ level: 'warn', text: tr(`Profit factor ${s.profitFactor} (< 1): total rugi lebih besar dari total untung.`, `Profit factor ${s.profitFactor} (< 1): total losses exceed total wins.`) });
   else if (s.profitFactor !== null && s.profitFactor >= 1.5) out.push({ level: 'good', text: `Profit factor ${s.profitFactor}.` });
 
   if (s.winRate !== null && s.avgWin !== null && s.avgLoss !== null) {
     const breakEven = -s.avgLoss / (s.avgWin - s.avgLoss);
     if (s.winRate < breakEven)
-      out.push({ level: 'warn', text: `Win rate ${pct(s.winRate)} di bawah titik impas ${pct(breakEven)} untuk rata-rata untung/rugi sekarang: perbesar TP (RR) atau saring level yang lemah.` });
+      out.push({ level: 'warn', text: tr(`Win rate ${pct(s.winRate)} di bawah titik impas ${pct(breakEven)} untuk rata-rata untung/rugi sekarang: perbesar TP (RR) atau saring level yang lemah.`, `Win rate ${pct(s.winRate)} is below the ${pct(breakEven)} break-even for the current average win/loss: widen TP (RR) or filter out weak levels.`) });
   }
 
   for (const g of a.bySymbol) {
     if (g.trades >= MIN_GROUP && g.net < 0 && (g.avgR ?? -1) < -0.3)
-      out.push({ level: 'warn', text: `${g.key}: ${g.trades} trade, net ${g.net}${g.avgR !== null ? `, rata-rata ${fmtR(g.avgR)}` : ''}. Cek garis S/R dan Min SL pair ini.` });
+      out.push({ level: 'warn', text: tr(`${g.key}: ${g.trades} trade, net ${g.net}${g.avgR !== null ? `, rata-rata ${fmtR(g.avgR)}` : ''}. Cek garis S/R dan Min SL pair ini.`, `${g.key}: ${g.trades} trades, net ${g.net}${g.avgR !== null ? `, average ${fmtR(g.avgR)}` : ''}. Check this pair's S/R lines and Min SL.`) });
   }
 
   const sl = a.byReason.find((g) => g.key === REASON_LABEL.sl);
   const tp = a.byReason.find((g) => g.key === REASON_LABEL.tp);
   if (sl && sl.trades / s.trades >= 0.6)
-    out.push({ level: 'warn', text: `${pct(sl.trades / s.trades)} trade close di SL${tp ? ` (TP ${tp.trades})` : ''}: SL mungkin terlalu dekat atau entry terlalu dekat garis.` });
+    out.push({ level: 'warn', text: tr(`${pct(sl.trades / s.trades)} trade close di SL${tp ? ` (TP ${tp.trades})` : ''}: SL mungkin terlalu dekat atau entry terlalu dekat garis.`, `${pct(sl.trades / s.trades)} of trades closed at SL${tp ? ` (TP ${tp.trades})` : ''}: SL may be too tight or the entry too close to the line.`) });
   const so = a.byReason.find((g) => g.key === REASON_LABEL.so);
-  if (so) out.push({ level: 'warn', text: `${so.trades} posisi kena stop out: risiko total terlalu besar untuk balance.` });
+  if (so) out.push({ level: 'warn', text: tr(`${so.trades} posisi kena stop out: risiko total terlalu besar untuk balance.`, `${so.trades} positions were stopped out: total risk is too large for the balance.`) });
   const manual = a.byReason.find((g) => g.key === REASON_LABEL.manual);
   if (manual && manual.trades >= 2)
-    out.push({ level: manual.net < 0 ? 'warn' : 'info', text: `${manual.trades} posisi ditutup manual, net ${manual.net}. Bandingkan dengan hasil jika dibiarkan ke SL/TP.` });
+    out.push({ level: manual.net < 0 ? 'warn' : 'info', text: tr(`${manual.trades} posisi ditutup manual, net ${manual.net}. Bandingkan dengan hasil jika dibiarkan ke SL/TP.`, `${manual.trades} positions closed manually, net ${manual.net}. Compare with letting them run to SL/TP.`) });
 
   if (a.avgSlipR !== null && a.avgSlipR > 0.1)
-    out.push({ level: 'warn', text: `Fill rata-rata ${fmtR(a.avgSlipR)} lebih buruk dari entry rencana (spread/berita): risiko nyata lebih besar dari rencana.` });
+    out.push({ level: 'warn', text: tr(`Fill rata-rata ${fmtR(a.avgSlipR)} lebih buruk dari entry rencana (spread/berita): risiko nyata lebih besar dari rencana.`, `Fills average ${fmtR(a.avgSlipR)} worse than the planned entry (spread/news): real risk is larger than planned.`) });
 
   const candle = a.bySlFrom.find((g) => g.key === 'candle');
   const ladder = a.bySlFrom.find((g) => g.key === 'ladder');
   if (candle && ladder && candle.trades >= MIN_GROUP && ladder.trades >= MIN_GROUP && candle.avgR !== null && ladder.avgR !== null) {
     const better = candle.avgR > ladder.avgR ? 'candle' : 'ladder';
-    out.push({ level: 'info', text: `SL dari ${better} lebih baik: candle ${fmtR(candle.avgR)} (${candle.trades}) vs ladder ${fmtR(ladder.avgR)} (${ladder.trades}).` });
+    out.push({ level: 'info', text: tr(`SL dari ${better} lebih baik: candle ${fmtR(candle.avgR)} (${candle.trades}) vs ladder ${fmtR(ladder.avgR)} (${ladder.trades}).`, `SL from ${better} does better: candle ${fmtR(candle.avgR)} (${candle.trades}) vs ladder ${fmtR(ladder.avgR)} (${ladder.trades}).`) });
   }
 
   const aggr = a.byMode.find((g) => g.key === 'Aggressive');
   if (aggr && aggr.trades >= 2 && aggr.net < 0)
-    out.push({ level: 'warn', text: `Aggressive: ${aggr.trades} trade, net ${aggr.net}. Lot yang diperbesar merugi; pertimbangkan multiplier lebih kecil atau Aggressive auto mati.` });
-  else if (aggr && aggr.trades >= 2 && aggr.net > 0) out.push({ level: 'good', text: `Aggressive: ${aggr.trades} trade, net +${aggr.net}.` });
+    out.push({ level: 'warn', text: tr(`Aggressive: ${aggr.trades} trade, net ${aggr.net}. Lot yang diperbesar merugi; pertimbangkan multiplier lebih kecil atau Aggressive auto mati.`, `Aggressive: ${aggr.trades} trades, net ${aggr.net}. The larger lots lost; consider a smaller multiplier or turning Aggressive auto off.`) });
+  else if (aggr && aggr.trades >= 2 && aggr.net > 0) out.push({ level: 'good', text: tr(`Aggressive: ${aggr.trades} trade, net +${aggr.net}.`, `Aggressive: ${aggr.trades} trades, net +${aggr.net}.`) });
 
   const lowRr = a.byRr.find((g) => g.key === 'RR < 1.5');
   if (lowRr && lowRr.trades >= MIN_GROUP && lowRr.net < 0)
-    out.push({ level: 'warn', text: `Level RR < 1.5: ${lowRr.trades} trade, net ${lowRr.net}. Pertimbangkan tidak mengeksekusi level bertanda kuning.` });
+    out.push({ level: 'warn', text: tr(`Level RR < 1.5: ${lowRr.trades} trade, net ${lowRr.net}. Pertimbangkan tidak mengeksekusi level bertanda kuning.`, `Levels with RR < 1.5: ${lowRr.trades} trades, net ${lowRr.net}. Consider not executing the yellow-marked levels.`) });
 
   if (a.fills.placed >= 10 && a.fills.rate !== null)
-    out.push({ level: 'info', text: `${a.fills.filled} dari ${a.fills.placed} level yang dipasang ter-fill (${pct(a.fills.rate)}).` });
-  if (a.unplanned) out.push({ level: 'info', text: `${a.unplanned} posisi tanpa rencana tercatat (dipasang sebelum jurnal aktif): tidak ikut hitungan R.` });
+    out.push({ level: 'info', text: tr(`${a.fills.filled} dari ${a.fills.placed} level yang dipasang ter-fill (${pct(a.fills.rate)}).`, `${a.fills.filled} of ${a.fills.placed} placed levels filled (${pct(a.fills.rate)}).`) });
+  if (a.unplanned) out.push({ level: 'info', text: tr(`${a.unplanned} posisi tanpa rencana tercatat (dipasang sebelum jurnal aktif): tidak ikut hitungan R.`, `${a.unplanned} positions have no recorded plan (placed before the journal was active): left out of the R figures.`) });
 
   return out;
 }
@@ -291,7 +292,7 @@ export function audit(trades: AuditTrade[], fills: Audit['fills'], unplanned: nu
     byReason: groupBy(trades, (t) => REASON_LABEL[t.closeReason]),
     bySlFrom: groupBy(trades, (t) => t.plan?.slFrom ?? null),
     byMode: groupBy(trades, (t) => (t.plan ? (t.plan.multiplier > 1 ? 'Aggressive' : 'Normal') : null)),
-    byLineSource: groupBy(trades, (t) => (t.plan ? (t.plan.lineSource === 'manual' ? 'Garis manual' : 'Garis otomatis') : null)),
+    byLineSource: groupBy(trades, (t) => (t.plan ? (t.plan.lineSource === 'manual' ? tr('Garis manual', 'Manual lines') : tr('Garis otomatis', 'Engine lines')) : null)),
     byRr: groupBy(trades, (t) => rrBucket(t.plan?.rr)),
     fills,
     unplanned,

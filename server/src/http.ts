@@ -1,6 +1,7 @@
 import type { ErrorRequestHandler, RequestHandler } from 'express';
 import { ObjectId } from 'mongodb';
 import type { z } from 'zod';
+import { trFixed } from './i18n.ts';
 
 // Thrown from handlers; the error handler turns it into `{ error, ...details }`.
 export class HttpError extends Error {
@@ -29,7 +30,7 @@ export function parse<T extends z.ZodType>(schema: T, value: unknown): z.infer<T
   if (result.success) return result.data;
   const issue = result.error.issues[0];
   const where = issue?.path.length ? `${issue.path.join('.')}: ` : '';
-  throw new HttpError(400, `${where}${issue?.message ?? 'Invalid input.'}`);
+  throw new HttpError(400, `${where}${issue?.message ? trFixed(issue.message) : 'Invalid input.'}`);
 }
 
 export const unknownRoute: RequestHandler = (_req, _res, next) => next(notFound());

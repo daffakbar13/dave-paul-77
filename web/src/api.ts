@@ -1,6 +1,7 @@
 // Thin client for the Render backend. Shapes mirror server/src (routes/web.ts, analysis/orders.ts).
 import type { CompactTrade, Fingerprint } from './backtestStore.ts';
 import type { CostSettings, Coverage } from './engine/backtest.ts';
+import { getLang } from './i18n.ts';
 
 export type Side = 'buy' | 'sell';
 export type AggressiveMode = 'auto' | 'on' | 'off';
@@ -323,6 +324,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     headers: {
       ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      'X-Lang': getLang(),
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
@@ -392,6 +394,5 @@ export const api = {
   deleteManual: (id: string) => request<void>('DELETE', `/calibration/orders/${id}`),
   sweep: () => request<SweepResult>('POST', '/calibration/sweep'),
   lineFit: () => request<{ fits: LineFit[]; score: LineScore; sr: SrParams }>('GET', '/calibration/lines'),
-  lineSweep: () => request<{ current: LineScore; best: { params: Partial<SrParams>; score: LineScore }[]; tried: number }>('POST', '/calibration/lines/sweep'),
   rotateKey: (id: string) => request<{ key: string }>('POST', `/accounts/${id}/key`),
 };

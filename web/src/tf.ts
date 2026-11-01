@@ -1,4 +1,5 @@
 import type { OrderRow } from './api.ts';
+import { tr } from './i18n.ts';
 
 // Traders Family copy-signal limits (reward system PDF, in force since 2026-03-01).
 // Pip sizes: JPY pairs 0.01, XAUUSD 0.1, the rest 0.0001.
@@ -62,19 +63,19 @@ export function toSignals(rows: OrderRow[]): SignalRow[] {
       const rr = slPips > 0 ? tpPips / slPips : 0;
       const value = VALUE[symbol] ?? null;
       const problems: string[] = [];
-      if (!group) problems.push('Pair tidak ada di aturan TF');
+      if (!group) problems.push(tr('Pair tidak ada di aturan TF', 'Pair is not in the TF rules'));
       else {
         if (slPips < group.minPips) problems.push(`SL ${slPips} < min ${group.minPips} pips`);
-        if (slPips > group.maxPips) problems.push(`SL ${slPips} > maks ${group.maxPips} pips`);
+        if (slPips > group.maxPips) problems.push(tr(`SL ${slPips} > maks ${group.maxPips} pips`, `SL ${slPips} > max ${group.maxPips} pips`));
         if (tpPips < group.minPips) problems.push(`TP ${tpPips} < min ${group.minPips} pips`);
-        if (tpPips > group.maxPips) problems.push(`TP ${tpPips} > maks ${group.maxPips} pips`);
+        if (tpPips > group.maxPips) problems.push(tr(`TP ${tpPips} > maks ${group.maxPips} pips`, `TP ${tpPips} > max ${group.maxPips} pips`));
         const prev = lastEntry[r.side];
         if (prev !== undefined) {
           const gap = round1(Math.abs(r.entry! - prev) / pip);
-          if (gap < group.gap) problems.push(`Selisih ke signal sebelumnya ${gap} < ${group.gap} pips`);
+          if (gap < group.gap) problems.push(tr(`Selisih ke signal sebelumnya ${gap} < ${group.gap} pips`, `Gap to the previous signal ${gap} < ${group.gap} pips`));
         }
       }
-      if (rr > MAX_RR + 1e-9) problems.push(`RR 1:${rr.toFixed(1)} melebihi 1:${MAX_RR}`);
+      if (rr > MAX_RR + 1e-9) problems.push(tr(`RR 1:${rr.toFixed(1)} melebihi 1:${MAX_RR}`, `RR 1:${rr.toFixed(1)} exceeds 1:${MAX_RR}`));
       lastEntry[r.side] = r.entry!;
       out.push({
         id: r.id, symbol, type: r.type, entry: r.entry!, sl: r.sl!, tp: r.tp!, slPips, tpPips, rr,

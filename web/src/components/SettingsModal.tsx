@@ -3,6 +3,7 @@ import { api, type Account, type Settings, type SrParams, type SymbolItem } from
 import { defaultSpreadPips } from '../engine/backtest.ts';
 import { pipSize } from '../engine/sr.ts';
 import { ago, fmtMoney } from '../format.ts';
+import { setLang, tr, useLang, useT } from '../i18n.ts';
 import { Modal } from './Modal.tsx';
 
 type Props = { onClose: () => void; onChanged: () => void };
@@ -10,51 +11,40 @@ type Tab = 'general' | 'sr' | 'pairs' | 'costs' | 'accounts';
 
 type Field = { key: keyof SrParams; label: string; hint: string; step: number };
 
-// The engine's lines (the default source for orders).
-const LINE_FIELDS: Field[] = [
-  { key: 'lookback', label: 'Jumlah candle D1', hint: 'Sekitar 2 tahun = 520', step: 1 },
-  { key: 'fractal', label: 'Fraktal (candle tiap sisi)', hint: '2 = fraktal 5 candle', step: 1 },
-  { key: 'atrPeriod', label: 'Periode ATR', hint: '', step: 1 },
-  { key: 'rangeMinBars', label: 'Area ranging: minimal candle', hint: 'Sideways sekurangnya … candle', step: 1 },
-  { key: 'rangeMaxAtr', label: 'Area ranging: tinggi maks (x ATR)', hint: 'High–low area ranging', step: 0.1 },
-  { key: 'rangeWeight', label: 'Bobot tepi ranging', hint: 'Satu tepi ranging = … swing; 0 = swing saja', step: 1 },
-  { key: 'clusterAtr', label: 'Penggabungan area (x ATR)', hint: 'Swing dan tepi ranging berdekatan jadi satu garis', step: 0.05 },
-  { key: 'minTouches', label: 'Minimal bobot garis', hint: 'Swing = 1, tepi ranging = bobotnya', step: 1 },
-  { key: 'minSpacingAtr', label: 'Jarak min antar garis (x ATR)', hint: 'Lebih dekat: digabung jadi rata-ratanya; 0 = mati', step: 0.05 },
-  { key: 'zoneMergeAtr', label: 'Gabung zona sampai (x ATR)', hint: 'Jarak tepi dua garis tanpa body candle di antaranya: jadi satu; 0 = mati', step: 0.05 },
-];
-
-// g = jarak garis ke garis berikutnya searah order
-const LADDER_FIELDS: Field[] = [
-  { key: 'entryGap', label: 'Entry: garis + … x g', hint: 'Dari order Anda: 0,22', step: 0.01 },
-  { key: 'slGap', label: 'SL: garis − … x g', hint: 'Seberang garis yang sama. Dari order Anda: 0,16', step: 0.01 },
-  { key: 'tpGap', label: 'TP: garis berikutnya − … x g', hint: 'Dari order Anda: 0,07', step: 0.01 },
-  { key: 'minDistanceAtr', label: 'Lewati order dengan entry lebih dekat dari … x ATR ke harga', hint: '', step: 0.05 },
-  { key: 'maxLinesPerSide', label: 'Garis berorder per sisi', hint: 'Garis terdekat dari harga; 0 = semua', step: 1 },
-  { key: 'autoTpRr', label: 'RR TP di garis terakhir', hint: 'Tidak ada garis berikutnya', step: 0.1 },
+// g = distance from the line to the next line in the order direction
+const ladderFields = (): Field[] => [
+  { key: 'entryGap', label: tr('Entry: garis + … x g', 'Entry: line + … x g'), hint: tr('Dari order Anda: 0,22', 'From your orders: 0.22'), step: 0.01 },
+  { key: 'slGap', label: tr('SL: garis − … x g', 'SL: line − … x g'), hint: tr('Seberang garis yang sama. Dari order Anda: 0,16', 'Opposite side of the same line. From your orders: 0.16'), step: 0.01 },
+  { key: 'tpGap', label: tr('TP: garis berikutnya − … x g', 'TP: next line − … x g'), hint: tr('Dari order Anda: 0,07', 'From your orders: 0.07'), step: 0.01 },
+  { key: 'minDistanceAtr', label: tr('Lewati order dengan entry lebih dekat dari … x ATR ke harga', 'Skip orders whose entry is closer than … x ATR to price'), hint: '', step: 0.05 },
+  { key: 'maxLinesPerSide', label: tr('Garis berorder per sisi', 'Lines with orders per side'), hint: tr('Garis terdekat dari harga; 0 = semua', 'Lines nearest to price; 0 = all'), step: 1 },
+  { key: 'autoTpRr', label: tr('RR TP di garis terakhir', 'RR for TP at the last line'), hint: tr('Tidak ada garis berikutnya', 'There is no next line'), step: 0.1 },
 ];
 
 // SL from the nearest strong D1 candle on the SL side of the line (ladder model option)
-const CANDLE_SL_FIELDS: Field[] = [
-  { key: 'strongBodyPct', label: 'Candle SL: body / range', hint: '0,6 = 60%', step: 0.05 },
-  { key: 'slStrongAtr', label: 'Candle SL: body minimal (x ATR)', hint: '', step: 0.05 },
-  { key: 'strongMaxDistanceAtr', label: 'Candle SL: jarak maks high/low ke garis (x ATR)', hint: '', step: 0.1 },
-  { key: 'bufferAtr', label: 'Buffer di luar low/high (x ATR)', hint: '0,1 = 10% ATR', step: 0.01 },
-  { key: 'slMaxRiskAtr', label: 'Risk maks entry–SL (x ATR)', hint: 'Lebih lebar: pakai SL tangga', step: 0.1 },
+const candleSlFields = (): Field[] => [
+  { key: 'strongBodyPct', label: tr('Candle SL: body / range', 'SL candle: body / range'), hint: tr('0,6 = 60%', '0.6 = 60%'), step: 0.05 },
+  { key: 'slStrongAtr', label: tr('Candle SL: body minimal (x ATR)', 'SL candle: min body (x ATR)'), hint: '', step: 0.05 },
+  { key: 'strongMaxDistanceAtr', label: tr('Candle SL: jarak maks high/low ke garis (x ATR)', 'SL candle: max high/low distance to the line (x ATR)'), hint: '', step: 0.1 },
+  { key: 'bufferAtr', label: tr('Buffer di luar low/high (x ATR)', 'Buffer beyond low/high (x ATR)'), hint: tr('0,1 = 10% ATR', '0.1 = 10% ATR'), step: 0.01 },
+  { key: 'slMaxRiskAtr', label: tr('Risk maks entry–SL (x ATR)', 'Max entry–SL risk (x ATR)'), hint: tr('Lebih lebar: pakai SL tangga', 'Wider: use the ladder SL'), step: 0.1 },
 ];
 
-const STRONG_FIELDS: Field[] = [
-  { key: 'strongBodyPct', label: 'Candle kuat: body / range', hint: '0,6 = 60%', step: 0.05 },
-  { key: 'strongAtr', label: 'Candle kuat: body / ATR', hint: '', step: 0.05 },
-  { key: 'strongMaxDistanceAtr', label: 'Candle kuat: jarak maks dari garis (x ATR)', hint: '', step: 0.1 },
-  { key: 'wickRatio', label: 'Pantulan: wick / range', hint: 'Wick penolakan', step: 0.05 },
-  { key: 'reboundMaxDistanceAtr', label: 'Pantulan: jarak maks dari garis (x ATR)', hint: '', step: 0.1 },
-  { key: 'bufferAtr', label: 'Buffer entry/SL (x ATR)', hint: '0,1 = 10% ATR', step: 0.01 },
-  { key: 'autoTpRr', label: 'RR untuk TP auto (ATH/ATL)', hint: '', step: 0.1 },
-  { key: 'maxLinesPerSide', label: 'Maks garis berorder per sisi', hint: '0 = semua garis', step: 1 },
+const strongFields = (): Field[] => [
+  { key: 'strongBodyPct', label: tr('Candle kuat: body / range', 'Strong candle: body / range'), hint: tr('0,6 = 60%', '0.6 = 60%'), step: 0.05 },
+  { key: 'strongAtr', label: tr('Candle kuat: body / ATR', 'Strong candle: body / ATR'), hint: '', step: 0.05 },
+  { key: 'strongMaxDistanceAtr', label: tr('Candle kuat: jarak maks dari garis (x ATR)', 'Strong candle: max distance from the line (x ATR)'), hint: '', step: 0.1 },
+  { key: 'wickRatio', label: tr('Pantulan: wick / range', 'Rebound: wick / range'), hint: tr('Wick penolakan', 'Rejection wick'), step: 0.05 },
+  { key: 'reboundMaxDistanceAtr', label: tr('Pantulan: jarak maks dari garis (x ATR)', 'Rebound: max distance from the line (x ATR)'), hint: '', step: 0.1 },
+  { key: 'bufferAtr', label: tr('Buffer entry/SL (x ATR)', 'Entry/SL buffer (x ATR)'), hint: tr('0,1 = 10% ATR', '0.1 = 10% ATR'), step: 0.01 },
+  { key: 'autoTpRr', label: tr('RR untuk TP auto (ATH/ATL)', 'RR for auto TP (ATH/ATL)'), hint: '', step: 0.1 },
+  { key: 'maxLinesPerSide', label: tr('Maks garis berorder per sisi', 'Max lines with orders per side'), hint: tr('0 = semua garis', '0 = all lines'), step: 1 },
 ];
 
-const SOURCE: Record<string, string> = { mt4: 'dari chart MT4', import: 'dari template', web: 'dari web' };
+const sourceLabel = (src: string): string => {
+  const m: Record<string, string> = { mt4: tr('dari chart MT4', 'from MT4 chart'), import: tr('dari template', 'from template'), web: tr('dari web', 'from web') };
+  return m[src] ?? '';
+};
 
 const parsePairs = (text: string, num: boolean) => {
   const out: Record<string, string | number> = {};
@@ -78,6 +68,8 @@ function NumberField({ label, hint, value, step, onChange }: { label: string; hi
 }
 
 export function SettingsModal({ onClose, onChanged }: Props) {
+  const t = useT();
+  const lang = useLang();
   const [tab, setTab] = useState<Tab>('general');
   const [settings, setSettings] = useState<Settings | null>(null);
   const [symbols, setSymbols] = useState<SymbolItem[]>([]);
@@ -117,13 +109,13 @@ export function SettingsModal({ onClose, onChanged }: Props) {
     run(async () => {
       const { version: _v, ...rest } = settings!;
       setSettings(await api.saveSettings(rest));
-    }, 'Pengaturan disimpan. Analisa semua pair dihitung ulang.');
+    }, t('Pengaturan disimpan. Analisa semua pair dihitung ulang.', 'Settings saved. All pairs are being re-analysed.'));
 
   const savePairs = (list: SymbolItem[]) =>
     run(async () => {
       await api.saveSymbols(list.map((s) => ({ name: s.name, active: s.active, minSlPips: s.minSlPips })));
       setSymbols((await api.symbols()).symbols);
-    }, 'Daftar pair disimpan.');
+    }, t('Daftar pair disimpan.', 'Pair list saved.'));
 
   // only the costs: they are for the backtest and need no new analysis
   const saveCosts = () =>
@@ -135,7 +127,7 @@ export function SettingsModal({ onClose, onChanged }: Props) {
         Object.entries(c.spreadPips).filter(([k, v]) => Number.isFinite(v) && v >= 0 && v !== defaultSpreadPips(k, digits.get(k) ?? 5)),
       );
       setSettings(await api.saveSettings({ costs: { ...c, slippagePips: Number.isFinite(c.slippagePips) ? c.slippagePips : 0, commissionPerLot: Number.isFinite(c.commissionPerLot) ? c.commissionPerLot : 0, maxCostR: Number.isFinite(c.maxCostR) ? c.maxCostR : 0, spreadPips } }));
-    }, 'Biaya backtest disimpan. Buka Backtest untuk melihat hasil net.');
+    }, t('Biaya backtest disimpan. Buka Backtest untuk melihat hasil net.', 'Backtest costs saved. Open Backtest to see the net result.'));
 
   const importTemplates = (files: FileList | null) => {
     if (!files?.length) return;
@@ -147,14 +139,14 @@ export function SettingsModal({ onClose, onChanged }: Props) {
       const bad = results.filter((r) => r.error);
       if (bad.length) setError(bad.map((r) => `${r.file}: ${r.error}`).join(' · '));
       return ok;
-    }, `Garis diimport dari ${files.length} template.`);
+    }, t(`Garis diimport dari ${files.length} template.`, `Lines imported from ${files.length} template(s).`));
   };
 
   const useAuto = (name: string) =>
     run(async () => {
       await api.setLines(name, []);
       setSymbols((await api.symbols()).symbols);
-    }, `Garis referensi ${name} dihapus.`);
+    }, t(`Garis referensi ${name} dihapus.`, `Reference lines for ${name} removed.`));
 
   const move = (i: number, d: -1 | 1) => {
     const list = [...symbols];
@@ -164,20 +156,20 @@ export function SettingsModal({ onClose, onChanged }: Props) {
     setSymbols(list);
   };
 
-  if (!settings) return <Modal title="Pengaturan" onClose={onClose}>{error ? <p className="error">{error}</p> : <p className="muted">Memuat…</p>}</Modal>;
+  if (!settings) return <Modal title={t('Pengaturan', 'Settings')} onClose={onClose}>{error ? <p className="error">{error}</p> : <p className="muted">{t('Memuat…', 'Loading…')}</p>}</Modal>;
   const set = (patch: Partial<Settings>) => setSettings({ ...settings, ...patch });
   const setSr = (patch: Partial<SrParams>) => setSettings({ ...settings, sr: { ...settings.sr, ...patch } });
 
   return (
-    <Modal title="Pengaturan" onClose={onClose} wide>
+    <Modal title={t('Pengaturan', 'Settings')} onClose={onClose} wide>
       <div className="seg" role="tablist">
         {(
           [
-            ['general', 'Umum'],
-            ['sr', 'Analisa S/R'],
+            ['general', t('Umum', 'General')],
+            ['sr', t('Strategi', 'Strategy')],
             ['pairs', 'Pair'],
-            ['costs', 'Biaya backtest'],
-            ['accounts', 'Akun MT5'],
+            ['costs', t('Biaya backtest', 'Backtest costs')],
+            ['accounts', t('Akun MT5', 'MT5 accounts')],
           ] as const
         ).map(([k, label]) => (
           <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>
@@ -190,14 +182,25 @@ export function SettingsModal({ onClose, onChanged }: Props) {
 
       {tab === 'general' && (
         <div className="form">
-          <div className="grid">
-            <NumberField label="Ambang RR rendah" hint="Baris di bawah ini ditandai kuning" step={0.1} value={settings.rrThreshold} onChange={(v) => set({ rrThreshold: v })} />
-            <NumberField label="Jendela berita (jam)" step={1} value={settings.newsWindowHours} onChange={(v) => set({ newsWindowHours: v })} />
-            <NumberField label="Masa berlaku perintah (jam)" step={1} value={settings.commandTtlHours} onChange={(v) => set({ commandTtlHours: v })} />
-            <NumberField label="Balance dianggap lama (menit)" step={1} value={settings.balanceStaleMinutes} onChange={(v) => set({ balanceStaleMinutes: v })} />
-            <NumberField label="Umur maks harga bid/ask (menit)" step={1} value={settings.quoteMaxAgeMinutes} onChange={(v) => set({ quoteMaxAgeMinutes: v })} />
+          <div className="field">
+            <span>{t('Bahasa', 'Language')}</span>
+            <div className="seg">
+              <button type="button" aria-pressed={lang === 'id'} onClick={() => setLang('id')}>
+                Bahasa Indonesia
+              </button>
+              <button type="button" aria-pressed={lang === 'en'} onClick={() => setLang('en')}>
+                English
+              </button>
+            </div>
           </div>
-          <h3>Warna garis</h3>
+          <div className="grid">
+            <NumberField label={t('Ambang RR rendah', 'Low RR threshold')} hint={t('Baris di bawah ini ditandai kuning', 'Rows below this are marked yellow')} step={0.1} value={settings.rrThreshold} onChange={(v) => set({ rrThreshold: v })} />
+            <NumberField label={t('Jendela berita (jam)', 'News window (hours)')} step={1} value={settings.newsWindowHours} onChange={(v) => set({ newsWindowHours: v })} />
+            <NumberField label={t('Masa berlaku perintah (jam)', 'Command validity (hours)')} step={1} value={settings.commandTtlHours} onChange={(v) => set({ commandTtlHours: v })} />
+            <NumberField label={t('Balance dianggap lama (menit)', 'Balance considered stale (minutes)')} step={1} value={settings.balanceStaleMinutes} onChange={(v) => set({ balanceStaleMinutes: v })} />
+            <NumberField label={t('Umur maks harga bid/ask (menit)', 'Max bid/ask price age (minutes)')} step={1} value={settings.quoteMaxAgeMinutes} onChange={(v) => set({ quoteMaxAgeMinutes: v })} />
+          </div>
+          <h3>{t('Warna garis', 'Line colours')}</h3>
           <div className="grid">
             {(
               [
@@ -214,7 +217,7 @@ export function SettingsModal({ onClose, onChanged }: Props) {
           </div>
           <div className="actions">
             <button type="button" className="primary" onClick={saveSettings}>
-              Simpan
+              {t('Simpan', 'Save')}
             </button>
           </div>
         </div>
@@ -222,66 +225,56 @@ export function SettingsModal({ onClose, onChanged }: Props) {
 
       {tab === 'sr' && (
         <div className="form">
-          <p className="muted">Semua aturan dihitung di D1 dengan candle yang sudah close. Simpan akan menghitung ulang semua pair.</p>
+          <p className="muted">{t('Semua aturan dihitung di D1 dengan candle yang sudah close. Simpan akan menghitung ulang semua pair.', 'All rules are computed on D1 using closed candles. Saving re-analyses all pairs.')}</p>
           <div className="grid">
             <label className="field">
-              <span>Model order</span>
+              <span>{t('Strategi', 'Strategy')}</span>
               <select value={settings.sr.orderModel} onChange={(e) => setSr({ orderModel: e.target.value as SrParams['orderModel'] })}>
-                <option value="ladder">Tangga (dari history order Anda)</option>
-                <option value="strong">Candle kuat + pantulan (konsep awal)</option>
+                <option value="ladder">Breakout JohnPaul77</option>
+                <option value="strong">{t('Candle kuat + pantulan (konsep awal)', 'Strong candle + rebound (original concept)')}</option>
               </select>
             </label>
           </div>
-          <h3>{settings.sr.orderModel === 'ladder' ? 'Model tangga' : 'Model candle kuat'}</h3>
+          <h3>{settings.sr.orderModel === 'ladder' ? 'Breakout JohnPaul77' : t('Model candle kuat', 'Strong candle model')}</h3>
           {settings.sr.orderModel === 'ladder' && (
             <>
-              <p className="muted">g = jarak garis ke garis berikutnya searah order. Entry dan TP dari 3.648 order Anda di September terhadap garis Anda sendiri.</p>
+              <p className="muted">{t('g = jarak garis ke garis berikutnya searah order. Entry dan TP dari 3.648 order Anda di September terhadap garis Anda sendiri.', 'g = distance from the line to the next line in the order direction. Entry and TP come from your 3,648 orders in September against your own lines.')}</p>
               <div className="grid">
                 <label className="field">
-                  <span>Sumber SL</span>
+                  <span>{t('Sumber SL', 'SL source')}</span>
                   <select value={settings.sr.slSource} onChange={(e) => setSr({ slSource: e.target.value as SrParams['slSource'] })}>
-                    <option value="ladder">Tangga: garis − slGap·g (sesuai history Anda)</option>
-                    <option value="candle">Candle kuat D1 terdekat di sisi SL garis, dibatasi</option>
+                    <option value="ladder">{t('Tangga: garis − slGap·g (sesuai history Anda)', 'Ladder: line − slGap·g (matches your history)')}</option>
+                    <option value="candle">{t('Candle kuat D1 terdekat di sisi SL garis, dibatasi', 'Nearest strong D1 candle on the SL side of the line, capped')}</option>
                   </select>
-                  <small className="muted">Candle: SL di low/high candle kuat terdekat ± buffer; jika lebih lebar dari batas risk, jatuh ke SL tangga (ditandai).</small>
+                  <small className="muted">{t('Candle: SL di low/high candle kuat terdekat ± buffer; jika lebih lebar dari batas risk, jatuh ke SL tangga (ditandai).', 'Candle: SL at the low/high of the nearest strong candle ± buffer; if wider than the risk cap, it falls back to the ladder SL (marked).')}</small>
                 </label>
               </div>
             </>
           )}
           <div className="grid">
-            {(settings.sr.orderModel === 'ladder' ? [...LADDER_FIELDS, ...(settings.sr.slSource === 'candle' ? CANDLE_SL_FIELDS : [])] : STRONG_FIELDS).map((f) => (
+            {(settings.sr.orderModel === 'ladder' ? [...ladderFields(), ...(settings.sr.slSource === 'candle' ? candleSlFields() : [])] : strongFields()).map((f) => (
               <NumberField key={f.key} label={f.label} hint={f.hint} step={f.step} value={settings.sr[f.key] as number} onChange={(v) => setSr({ [f.key]: v })} />
             ))}
             {settings.sr.orderModel === 'strong' && (
               <label className="field">
-                <span>Pilihan candle kuat</span>
+                <span>{t('Pilihan candle kuat', 'Strong candle choice')}</span>
                 <select value={settings.sr.strongPick} onChange={(e) => setSr({ strongPick: e.target.value as SrParams['strongPick'] })}>
-                  <option value="recent">Paling baru</option>
-                  <option value="nearest">Paling dekat garis</option>
+                  <option value="recent">{t('Paling baru', 'Most recent')}</option>
+                  <option value="nearest">{t('Paling dekat garis', 'Nearest to the line')}</option>
                 </select>
               </label>
             )}
           </div>
-          <h3>Garis S/R</h3>
+          <h3>{t('Garis S/R', 'S/R lines')}</h3>
           <p className="muted">
-            Garis Anda (Pengaturan &gt; Pair) hanya referensi: tampil samar di chart dan dipakai di Kalibrasi &gt; Garis untuk menyetel
-            mesin.
+            {t(
+              'Garis S/R dikunci di engine dan tidak bisa diubah dari sini; semua strategi memakai garis yang sama. Garis Anda (Pengaturan > Pair) hanya referensi: tampil samar di chart dan dibandingkan di Kalibrasi > Garis.',
+              'S/R lines are fixed in the engine and cannot be changed here; every strategy uses the same lines. Your lines (Settings > Pair) are reference only: shown faintly on the chart and compared in Calibration > Lines.',
+            )}
           </p>
-          <div className="grid">
-            <label className="field">
-              <span>Garis untuk order</span>
-              <select value={settings.sr.lineSource} onChange={(e) => setSr({ lineSource: e.target.value as SrParams['lineSource'] })}>
-                <option value="auto">Mesin (garis Anda hanya referensi)</option>
-                <option value="manual">Garis Anda, mesin untuk pair tanpa garis</option>
-              </select>
-            </label>
-            {LINE_FIELDS.map((f) => (
-              <NumberField key={f.key} label={f.label} hint={f.hint} step={f.step} value={settings.sr[f.key] as number} onChange={(v) => setSr({ [f.key]: v })} />
-            ))}
-          </div>
           <div className="actions">
             <button type="button" className="primary" onClick={saveSettings}>
-              Simpan dan hitung ulang
+              {t('Simpan dan hitung ulang', 'Save and recalculate')}
             </button>
           </div>
         </div>
@@ -290,11 +283,13 @@ export function SettingsModal({ onClose, onChanged }: Props) {
       {tab === 'pairs' && (
         <div className="form">
           <p className="muted">
-            Urutan = urutan tab di bawah chart. Garis S/R manual dikirim otomatis oleh EA MT4 dari garis horizontal di chart pair itu, atau
-            diimport dari template chart (.tpl). Garis Anda adalah referensi untuk menyetel mesin; order memakai garis mesin.
+            {t(
+              'Urutan = urutan tab di bawah chart. Garis S/R manual dikirim otomatis oleh EA MT4 dari garis horizontal di chart pair itu, atau diimport dari template chart (.tpl). Garis Anda adalah referensi untuk menyetel mesin; order memakai garis mesin.',
+              'Order = order of the tabs under the chart. Manual S/R lines are sent automatically by the MT4 EA from the horizontal lines on that pair\'s chart, or imported from a chart template (.tpl). Your lines are a reference for tuning the engine; orders use the engine lines.',
+            )}
           </p>
           <label className="field import-tpl">
-            <span>Import garis dari template MT4/MT5 (.tpl, boleh banyak file)</span>
+            <span>{t('Import garis dari template MT4/MT5 (.tpl, boleh banyak file)', 'Import lines from an MT4/MT5 template (.tpl, multiple files allowed)')}</span>
             <input type="file" accept=".tpl" multiple onChange={(e) => importTemplates(e.target.files)} />
           </label>
           <ul className="pairs">
@@ -307,44 +302,44 @@ export function SettingsModal({ onClose, onChanged }: Props) {
                 <span className="muted tabular">
                   {s.manualLines ? (
                     <span className="lines-manual">
-                      {s.manualLines} garis referensi {SOURCE[s.manualLinesSource ?? ''] ?? ''} · {ago(s.manualLinesAt)}
+                      {s.manualLines} {t('garis referensi', 'reference lines')} {sourceLabel(s.manualLinesSource ?? '')} · {ago(s.manualLinesAt)}
                     </span>
                   ) : (
-                    'tanpa referensi'
+                    t('tanpa referensi', 'no reference')
                   )}
                   {' · '}
-                  {s.lastCandleAt ? `candle ${ago(s.lastCandleAt)}` : 'belum ada candle'}
+                  {s.lastCandleAt ? `candle ${ago(s.lastCandleAt)}` : t('belum ada candle', 'no candles yet')}
                 </span>
                 <label className="min-sl">
-                  <span className="muted">SL min</span>
+                  <span className="muted">{t('SL min', 'Min SL')}</span>
                   <input
                     type="number"
                     min={0}
                     step={1}
                     value={s.minSlPips}
-                    aria-label={`SL minimal ${s.name} dalam pips`}
+                    aria-label={t(`SL minimal ${s.name} dalam pips`, `Minimum SL ${s.name} in pips`)}
                     onChange={(e) => setSymbols(symbols.map((x) => (x.name === s.name ? { ...x, minSlPips: e.target.valueAsNumber } : x)))}
                   />
                   <span className="muted">pips</span>
                 </label>
                 {s.manualLines ? (
                   <button type="button" className="link" onClick={() => useAuto(s.name)}>
-                    Hapus referensi
+                    {t('Hapus referensi', 'Remove reference')}
                   </button>
                 ) : (
                   <span />
                 )}
-                <button type="button" className="icon" aria-label={`Naikkan ${s.name}`} onClick={() => move(i, -1)}>
+                <button type="button" className="icon" aria-label={t(`Naikkan ${s.name}`, `Move ${s.name} up`)} onClick={() => move(i, -1)}>
                   ↑
                 </button>
-                <button type="button" className="icon" aria-label={`Turunkan ${s.name}`} onClick={() => move(i, 1)}>
+                <button type="button" className="icon" aria-label={t(`Turunkan ${s.name}`, `Move ${s.name} down`)} onClick={() => move(i, 1)}>
                   ↓
                 </button>
               </li>
             ))}
           </ul>
           <div className="inline">
-            <input placeholder="Tambah pair, mis. GBPUSD" value={newPair} onChange={(e) => setNewPair(e.target.value.toUpperCase())} />
+            <input placeholder={t('Tambah pair, mis. GBPUSD', 'Add a pair, e.g. GBPUSD')} value={newPair} onChange={(e) => setNewPair(e.target.value.toUpperCase())} />
             <button
               type="button"
               disabled={!newPair.trim()}
@@ -357,12 +352,12 @@ export function SettingsModal({ onClose, onChanged }: Props) {
                 setNewPair('');
               }}
             >
-              Tambah
+              {t('Tambah', 'Add')}
             </button>
           </div>
           <div className="actions">
             <button type="button" className="primary" onClick={() => savePairs(symbols)}>
-              Simpan daftar pair
+              {t('Simpan daftar pair', 'Save pair list')}
             </button>
           </div>
         </div>
@@ -371,32 +366,32 @@ export function SettingsModal({ onClose, onChanged }: Props) {
       {tab === 'costs' && (
         <div className="form">
           <p className="muted">
-            Hanya untuk backtest. Candle D1 adalah harga bid, jadi hasil mentah (gross) belum membayar spread. Net = tiap trade dikurangi spread + komisi + slippage dalam pips, dan
-            dalam R sebesar biaya / jarak SL trade itu. Default = spread "mulai dari" akun Maxrich Premium (terendah yang dikutip broker, jadi rata-rata nyata
-            sedikit lebih lebar) dan komisi USD 10 per lot; ganti dengan angka akun Anda bila tahu. Tidak mengubah order live.
+            {t(
+              'Hanya untuk backtest. Candle D1 adalah harga bid, jadi hasil mentah (gross) belum membayar spread. Net = tiap trade dikurangi spread + komisi + slippage dalam pips, dan dalam R sebesar biaya / jarak SL trade itu. Default = spread "mulai dari" akun Maxrich Premium (terendah yang dikutip broker, jadi rata-rata nyata sedikit lebih lebar) dan komisi USD 10 per lot; ganti dengan angka akun Anda bila tahu. Tidak mengubah order live.',
+              'For backtest only. D1 candles are bid prices, so the raw (gross) result has not paid the spread. Net = each trade minus spread + commission + slippage in pips, and in R as cost / that trade\'s SL distance. Default = the "from" spread of the Maxrich Premium account (the lowest the broker quotes, so the real average is slightly wider) and a USD 10 commission per lot; replace with your own account\'s numbers if you know them. Does not change live orders.',
+            )}
           </p>
           <div className="grid">
             <label className="check">
-              <input type="checkbox" checked={settings.costs.enabled} onChange={(e) => set({ costs: { ...settings.costs, enabled: e.target.checked } })} /> Hitung spread, komisi, dan slippage
-              (hasil net)
+              <input type="checkbox" checked={settings.costs.enabled} onChange={(e) => set({ costs: { ...settings.costs, enabled: e.target.checked } })} /> {t('Hitung spread, komisi, dan slippage (hasil net)', 'Include spread, commission and slippage (net result)')}
             </label>
             <NumberField
-              label="Komisi per lot (USD)"
-              hint="Pulang-pergi (buka + tutup), diubah ke pips lewat nilai pip pair; 0 = tanpa komisi"
+              label={t('Komisi per lot (USD)', 'Commission per lot (USD)')}
+              hint={t('Pulang-pergi (buka + tutup), diubah ke pips lewat nilai pip pair; 0 = tanpa komisi', 'Round trip (open + close), converted to pips via the pair\'s pip value; 0 = no commission')}
               step={1}
               value={settings.costs.commissionPerLot}
               onChange={(v) => set({ costs: { ...settings.costs, commissionPerLot: v } })}
             />
             <NumberField
-              label="Slippage per trade (pips)"
-              hint="Tambahan untuk semua pair; 0 = tanpa slippage"
+              label={t('Slippage per trade (pips)', 'Slippage per trade (pips)')}
+              hint={t('Tambahan untuk semua pair; 0 = tanpa slippage', 'Extra for all pairs; 0 = no slippage')}
               step={0.1}
               value={settings.costs.slippagePips}
               onChange={(v) => set({ costs: { ...settings.costs, slippagePips: v } })}
             />
             <NumberField
-              label="Batas biaya per trade (R)"
-              hint="Order yang biayanya lebih dari ini (spread + komisi + slippage, dibagi jarak SL-nya) tidak dibuka di backtest; 0 = tanpa batas. Mengubahnya perlu Jalankan ulang"
+              label={t('Batas biaya per trade (R)', 'Cost cap per trade (R)')}
+              hint={t('Order yang biayanya lebih dari ini (spread + komisi + slippage, dibagi jarak SL-nya) tidak dibuka di backtest; 0 = tanpa batas. Mengubahnya perlu Jalankan ulang', 'Orders costing more than this (spread + commission + slippage, divided by their SL distance) are not opened in the backtest; 0 = no cap. Changing it needs a re-run')}
               step={0.01}
               value={settings.costs.maxCostR}
               onChange={(v) => set({ costs: { ...settings.costs, maxCostR: v } })}
@@ -407,7 +402,7 @@ export function SettingsModal({ onClose, onChanged }: Props) {
               <tr>
                 <th>Pair</th>
                 <th className="num">Spread (pips)</th>
-                <th className="num">= harga</th>
+                <th className="num">{t('= harga', '= price')}</th>
                 <th className="num">Default</th>
               </tr>
             </thead>
@@ -419,7 +414,7 @@ export function SettingsModal({ onClose, onChanged }: Props) {
                   <tr key={s.name} className={s.active ? '' : 'off'}>
                     <td>
                       <b>{s.name}</b>
-                      {!s.active && <span className="muted"> (nonaktif)</span>}
+                      {!s.active && <span className="muted"> {t('(nonaktif)', '(inactive)')}</span>}
                     </td>
                     <td className="num">
                       <input
@@ -427,7 +422,7 @@ export function SettingsModal({ onClose, onChanged }: Props) {
                         min={0}
                         step={0.1}
                         value={Number.isFinite(v) ? v : ''}
-                        aria-label={`Spread ${s.name} dalam pips`}
+                        aria-label={t(`Spread ${s.name} dalam pips`, `Spread ${s.name} in pips`)}
                         onChange={(e) => set({ costs: { ...settings.costs, spreadPips: { ...settings.costs.spreadPips, [s.name]: e.target.valueAsNumber } } })}
                       />
                     </td>
@@ -438,13 +433,13 @@ export function SettingsModal({ onClose, onChanged }: Props) {
               })}
             </tbody>
           </table>
-          <p className="muted">1 pip = 0,0001 (0,01 untuk pair JPY); XAUUSD 1 pip = 10 × digit terakhir, default spreadnya $0,30.</p>
+          <p className="muted">{t('1 pip = 0,0001 (0,01 untuk pair JPY); XAUUSD 1 pip = 10 × digit terakhir, default spreadnya $0,30.', '1 pip = 0.0001 (0.01 for JPY pairs); XAUUSD 1 pip = 10 × the last digit, default spread $0.30.')}</p>
           <div className="actions">
             <button type="button" onClick={() => set({ costs: { ...settings.costs, spreadPips: {} } })}>
-              Kembalikan default
+              {t('Kembalikan default', 'Restore defaults')}
             </button>
             <button type="button" className="primary" onClick={saveCosts}>
-              Simpan biaya
+              {t('Simpan biaya', 'Save costs')}
             </button>
           </div>
         </div>
@@ -455,7 +450,7 @@ export function SettingsModal({ onClose, onChanged }: Props) {
           {shownKey && (
             <div className="key-box">
               <p>
-                Key EA untuk <b>{shownKey.name}</b>. Salin ke parameter EA MT5 sekarang: key ini tidak ditampilkan lagi.
+                {t('Key EA untuk', 'EA key for')} <b>{shownKey.name}</b>. {t('Salin ke parameter EA MT5 sekarang: key ini tidak ditampilkan lagi.', 'Copy it to the MT5 EA parameters now: this key is not shown again.')}
               </p>
               <code>{shownKey.key}</code>
             </div>
@@ -464,19 +459,19 @@ export function SettingsModal({ onClose, onChanged }: Props) {
             <AccountEditor
               key={a.id}
               account={a}
-              onSave={(patch) => run(async () => setAccounts((await Promise.all([api.updateAccount(a.id, patch), api.accounts()]))[1].accounts), `${a.name} disimpan.`)}
+              onSave={(patch) => run(async () => setAccounts((await Promise.all([api.updateAccount(a.id, patch), api.accounts()]))[1].accounts), t(`${a.name} disimpan.`, `${a.name} saved.`))}
               onRotate={() =>
                 run(async () => {
                   const { key } = await api.rotateKey(a.id);
                   setShownKey({ name: a.name, key });
-                }, 'Key baru dibuat. Key lama tidak berlaku lagi.')
+                }, t('Key baru dibuat. Key lama tidak berlaku lagi.', 'New key created. The old key no longer works.'))
               }
               onDelete={() => {
-                if (!window.confirm(`Hapus akun ${a.name}? Perintah yang menunggu ikut dibatalkan.`)) return;
+                if (!window.confirm(t(`Hapus akun ${a.name}? Perintah yang menunggu ikut dibatalkan.`, `Delete account ${a.name}? Pending commands are cancelled too.`))) return;
                 void run(async () => {
                   await api.deleteAccount(a.id);
                   setAccounts((await api.accounts()).accounts);
-                }, `${a.name} dihapus.`);
+                }, t(`${a.name} dihapus.`, `${a.name} deleted.`));
               }}
             />
           ))}
@@ -486,7 +481,7 @@ export function SettingsModal({ onClose, onChanged }: Props) {
                 const { account, key } = await api.createAccount(input);
                 setShownKey({ name: account.name, key });
                 setAccounts((await api.accounts()).accounts);
-              }, 'Akun ditambahkan.')
+              }, t('Akun ditambahkan.', 'Account added.'))
             }
           />
         </div>
@@ -496,6 +491,7 @@ export function SettingsModal({ onClose, onChanged }: Props) {
 }
 
 function AccountEditor({ account, onSave, onRotate, onDelete }: { account: Account; onSave: (p: Partial<Account>) => void; onRotate: () => void; onDelete: () => void }) {
+  const t = useT();
   const [a, setA] = useState(account);
   const [map, setMap] = useState(pairsText(account.symbolMap));
   const [offsets, setOffsets] = useState(pairsText(account.offsets));
@@ -504,37 +500,37 @@ function AccountEditor({ account, onSave, onRotate, onDelete }: { account: Accou
       <summary>
         <b>{account.name}</b> <span className="muted tabular">{account.number}</span>
         <span className="tabular">
-          {' '}· balance {fmtMoney(account.balance)} {account.currency ?? ''} · sinkron {ago(account.balanceAt)} · {account.specSymbols.length} spesifikasi simbol
+          {' '}· balance {fmtMoney(account.balance)} {account.currency ?? ''} · {t('sinkron', 'synced')} {ago(account.balanceAt)} · {account.specSymbols.length} {t('spesifikasi simbol', 'symbol specs')}
         </span>
       </summary>
       <div className="grid">
         <label className="field">
-          <span>Nama</span>
+          <span>{t('Nama', 'Name')}</span>
           <input value={a.name} onChange={(e) => setA({ ...a, name: e.target.value })} />
         </label>
-        <NumberField label="Nomor akun MT5" step={1} value={a.number} onChange={(v) => setA({ ...a, number: v })} />
+        <NumberField label={t('Nomor akun MT5', 'MT5 account number')} step={1} value={a.number} onChange={(v) => setA({ ...a, number: v })} />
         <NumberField label="Risk per trade (%)" step={0.05} value={a.riskPct} onChange={(v) => setA({ ...a, riskPct: v })} />
-        <NumberField label="Pengali Aggressive" step={0.5} value={a.aggressiveMultiplier} onChange={(v) => setA({ ...a, aggressiveMultiplier: v })} />
+        <NumberField label={t('Pengali Aggressive', 'Aggressive multiplier')} step={0.5} value={a.aggressiveMultiplier} onChange={(v) => setA({ ...a, aggressiveMultiplier: v })} />
         <label className="check">
-          <input type="checkbox" checked={a.aggressiveAuto} onChange={(e) => setA({ ...a, aggressiveAuto: e.target.checked })} /> Aggressive otomatis saat berita merah
+          <input type="checkbox" checked={a.aggressiveAuto} onChange={(e) => setA({ ...a, aggressiveAuto: e.target.checked })} /> {t('Aggressive otomatis saat berita merah', 'Aggressive automatically on red news')}
         </label>
       </div>
       <div className="grid two">
         <label className="field">
-          <span>Mapping simbol (satu per baris)</span>
+          <span>{t('Mapping simbol (satu per baris)', 'Symbol mapping (one per line)')}</span>
           <textarea rows={4} placeholder="EURUSD=EURUSD.m" value={map} onChange={(e) => setMap(e.target.value)} />
         </label>
         <label className="field">
-          <span>Offset harga MT4 ke MT5</span>
+          <span>{t('Offset harga MT4 ke MT5', 'MT4 to MT5 price offset')}</span>
           <textarea rows={4} placeholder="EURUSD=0.00002" value={offsets} onChange={(e) => setOffsets(e.target.value)} />
         </label>
       </div>
       <div className="actions">
         <button type="button" className="danger" onClick={onDelete}>
-          Hapus
+          {t('Hapus', 'Delete')}
         </button>
         <button type="button" onClick={onRotate}>
-          Buat key EA baru
+          {t('Buat key EA baru', 'Create new EA key')}
         </button>
         <button
           type="button"
@@ -551,7 +547,7 @@ function AccountEditor({ account, onSave, onRotate, onDelete }: { account: Accou
             })
           }
         >
-          Simpan
+          {t('Simpan', 'Save')}
         </button>
       </div>
     </details>
@@ -559,12 +555,13 @@ function AccountEditor({ account, onSave, onRotate, onDelete }: { account: Accou
 }
 
 function NewAccount({ onCreate }: { onCreate: (a: Partial<Account>) => void }) {
+  const t = useT();
   const [name, setName] = useState('');
   const [number, setNumber] = useState(NaN);
   return (
     <div className="inline new-account">
-      <input placeholder="Nama akun" value={name} onChange={(e) => setName(e.target.value)} />
-      <input type="number" placeholder="Nomor akun MT5" value={Number.isFinite(number) ? number : ''} onChange={(e) => setNumber(e.target.valueAsNumber)} />
+      <input placeholder={t('Nama akun', 'Account name')} value={name} onChange={(e) => setName(e.target.value)} />
+      <input type="number" placeholder={t('Nomor akun MT5', 'MT5 account number')} value={Number.isFinite(number) ? number : ''} onChange={(e) => setNumber(e.target.valueAsNumber)} />
       <button
         type="button"
         disabled={!name.trim() || !Number.isFinite(number)}
@@ -574,7 +571,7 @@ function NewAccount({ onCreate }: { onCreate: (a: Partial<Account>) => void }) {
           setNumber(NaN);
         }}
       >
-        Tambah akun
+        {t('Tambah akun', 'Add account')}
       </button>
     </div>
   );

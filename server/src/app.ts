@@ -3,6 +3,7 @@ import { authRoutes, rateLimit, requireAdmin } from './auth.ts';
 import type { Config } from './config.ts';
 import type { Collections } from './db.ts';
 import { errorHandler, unknownRoute } from './http.ts';
+import { langMiddleware } from './i18n.ts';
 import { backtestRoutes } from './routes/backtest.ts';
 import { backtestsRoutes } from './routes/backtests.ts';
 import { calibrationRoutes } from './routes/calibration.ts';
@@ -21,7 +22,7 @@ export function createApp(db: Collections, config: Config): Express {
     if (origin && config.corsOrigins.includes(origin)) {
       res.set({
         'Access-Control-Allow-Origin': origin,
-        'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+        'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Lang',
         'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE',
         Vary: 'Origin',
       });
@@ -32,6 +33,8 @@ export function createApp(db: Collections, config: Config): Express {
     }
     next();
   });
+
+  app.use(langMiddleware);
 
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true });

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, type Account, type AuditGroup, type CloseReason, type Journal, type JournalTrade } from '../api.ts';
 import { digitsOf, fmtLot, fmtMoney, fmtPrice, fmtRr, fmtWibDateTime } from '../format.ts';
+import { useT } from '../i18n.ts';
 import { Modal } from './Modal.tsx';
 
 type Props = { accounts: Account[]; initialAccountId: string | null; onClose: () => void };
@@ -24,6 +25,7 @@ const fmtR = (v: number | null) => (v === null ? '–' : `${v >= 0 ? '+' : ''}${
 const signCls = (v: number | null) => (v === null || v === 0 ? '' : v > 0 ? 'ok' : 'error');
 
 function GroupTable({ title, groups }: { title: string; groups: AuditGroup[] }) {
+  const t = useT();
   if (!groups.length) return null;
   return (
     <div className="audit-group">
@@ -35,7 +37,7 @@ function GroupTable({ title, groups }: { title: string; groups: AuditGroup[] }) 
             <th className="num">Trade</th>
             <th className="num">Win</th>
             <th className="num">Net</th>
-            <th className="num">Rata R</th>
+            <th className="num">{t('Rata R', 'Avg R')}</th>
           </tr>
         </thead>
         <tbody>
@@ -70,6 +72,7 @@ function csv(trades: JournalTrade[]): string {
 }
 
 export function JournalModal({ accounts, initialAccountId, onClose }: Props) {
+  const t = useT();
   const [accountId, setAccountId] = useState(initialAccountId ?? accounts[0]?.id ?? '');
   const [month, setMonth] = useState(thisMonth());
   const [data, setData] = useState<Journal | null>(null);
@@ -97,7 +100,7 @@ export function JournalModal({ accounts, initialAccountId, onClose }: Props) {
     const url = URL.createObjectURL(new Blob([csv(data.trades)], { type: 'text/csv' }));
     const a = document.createElement('a');
     a.href = url;
-    a.download = `jurnal-${account?.number ?? 'akun'}-${month}.csv`;
+    a.download = `${t('jurnal', 'journal')}-${account?.number ?? t('akun', 'account')}-${month}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -107,12 +110,12 @@ export function JournalModal({ accounts, initialAccountId, onClose }: Props) {
   const cur = data?.currency ?? '';
 
   return (
-    <Modal title="Jurnal & Audit" onClose={onClose} wide>
+    <Modal title={t('Jurnal & Audit', 'Journal & Audit')} onClose={onClose} wide>
       <div className="modal-tools">
         <label>
-          <span className="sr-only">Akun</span>
-          <select value={accountId} onChange={(e) => setAccountId(e.target.value)} aria-label="Akun">
-            {!accounts.length && <option value="">Belum ada akun</option>}
+          <span className="sr-only">{t('Akun', 'Account')}</span>
+          <select value={accountId} onChange={(e) => setAccountId(e.target.value)} aria-label={t('Akun', 'Account')}>
+            {!accounts.length && <option value="">{t('Belum ada akun', 'No accounts yet')}</option>}
             {accounts.map((x) => (
               <option key={x.id} value={x.id}>
                 {x.name} ({x.number})
@@ -121,24 +124,24 @@ export function JournalModal({ accounts, initialAccountId, onClose }: Props) {
           </select>
         </label>
         <label className="inline">
-          Bulan <input type="month" value={month} max={thisMonth()} onChange={(e) => setMonth(e.target.value)} />
+          {t('Bulan', 'Month')} <input type="month" value={month} max={thisMonth()} onChange={(e) => setMonth(e.target.value)} />
         </label>
         <button type="button" disabled={!data?.trades.length} onClick={download}>
-          Unduh CSV
+          {t('Unduh CSV', 'Download CSV')}
         </button>
-        <span className="muted">Trade dihitung pada bulan close-nya (WIB).</span>
+        <span className="muted">{t('Trade dihitung pada bulan close-nya (WIB).', 'Trades count in the month they closed (WIB).')}</span>
       </div>
       {error && <p className="error">{error}</p>}
-      {!accounts.length && <p className="muted pad">Tambahkan akun MT5 di Pengaturan dulu.</p>}
+      {!accounts.length && <p className="muted pad">{t('Tambahkan akun MT5 di Pengaturan dulu.', 'Add an MT5 account in Settings first.')}</p>}
 
       {a && s && (
         <>
           <div className="tiles tabular">
             <div>
-              <span>Trade</span>
+              <span>{t('Trade', 'Trades')}</span>
               <b>{s.trades}</b>
               <small className="muted">
-                {s.wins} untung · {s.losses} rugi
+                {s.wins} {t('untung', 'wins')} · {s.losses} {t('rugi', 'losses')}
               </small>
             </div>
             <div>
@@ -157,9 +160,9 @@ export function JournalModal({ accounts, initialAccountId, onClose }: Props) {
               <b>{s.profitFactor ?? '–'}</b>
             </div>
             <div>
-              <span>Rata-rata R</span>
+              <span>{t('Rata-rata R', 'Average R')}</span>
               <b className={signCls(s.avgR)}>{fmtR(s.avgR)}</b>
-              <small className="muted">total {fmtR(s.totalR)}</small>
+              <small className="muted">{t('total', 'total')} {fmtR(s.totalR)}</small>
             </div>
             <div>
               <span>Max drawdown</span>
@@ -169,17 +172,17 @@ export function JournalModal({ accounts, initialAccountId, onClose }: Props) {
               <span>Fill rate</span>
               <b>{pct(a.fills.rate)}</b>
               <small className="muted">
-                {a.fills.filled}/{a.fills.placed} order
+                {a.fills.filled}/{a.fills.placed} {t('order', 'orders')}
               </small>
             </div>
             <div>
               <span>Slippage</span>
               <b>{fmtR(a.avgSlipR)}</b>
-              <small className="muted">{a.avgHoldHours === null ? '' : `tahan rata ${a.avgHoldHours} jam`}</small>
+              <small className="muted">{a.avgHoldHours === null ? '' : t(`tahan rata ${a.avgHoldHours} jam`, `avg hold ${a.avgHoldHours} h`)}</small>
             </div>
           </div>
 
-          <h3>Temuan</h3>
+          <h3>{t('Temuan', 'Findings')}</h3>
           <ul className="findings">
             {a.findings.map((f, i) => (
               <li key={i} className={`finding-${f.level}`}>
@@ -190,25 +193,25 @@ export function JournalModal({ accounts, initialAccountId, onClose }: Props) {
 
           {s.trades > 0 && (
             <div className="audit-groups">
-              <GroupTable title="Per pair" groups={a.bySymbol} />
-              <GroupTable title="Alasan close" groups={a.byReason} />
+              <GroupTable title={t('Per pair', 'Per pair')} groups={a.bySymbol} />
+              <GroupTable title={t('Alasan close', 'Close reason')} groups={a.byReason} />
               <GroupTable title="Normal / Aggressive" groups={a.byMode} />
-              <GroupTable title="Sumber SL" groups={a.bySlFrom} />
-              <GroupTable title="RR rencana" groups={a.byRr} />
-              <GroupTable title="Garis" groups={a.byLineSource} />
-              <GroupTable title="Arah" groups={a.bySide} />
+              <GroupTable title={t('Sumber SL', 'SL source')} groups={a.bySlFrom} />
+              <GroupTable title={t('RR rencana', 'Planned RR')} groups={a.byRr} />
+              <GroupTable title={t('Garis', 'Lines')} groups={a.byLineSource} />
+              <GroupTable title={t('Arah', 'Direction')} groups={a.bySide} />
             </div>
           )}
 
-          <h3>Trade close ({data.trades.length})</h3>
+          <h3>{t('Trade close', 'Closed trades')} ({data.trades.length})</h3>
           {data.trades.length ? (
             <TradesTable trades={data.trades} />
           ) : (
-            <p className="muted">Belum ada. EA eksekutor v1.10 melapor deal tiap status (60 detik) setelah posisi close.</p>
+            <p className="muted">{t('Belum ada. EA eksekutor v1.10 melapor deal tiap status (60 detik) setelah posisi close.', 'None yet. Executor EA v1.10 reports deals with every status (60 seconds) after a position closes.')}</p>
           )}
           {data.open.length > 0 && (
             <>
-              <h3>Posisi masih terbuka ({data.open.length})</h3>
+              <h3>{t('Posisi masih terbuka', 'Positions still open')} ({data.open.length})</h3>
               <TradesTable trades={data.open} />
             </>
           )}
@@ -219,49 +222,50 @@ export function JournalModal({ accounts, initialAccountId, onClose }: Props) {
 }
 
 function TradesTable({ trades }: { trades: JournalTrade[] }) {
+  const t = useT();
   return (
     <div className="table-scroll">
       <table className="orders tabular">
         <thead>
           <tr>
-            <th>Buka</th>
+            <th>{t('Buka', 'Open')}</th>
             <th>Close</th>
             <th>Pair</th>
-            <th>Tipe</th>
+            <th>{t('Tipe', 'Type')}</th>
             <th className="num">Lot</th>
-            <th className="num">Entry rencana</th>
+            <th className="num">{t('Entry rencana', 'Planned entry')}</th>
             <th className="num">Fill</th>
             <th className="num">Close</th>
-            <th>Alasan</th>
+            <th>{t('Alasan', 'Reason')}</th>
             <th className="num">Net</th>
             <th className="num">R</th>
-            <th className="num">RR rencana</th>
-            <th>Catatan</th>
+            <th className="num">{t('RR rencana', 'Planned RR')}</th>
+            <th>{t('Catatan', 'Notes')}</th>
           </tr>
         </thead>
         <tbody>
-          {trades.map((t) => {
-            const d = digitsOf(t.symbol);
+          {trades.map((x) => {
+            const d = digitsOf(x.symbol);
             return (
-              <tr key={t.id}>
-                <td>{fmtWibDateTime(t.openedAt)}</td>
-                <td>{fmtWibDateTime(t.closedAt)}</td>
-                <td>{t.symbol}</td>
-                <td>{t.side}</td>
-                <td className="num">{fmtLot(t.volume)}</td>
-                <td className="num">{fmtPrice(t.plan?.entry, d)}</td>
-                <td className="num">{fmtPrice(t.openPrice, d)}</td>
-                <td className="num">{fmtPrice(t.closePrice, d)}</td>
-                <td>{t.closeReason ? REASON[t.closeReason] : '–'}</td>
-                <td className={`num ${signCls(t.status === 'closed' ? t.net : null)}`}>{t.status === 'closed' ? fmtMoney(t.net) : '–'}</td>
-                <td className={`num ${signCls(t.r)}`}>{fmtR(t.r)}</td>
-                <td className="num">{fmtRr(t.plan?.rr)}</td>
+              <tr key={x.id}>
+                <td>{fmtWibDateTime(x.openedAt)}</td>
+                <td>{fmtWibDateTime(x.closedAt)}</td>
+                <td>{x.symbol}</td>
+                <td>{x.side}</td>
+                <td className="num">{fmtLot(x.volume)}</td>
+                <td className="num">{fmtPrice(x.plan?.entry, d)}</td>
+                <td className="num">{fmtPrice(x.openPrice, d)}</td>
+                <td className="num">{fmtPrice(x.closePrice, d)}</td>
+                <td>{x.closeReason ? REASON[x.closeReason] : '–'}</td>
+                <td className={`num ${signCls(x.status === 'closed' ? x.net : null)}`}>{x.status === 'closed' ? fmtMoney(x.net) : '–'}</td>
+                <td className={`num ${signCls(x.r)}`}>{fmtR(x.r)}</td>
+                <td className="num">{fmtRr(x.plan?.rr)}</td>
                 <td>
-                  {!t.plan && <span className="tag">tanpa rencana</span>}
-                  {t.plan?.slFrom === 'ladder' && <span className="tag">SL tangga</span>}
-                  {t.plan?.tpAuto && <span className="tag">TP auto</span>}
-                  {t.plan && t.plan.multiplier > 1 && <span className="aggr"> {t.plan.multiplier}x</span>}
-                  {t.plan?.newsAffected && <span className="tag">berita</span>}
+                  {!x.plan && <span className="tag">{t('tanpa rencana', 'no plan')}</span>}
+                  {x.plan?.slFrom === 'ladder' && <span className="tag">{t('SL tangga', 'SL ladder')}</span>}
+                  {x.plan?.tpAuto && <span className="tag">TP auto</span>}
+                  {x.plan && x.plan.multiplier > 1 && <span className="aggr"> {x.plan.multiplier}x</span>}
+                  {x.plan?.newsAffected && <span className="tag">{t('berita', 'news')}</span>}
                 </td>
               </tr>
             );

@@ -6,6 +6,7 @@ import { z } from 'zod';
 import type { Config } from './config.ts';
 import type { AccountDoc, Collections } from './db.ts';
 import { HttpError, parse } from './http.ts';
+import { tr, trFixed } from './i18n.ts';
 
 const TOKEN_HOURS = 12;
 
@@ -36,13 +37,13 @@ export function rateLimit(opts: { windowMs: number; max: number; message?: strin
     entry.count++;
     if (entry.count > opts.max) {
       res.set('Retry-After', String(Math.ceil((entry.resetAt - now) / 1000)));
-      throw new HttpError(429, opts.message ?? 'Too many requests. Try again shortly.');
+      throw new HttpError(429, opts.message ? trFixed(opts.message) : 'Too many requests. Try again shortly.');
     }
     next();
   };
 }
 
-const unauthorized = () => new HttpError(401, 'Silakan login.');
+const unauthorized = () => new HttpError(401, tr('Silakan login.', 'Please sign in.'));
 
 export function authRoutes(config: Config): Router {
   const router = Router();
@@ -53,7 +54,7 @@ export function authRoutes(config: Config): Router {
     rateLimit({ windowMs: 15 * 60_000, max: 10, message: 'Terlalu banyak percobaan login. Coba lagi 15 menit lagi.' }),
     async (req, res) => {
       const { password } = parse(loginSchema, req.body);
-      if (!(await bcrypt.compare(password, config.adminPasswordHash))) throw new HttpError(401, 'Password salah.');
+      if (!(await bcrypt.compare(password, config.adminPasswordHash))) throw new HttpError(401, tr('Password salah.', 'Wrong password.'));
       const expiresAt = new Date(Date.now() + TOKEN_HOURS * 3_600_000);
       const token = jwt.sign({}, config.jwtSecret, { subject: 'admin', expiresIn: `${TOKEN_HOURS}h` });
       res.json({ token, expiresAt });
