@@ -3,6 +3,7 @@
 // Trades are kept before money is applied, so balance and risk % can change instantly.
 import type { WorkerSymbol } from './backtest.worker.ts';
 import type { Coverage, RawTrade } from './engine/backtest.ts';
+import type { PatternStrategy } from './engine/patterns.ts';
 import type { SrParams } from './engine/types.ts';
 import { idbGet, idbSet } from './idb.ts';
 
@@ -19,6 +20,7 @@ export type BtResult = {
   to: string;
   fingerprint: Fingerprint[];
   saved?: { id: string; name: string }; // loaded from / stored as a named result
+  strategy?: PatternStrategy; // a double top / bottom run (hidden ?strategy=); absent = Breakout JohnPaul77
 };
 
 export type BtUi = { balance: string; risk: string; from: string; to: string; symbol: string; tab: string; excluded: string[] };

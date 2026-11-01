@@ -4,6 +4,7 @@ import { api, type SavedBacktest } from '../api.ts';
 import type { WorkerIn, WorkerOut, WorkerSymbol } from '../backtest.worker.ts';
 import { fingerprintOf, loadCandles, loadLastResult, loadUi, pack, sameSr, saveCandles, saveLastResult, saveUi, unpack, type BtResult } from '../backtestStore.ts';
 import { compound, costPipsOf, DEFAULT_COSTS, toRaw, withCosts, type CostSettings, type Coverage, type RawTrade } from '../engine/backtest.ts';
+import { PATTERN_STRATEGIES, type PatternStrategy } from '../engine/patterns.ts';
 import {
   equityCurve,
   monthReturns,
@@ -496,8 +497,23 @@ function PairsView({ pairs, worst, net, onPick, onToggle, onSet }: { pairs: Pair
   );
 }
 
+// Backtest only, never in the settings or a menu: ?strategy=top-sell | top-buy |
+// bottom-buy | bottom-sell in the page URL runs a double top / bottom strategy
+// (engine/patterns.ts) instead of Breakout JohnPaul77. Such runs cannot be saved by name.
+const PATTERN_NAMES: Record<PatternStrategy, [string, string]> = {
+  'top-sell': ['Double top · SELL (reversal)', 'Double top · SELL (reversal)'],
+  'top-buy': ['Double top · BUY (breakout / pola gagal)', 'Double top · BUY (breakout / failed pattern)'],
+  'bottom-buy': ['Double bottom · BUY (reversal)', 'Double bottom · BUY (reversal)'],
+  'bottom-sell': ['Double bottom · SELL (breakout / pola gagal)', 'Double bottom · SELL (breakout / failed pattern)'],
+};
+const patternFromUrl = (): PatternStrategy | undefined => {
+  const s = new URLSearchParams(window.location.search).get('strategy');
+  return PATTERN_STRATEGIES.find((x) => x === s);
+};
+
 export function BacktestModal({ onClose }: Props) {
   const t = useT();
+  const [pattern] = useState(patternFromUrl);
   const [balance, setBalance] = useState('6000');
   const [risk, setRisk] = useState('1');
   // what the numbers are computed with: the inputs once valid, a moment after typing stops
@@ -610,7 +626,7 @@ export function BacktestModal({ onClose }: Props) {
         if (m.type === 'progress') setProgress({ done: m.done, total: m.total });
         else if (m.type === 'done') {
           const names = new Set(m.run.coverage.map((c) => c.symbol));
-          setResult({ raw: toRaw(m.run.trades), coverage: m.run.coverage, warmup: m.run.warmup, sr, maxCostR: costFilter, from: runFrom, to: runTo, fingerprint: fingerprintOf(symbols) });
+          setResult({ raw: toRaw(m.run.trades), coverage: m.run.coverage, warmup: m.run.warmup, sr, maxCostR: costFilter, from: runFrom, to: runTo, fingerprint: fingerprintOf(symbols), ...(pattern ? { strategy: pattern } : {}) });
           setMoney({ balance: b, riskPct: r });
           // a pair that is not in this run cannot stay excluded or selected
           setExcluded((prev) => new Set([...prev].filter((s) => names.has(s))));
@@ -641,6 +657,7 @@ export function BacktestModal({ onClose }: Props) {
         costs,
         ...(from ? { from: Date.parse(`${from}T00:00:00Z`) } : {}),
         to: Date.parse(`${runTo}T00:00:00Z`),
+        ...(pattern ? { strategy: pattern } : {}),
       };
       w.postMessage(msg);
     } catch (e) {
@@ -760,7 +777,7 @@ export function BacktestModal({ onClose }: Props) {
 
   const storeResult = () =>
     withSaved(async () => {
-      if (!result) return;
+      if (!result || result.strategy) return;
       const name = saveName.trim();
       const { backtest } = await api.saveBacktest({
         name,
@@ -878,6 +895,13 @@ export function BacktestModal({ onClose }: Props) {
           );
         })}
       </div>
+      {(pattern || result?.strategy) && (
+        <p className="error">
+          {pattern ? t(`Strategi uji: ${PATTERN_NAMES[pattern][0]} (hanya backtest).`, `Test strategy: ${PATTERN_NAMES[pattern][1]} (backtest only).`) : ''}
+          {result?.strategy && result.strategy !== pattern ? t(` Hasil yang tampil dari ${PATTERN_NAMES[result.strategy][0]}.`, ` The result shown is from ${PATTERN_NAMES[result.strategy][1]}.`) : ''}
+          {result?.strategy ? t(' Hasil strategi uji tidak bisa disimpan dengan nama.', ' Test strategy results cannot be saved by name.') : ''}
+        </p>
+      )}
       <p className="muted">
         {t(
           `Compounding: tiap trade berisiko ${risk || '…'}% dari balance saat fill (hanya trade yang sudah close sebelum hari itu). Semua pair aktif, satu balance. Memakai garis S/R terkunci dan pengaturan strategi yang tersimpan. Dihitung di browser Anda; server hanya mengirim candle. Balance dan risk langsung dihitung ulang; Jalankan hanya perlu bila tanggal, pengaturan strategi, atau batas biaya berubah.`,
@@ -900,7 +924,7 @@ export function BacktestModal({ onClose }: Props) {
         {result && (
           <>
             <input type="text" placeholder={t('Nama hasil', 'Result name')} maxLength={80} value={saveName} onChange={(e) => setSaveName(e.target.value)} aria-label={t('Nama hasil', 'Result name')} />
-            <button type="button" onClick={() => void storeResult()} disabled={savedBusy || busy || !saveName.trim()}>
+            <button type="button" onClick={() => void storeResult()} disabled={savedBusy || busy || !saveName.trim() || !!result.strategy}>
               {t('Simpan', 'Save')}
             </button>
             {result.saved && (

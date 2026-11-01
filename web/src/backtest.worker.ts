@@ -1,10 +1,11 @@
 // Runs the backtest off the page's main thread. The candles come from the server
 // (GET /api/backtest/candles); nothing is sent back to it.
 import { runBacktest, type BacktestRun, type CostSettings } from './engine/backtest.ts';
+import type { PatternStrategy } from './engine/patterns.ts';
 import type { SrParams, SymbolData, SymbolInputs } from './engine/types.ts';
 
 export type WorkerSymbol = { name: string; digits: number; inputs: SymbolInputs; candles: number[][] };
-export type WorkerIn = { symbols: WorkerSymbol[]; sr: SrParams; balance: number; riskPct: number; costs?: CostSettings; from?: number; to?: number; warmup?: number };
+export type WorkerIn = { symbols: WorkerSymbol[]; sr: SrParams; balance: number; riskPct: number; costs?: CostSettings; from?: number; to?: number; warmup?: number; strategy?: PatternStrategy };
 export type WorkerOut = { type: 'progress'; done: number; total: number } | { type: 'done'; run: BacktestRun } | { type: 'error'; message: string };
 
 self.onmessage = async (e: MessageEvent<WorkerIn>) => {
@@ -26,6 +27,7 @@ self.onmessage = async (e: MessageEvent<WorkerIn>) => {
       ...(m.from !== undefined ? { from: m.from } : {}),
       ...(m.to !== undefined ? { to: m.to } : {}),
       ...(m.warmup !== undefined ? { warmup: m.warmup } : {}),
+      ...(m.strategy ? { strategy: m.strategy } : {}),
       pause: async () => {}, // own thread: no need to yield
       onProgress: (done, total) => post({ type: 'progress', done, total }),
     });
