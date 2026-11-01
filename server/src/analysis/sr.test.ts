@@ -3,10 +3,9 @@ import { describe, it } from 'node:test';
 import { analyze, atr, atrSeries, bodiesBetween, clusterLines, DEFAULT_SR, engineLines, fractals, mergeClose, rangeEdge, ranges, roundTo } from './sr.ts';
 import type { Candle, SrParams } from './types.ts';
 
-// The original concept model (strong candle + rebound) with its original line settings:
-// swing lines only, no range edges, no spacing filter.
-const STRONG: SrParams = {
-  ...DEFAULT_SR, orderModel: 'strong', clusterAtr: 0.5, rangeWeight: 0, minSpacingAtr: 0, zoneMergeAtr: 0, maxLinesPerSide: 0, minDistanceAtr: 0,
+// The original line settings: swing lines only, no range edges, no spacing filter.
+const SWINGS: SrParams = {
+  ...DEFAULT_SR, clusterAtr: 0.5, rangeWeight: 0, minSpacingAtr: 0, zoneMergeAtr: 0, maxLinesPerSide: 0, minDistanceAtr: 0,
 };
 
 const DAY = 86_400_000;
@@ -147,45 +146,9 @@ describe('mergeClose', () => {
   });
 });
 
-describe('analyze (strong model)', () => {
-  const a = analyze('TEST', SERIES, STRONG, 3);
-  const buy = a.candidates.find((c) => c.side === 'buy' && !c.skipped);
-
-  it('builds a buy stop above the resistance from the strong candle high plus buffer', () => {
-    assert.ok(buy, 'expected a buy candidate');
-    const buffer = STRONG.bufferAtr * a.atr;
-    assert.equal(buy.entry, roundTo(100.4 + buffer, 3));
-    assert.equal(buy.strongAt, SERIES[12]!.t);
-    assert.equal(buy.reboundAt, SERIES[14]!.t);
-    assert.equal(buy.sl, roundTo(98.4 - buffer, 3));
-    assert.ok(buy.sl! < buy.line && buy.line < buy.entry!);
-  });
-
-  it('uses RR 1:1.5 for TP when no line sits above (ATH)', () => {
-    assert.equal(buy!.tpAuto, true);
-    assert.equal(buy!.tp, roundTo(buy!.entry! + 1.5 * (buy!.entry! - buy!.sl!), 3));
-  });
-
-  it('mirrors into a sell stop for support', () => {
-    const m = analyze('TEST', SERIES.map(mirror), STRONG, 3);
-    const sell = m.candidates.find((c) => c.side === 'sell' && !c.skipped);
-    assert.ok(sell);
-    assert.equal(sell.entry, roundTo(200 - buy!.entry!, 3));
-    assert.equal(sell.sl, roundTo(200 - buy!.sl!, 3));
-    assert.equal(sell.tp, roundTo(200 - buy!.tp!, 3));
-  });
-
-  it('skips a line with a reason when no strong candle exists', () => {
-    const weak = SERIES.map((c, i) => (i === 12 ? { ...c, o: 99.5, c: 99.6 } : c));
-    const w = analyze('TEST', weak, STRONG, 3);
-    const line = w.candidates.find((c) => c.side === 'buy');
-    assert.ok(line);
-    assert.match(line.skipped ?? '', /Candle kuat/);
-    assert.equal(line.entry, undefined);
-  });
-
+describe('analyze (swing lines)', () => {
   it('takes the next line beyond entry as TP', () => {
-    const p = { ...STRONG, minTouches: 1 };
+    const p = { ...SWINGS, minTouches: 1 };
     const withNext = analyze('TEST', SERIES, p, 3);
     const lower = withNext.candidates.find((c) => c.side === 'buy' && !c.skipped && !c.tpAuto);
     if (lower) assert.ok(lower.tp! > lower.entry!);
@@ -197,8 +160,8 @@ describe('analyze (strong model)', () => {
   });
 
   it('maxLinesPerSide keeps only the nearest lines but all of them as TP targets', () => {
-    const all = analyze('TEST', SERIES, { ...STRONG, minTouches: 1, maxLinesPerSide: 0 }, 3);
-    const one = analyze('TEST', SERIES, { ...STRONG, minTouches: 1, maxLinesPerSide: 1 }, 3);
+    const all = analyze('TEST', SERIES, { ...SWINGS, minTouches: 1, maxLinesPerSide: 0 }, 3);
+    const one = analyze('TEST', SERIES, { ...SWINGS, minTouches: 1, maxLinesPerSide: 1 }, 3);
     assert.equal(one.lines.length, all.lines.length);
     assert.ok(one.candidates.filter((c) => c.side === 'buy').length <= 1);
     assert.ok(one.candidates.filter((c) => c.side === 'sell').length <= 1);
@@ -206,18 +169,8 @@ describe('analyze (strong model)', () => {
     assert.equal(one.candidates.find((c) => c.side === 'buy')?.line, nearestAbove.price);
   });
 
-  it('gives one shared entry to the nearest line only', () => {
-    const many = analyze('TEST', SERIES, { ...STRONG, minTouches: 1, clusterAtr: 0.01, maxLinesPerSide: 0 }, 3);
-    const entries = many.candidates.filter((c) => c.entry !== undefined).map((c) => `${c.side}:${c.entry}`);
-    assert.equal(new Set(entries).size, entries.length);
-    // lines 100 and 100.05 are both broken by candle 12: 100.05 is nearer its entry
-    const dup = many.candidates.find((c) => /Entry sama/.test(c.skipped ?? ''));
-    assert.equal(dup?.line, 100);
-    assert.ok(many.candidates.some((c) => c.line === 100.05 && c.entry !== undefined));
-  });
-
   it('only uses the last `lookback` candles', () => {
-    const short = analyze('TEST', SERIES, { ...STRONG, lookback: 5 }, 3);
+    const short = analyze('TEST', SERIES, { ...SWINGS, lookback: 5 }, 3);
     assert.equal(short.lastCandleAt, SERIES[15]!.t);
     assert.equal(short.lines.length, 0);
   });

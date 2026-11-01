@@ -28,17 +28,12 @@ export const lockLines = <T extends SrParams>(p: T): T => ({ ...p, ...SR_LINES }
 export const DEFAULT_SR: SrParams = {
   ...SR_LINES,
   strongBodyPct: 0.6,
-  strongAtr: 0.8,
   strongMaxDistanceAtr: 1,
-  strongPick: 'recent',
-  wickRatio: 0.5,
-  reboundMaxDistanceAtr: 1.5,
   bufferAtr: 0.1,
   autoTpRr: 1.5,
   maxLinesPerSide: 6,
   // fitted to 3,648 of the user's manual orders against their own lines (Sep 2026):
   // medians 0.22 / 0.16 / 0.07 of the gap, RR about 1.9 at any line spacing
-  orderModel: 'ladder',
   entryGap: 0.22,
   slGap: 0.16,
   tpGap: 0.07,
@@ -121,106 +116,12 @@ type Ctx = {
   inputs: SymbolInputs;
   ref: number;
   candles: Candle[];
-  swings: Swing[];
   lines: Line[];
   atr: number;
   p: SrParams;
   digits: number;
   symbol: string;
 };
-
-function body(c: Candle) {
-  return Math.abs(c.c - c.o);
-}
-
-function isStrong(c: Candle, side: Side, ctx: Ctx): boolean {
-  const range = c.h - c.l;
-  if (range <= 0) return false;
-  const directional = side === 'buy' ? c.c > c.o : c.c < c.o;
-  return directional && body(c) >= ctx.p.strongBodyPct * range && body(c) >= ctx.p.strongAtr * ctx.atr;
-}
-
-// Strong candle that broke through the line, close to it. Buy: high above R; sell: low below S.
-function findStrong(line: number, side: Side, ctx: Ctx): number | undefined {
-  const band = ctx.p.strongMaxDistanceAtr * ctx.atr;
-  let best: number | undefined;
-  ctx.candles.forEach((c, i) => {
-    if (!isStrong(c, side, ctx)) return;
-    const crosses = side === 'buy' ? c.h > line && c.l < line + band : c.l < line && c.h > line - band;
-    if (!crosses) return;
-    if (best === undefined) {
-      best = i;
-      return;
-    }
-    if (ctx.p.strongPick === 'recent') best = i;
-    else {
-      const prev = ctx.candles[best]!;
-      const nearer = side === 'buy' ? c.h < prev.h : c.l > prev.l;
-      if (nearer) best = i;
-    }
-  });
-  return best;
-}
-
-// Nearest rebound on the other side of the line: a fractal swing or a rejection wick.
-// Buy: the highest low below R; sell: the lowest high above S.
-function findRebound(line: number, side: Side, ctx: Ctx): number | undefined {
-  const band = ctx.p.reboundMaxDistanceAtr * ctx.atr;
-  const swingIdx = new Set(ctx.swings.filter((s) => s.kind === (side === 'buy' ? 'low' : 'high')).map((s) => s.i));
-  let best: number | undefined;
-  ctx.candles.forEach((c, i) => {
-    const range = c.h - c.l;
-    const wick = side === 'buy' ? Math.min(c.o, c.c) - c.l : c.h - Math.max(c.o, c.c);
-    const rejection = range > 0 && wick >= ctx.p.wickRatio * range;
-    if (!swingIdx.has(i) && !rejection) return;
-    const price = side === 'buy' ? c.l : c.h;
-    const inside = side === 'buy' ? price < line && price >= line - band : price > line && price <= line + band;
-    if (!inside) return;
-    if (best === undefined) {
-      best = i;
-      return;
-    }
-    const prev = ctx.candles[best]!;
-    const nearer = side === 'buy' ? c.l > prev.l : c.h < prev.h;
-    if (nearer) best = i;
-  });
-  return best;
-}
-
-function candidateFor(line: Line, side: Side, ctx: Ctx): Candidate {
-  const id = `${ctx.symbol}:${side}-${line.price.toFixed(ctx.digits)}`;
-  const base: Candidate = { id, side, line: roundTo(line.price, ctx.digits) };
-  const strongI = findStrong(line.price, side, ctx);
-  const reboundI = findRebound(line.price, side, ctx);
-  if (strongI === undefined && reboundI === undefined) return { ...base, skipped: 'Candle kuat dan pantulan tidak ditemukan' };
-  if (strongI === undefined) return { ...base, skipped: 'Candle kuat tidak ditemukan' };
-  if (reboundI === undefined) return { ...base, skipped: 'Pantulan tidak ditemukan' };
-
-  const buffer = ctx.p.bufferAtr * ctx.atr;
-  const strong = ctx.candles[strongI]!;
-  const rebound = ctx.candles[reboundI]!;
-  // rounded first so an auto TP shows exactly the configured RR
-  const entry = roundTo(side === 'buy' ? strong.h + buffer : strong.l - buffer, ctx.digits);
-  const sl = roundTo(side === 'buy' ? rebound.l - buffer : rebound.h + buffer, ctx.digits);
-  const risk = Math.abs(entry - sl);
-
-  // TP is the next line beyond the entry; at ATH/ATL fall back to a fixed RR.
-  const next = side === 'buy'
-    ? ctx.lines.find((l) => l.price > entry)
-    : [...ctx.lines].reverse().find((l) => l.price < entry);
-  const tpAuto = !next;
-  const tp = next ? next.price : side === 'buy' ? entry + ctx.p.autoTpRr * risk : entry - ctx.p.autoTpRr * risk;
-
-  return {
-    ...base,
-    entry,
-    sl,
-    tp: roundTo(tp, ctx.digits),
-    tpAuto,
-    strongAt: strong.t,
-    reboundAt: rebound.t,
-  };
-}
 
 // Ladder model: entry beyond the line, SL across the same line, TP just before the next
 // line, all scaled by the gap g to that next line (or the previous one at the edge).
@@ -432,12 +333,12 @@ export function analyze(symbol: string, all: Candle[], p: SrParams, digits: numb
         .sort((x, y) => x - y)
         .map((x) => ({ price: x, touches: 0, low: x, high: x, source: 'manual' }))
     : engineLines(candles, swings, a, p, digits);
-  const ctx: Ctx = { inputs, ref, candles, swings, lines, atr: a, p, digits, symbol };
+  const ctx: Ctx = { inputs, ref, candles, lines, atr: a, p, digits, symbol };
   // All lines stay (they are TP targets); the limit only drops far lines' orders. Orders
   // whose entry is too close to price are listed as skipped and do not use up the limit.
   const limit = p.maxLinesPerSide > 0 ? p.maxLinesPerSide : Infinity;
   const make = (l: Line, side: Side): Candidate => {
-    const c = (p.orderModel === 'ladder' ? ladderCandidate : candidateFor)(l, side, ctx);
+    const c = ladderCandidate(l, side, ctx);
     return c.entry !== undefined && Math.abs(c.entry - ref) < p.minDistanceAtr * a ? { id: c.id, side, line: c.line, skipped: 'Terlalu dekat harga' } : c;
   };
   const pick = (side: Line[], kind: Side) => {
@@ -453,7 +354,7 @@ export function analyze(symbol: string, all: Candle[], p: SrParams, digits: numb
   return { atr: a, price: ref, lastCandleAt: last.t, lines, candidates };
 }
 
-// Close lines can share one strong candle and so one entry. Only the line nearest that
+// Close lines can round to one entry. Only the line nearest that
 // entry keeps the order; the others stay visible as skipped so no price gets two orders.
 function dedupeEntries(candidates: Candidate[]): Candidate[] {
   const keeper = new Map<string, Candidate>();

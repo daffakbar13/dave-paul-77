@@ -129,14 +129,6 @@ export const LADDER_GRID = {
   tpGap: [0.03, 0.05, 0.07, 0.1],
 };
 
-export const SWEEP_GRID = {
-  strongBodyPct: [0.5, 0.6, 0.7],
-  strongAtr: [0.6, 0.8, 1.0],
-  strongPick: ['recent', 'nearest'] as const,
-  wickRatio: [0.4, 0.5, 0.6],
-  bufferAtr: [0.05, 0.1, 0.15],
-};
-
 export type SweepResult = { params: Partial<SrParams>; score: Score };
 
 export function sweep(orders: ManualOrder[], data: Map<string, SymbolData>, base: SrParams, top = 5): { current: Score; best: SweepResult[]; tried: number } {
@@ -147,26 +139,13 @@ export function sweep(orders: ManualOrder[], data: Map<string, SymbolData>, base
     results.sort((a, b) => b.score.matched - a.score.matched || a.score.error - b.score.error);
     return { current, best: results.slice(0, top), tried: results.length };
   };
-  if (base.orderModel === 'ladder') {
-    const l = LADDER_GRID;
-    for (const entryGap of l.entryGap)
-      for (const slGap of l.slGap)
-        for (const tpGap of l.tpGap)
-          {
-            const params = { entryGap, slGap, tpGap };
-            results.push({ params, score: evaluate(prepared, orders, { ...base, ...params }).score });
-          }
-    return rank();
-  }
-  const g = SWEEP_GRID;
-  for (const strongBodyPct of g.strongBodyPct)
-    for (const strongAtr of g.strongAtr)
-      for (const strongPick of g.strongPick)
-        for (const wickRatio of g.wickRatio)
-          for (const bufferAtr of g.bufferAtr) {
-            const params = { strongBodyPct, strongAtr, strongPick, wickRatio, bufferAtr };
-            results.push({ params, score: evaluate(prepared, orders, { ...base, ...params }).score });
-          }
+  const l = LADDER_GRID;
+  for (const entryGap of l.entryGap)
+    for (const slGap of l.slGap)
+      for (const tpGap of l.tpGap) {
+        const params = { entryGap, slGap, tpGap };
+        results.push({ params, score: evaluate(prepared, orders, { ...base, ...params }).score });
+      }
   return rank();
 }
 

@@ -30,17 +30,6 @@ const candleSlFields = (): Field[] => [
   { key: 'slMaxRiskAtr', label: tr('Risk maks entry–SL (x ATR)', 'Max entry–SL risk (x ATR)'), hint: tr('Lebih lebar: pakai SL tangga', 'Wider: use the ladder SL'), step: 0.1 },
 ];
 
-const strongFields = (): Field[] => [
-  { key: 'strongBodyPct', label: tr('Candle kuat: body / range', 'Strong candle: body / range'), hint: tr('0,6 = 60%', '0.6 = 60%'), step: 0.05 },
-  { key: 'strongAtr', label: tr('Candle kuat: body / ATR', 'Strong candle: body / ATR'), hint: '', step: 0.05 },
-  { key: 'strongMaxDistanceAtr', label: tr('Candle kuat: jarak maks dari garis (x ATR)', 'Strong candle: max distance from the line (x ATR)'), hint: '', step: 0.1 },
-  { key: 'wickRatio', label: tr('Pantulan: wick / range', 'Rebound: wick / range'), hint: tr('Wick penolakan', 'Rejection wick'), step: 0.05 },
-  { key: 'reboundMaxDistanceAtr', label: tr('Pantulan: jarak maks dari garis (x ATR)', 'Rebound: max distance from the line (x ATR)'), hint: '', step: 0.1 },
-  { key: 'bufferAtr', label: tr('Buffer entry/SL (x ATR)', 'Entry/SL buffer (x ATR)'), hint: tr('0,1 = 10% ATR', '0.1 = 10% ATR'), step: 0.01 },
-  { key: 'autoTpRr', label: tr('RR untuk TP auto (ATH/ATL)', 'RR for auto TP (ATH/ATL)'), hint: '', step: 0.1 },
-  { key: 'maxLinesPerSide', label: tr('Maks garis berorder per sisi', 'Max lines with orders per side'), hint: tr('0 = semua garis', '0 = all lines'), step: 1 },
-];
-
 const sourceLabel = (src: string): string => {
   const m: Record<string, string> = { mt4: tr('dari chart MT4', 'from MT4 chart'), import: tr('dari template', 'from template'), web: tr('dari web', 'from web') };
   return m[src] ?? '';
@@ -226,50 +215,28 @@ export function SettingsModal({ onClose, onChanged }: Props) {
       {tab === 'sr' && (
         <div className="form">
           <p className="muted">{t('Semua aturan dihitung di D1 dengan candle yang sudah close. Simpan akan menghitung ulang semua pair.', 'All rules are computed on D1 using closed candles. Saving re-analyses all pairs.')}</p>
+          <h3>Breakout JohnPaul77</h3>
+          <p className="muted">{t('g = jarak garis ke garis berikutnya searah order. Entry dan TP dari 3.648 order Anda di September terhadap garis Anda sendiri.', 'g = distance from the line to the next line in the order direction. Entry and TP come from your 3,648 orders in September against your own lines.')}</p>
           <div className="grid">
             <label className="field">
-              <span>{t('Strategi', 'Strategy')}</span>
-              <select value={settings.sr.orderModel} onChange={(e) => setSr({ orderModel: e.target.value as SrParams['orderModel'] })}>
-                <option value="ladder">Breakout JohnPaul77</option>
-                <option value="strong">{t('Candle kuat + pantulan (konsep awal)', 'Strong candle + rebound (original concept)')}</option>
+              <span>{t('Sumber SL', 'SL source')}</span>
+              <select value={settings.sr.slSource} onChange={(e) => setSr({ slSource: e.target.value as SrParams['slSource'] })}>
+                <option value="ladder">{t('Tangga: garis − slGap·g (sesuai history Anda)', 'Ladder: line − slGap·g (matches your history)')}</option>
+                <option value="candle">{t('Candle kuat D1 terdekat di sisi SL garis, dibatasi', 'Nearest strong D1 candle on the SL side of the line, capped')}</option>
               </select>
+              <small className="muted">{t('Candle: SL di low/high candle kuat terdekat ± buffer; jika lebih lebar dari batas risk, jatuh ke SL tangga (ditandai).', 'Candle: SL at the low/high of the nearest strong candle ± buffer; if wider than the risk cap, it falls back to the ladder SL (marked).')}</small>
             </label>
           </div>
-          <h3>{settings.sr.orderModel === 'ladder' ? 'Breakout JohnPaul77' : t('Model candle kuat', 'Strong candle model')}</h3>
-          {settings.sr.orderModel === 'ladder' && (
-            <>
-              <p className="muted">{t('g = jarak garis ke garis berikutnya searah order. Entry dan TP dari 3.648 order Anda di September terhadap garis Anda sendiri.', 'g = distance from the line to the next line in the order direction. Entry and TP come from your 3,648 orders in September against your own lines.')}</p>
-              <div className="grid">
-                <label className="field">
-                  <span>{t('Sumber SL', 'SL source')}</span>
-                  <select value={settings.sr.slSource} onChange={(e) => setSr({ slSource: e.target.value as SrParams['slSource'] })}>
-                    <option value="ladder">{t('Tangga: garis − slGap·g (sesuai history Anda)', 'Ladder: line − slGap·g (matches your history)')}</option>
-                    <option value="candle">{t('Candle kuat D1 terdekat di sisi SL garis, dibatasi', 'Nearest strong D1 candle on the SL side of the line, capped')}</option>
-                  </select>
-                  <small className="muted">{t('Candle: SL di low/high candle kuat terdekat ± buffer; jika lebih lebar dari batas risk, jatuh ke SL tangga (ditandai).', 'Candle: SL at the low/high of the nearest strong candle ± buffer; if wider than the risk cap, it falls back to the ladder SL (marked).')}</small>
-                </label>
-              </div>
-            </>
-          )}
           <div className="grid">
-            {(settings.sr.orderModel === 'ladder' ? [...ladderFields(), ...(settings.sr.slSource === 'candle' ? candleSlFields() : [])] : strongFields()).map((f) => (
+            {[...ladderFields(), ...(settings.sr.slSource === 'candle' ? candleSlFields() : [])].map((f) => (
               <NumberField key={f.key} label={f.label} hint={f.hint} step={f.step} value={settings.sr[f.key] as number} onChange={(v) => setSr({ [f.key]: v })} />
             ))}
-            {settings.sr.orderModel === 'strong' && (
-              <label className="field">
-                <span>{t('Pilihan candle kuat', 'Strong candle choice')}</span>
-                <select value={settings.sr.strongPick} onChange={(e) => setSr({ strongPick: e.target.value as SrParams['strongPick'] })}>
-                  <option value="recent">{t('Paling baru', 'Most recent')}</option>
-                  <option value="nearest">{t('Paling dekat garis', 'Nearest to the line')}</option>
-                </select>
-              </label>
-            )}
           </div>
           <h3>{t('Garis S/R', 'S/R lines')}</h3>
           <p className="muted">
             {t(
-              'Garis S/R dikunci di engine dan tidak bisa diubah dari sini; semua strategi memakai garis yang sama. Garis Anda (Pengaturan > Pair) hanya referensi: tampil samar di chart dan dibandingkan di Kalibrasi > Garis.',
-              'S/R lines are fixed in the engine and cannot be changed here; every strategy uses the same lines. Your lines (Settings > Pair) are reference only: shown faintly on the chart and compared in Calibration > Lines.',
+              'Garis S/R dikunci di engine dan tidak bisa diubah dari sini. Garis Anda (Pengaturan > Pair) hanya referensi: tampil samar di chart dan dibandingkan di Kalibrasi > Garis.',
+              'S/R lines are fixed in the engine and cannot be changed here. Your lines (Settings > Pair) are reference only: shown faintly on the chart and compared in Calibration > Lines.',
             )}
           </p>
           <div className="actions">

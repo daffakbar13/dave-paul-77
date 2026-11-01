@@ -34,19 +34,13 @@ export type SrParams = {
   rangeWeight: number; // weight of one range edge against one swing
   minSpacingAtr: number; // two lines closer than this x ATR merge into their average; 0 = off
   zoneMergeAtr: number; // ... also when their nearest swings are within this x ATR and price never traded between them; 0 = off
-  strongBodyPct: number; // body / range
-  strongAtr: number; // body / ATR
-  strongMaxDistanceAtr: number; // how far beyond the line a strong candle may sit
-  strongPick: 'recent' | 'nearest';
-  wickRatio: number; // rejection wick / range
-  reboundMaxDistanceAtr: number;
-  bufferAtr: number;
+  strongBodyPct: number; // candle SL: body / range
+  strongMaxDistanceAtr: number; // candle SL: how far from the line the candle's high/low may sit
+  bufferAtr: number; // candle SL: buffer beyond its low/high
   autoTpRr: number; // TP = entry + autoTpRr x risk when there is no next line
   maxLinesPerSide: number; // only the N lines nearest to price get an order; 0 = all
-  // 'ladder' (default, fitted to the user's own orders): entry, SL and TP are set from
-  // the distance g between a line and the next line in the trade direction.
-  // 'strong': entry beyond the nearest strong candle, SL at the nearest rebound.
-  orderModel: 'ladder' | 'strong';
+  // Order model (Breakout JohnPaul77, fitted to the user's own orders): entry, SL and TP
+  // are set from the distance g between a line and the next line in the trade direction.
   entryGap: number; // entry = line + entryGap x g
   slGap: number; // SL = line - slGap x g (other side of the same line)
   tpGap: number; // TP = next line - tpGap x g
@@ -76,7 +70,6 @@ export type Candidate = {
   sl?: number;
   tp?: number;
   tpAuto?: boolean;
-  strongAt?: number; // candle time used for entry
   reboundAt?: number; // candle time used for SL
   skipped?: string; // reason the line has no order
   slFrom?: 'candle' | 'ladder'; // ladder model: where the SL came from

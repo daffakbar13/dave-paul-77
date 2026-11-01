@@ -8,11 +8,9 @@ type Props = { symbols: string[]; onClose: () => void; onChanged: () => void };
 
 const paramLabel = (k: string): string | undefined => {
   const m: Partial<Record<keyof SrParams, string>> = {
-    strongBodyPct: 'Body/range',
-    strongAtr: 'Body/ATR',
-    strongPick: tr('Candle kuat', 'Strong candle'),
-    wickRatio: 'Wick',
-    bufferAtr: 'Buffer',
+    entryGap: 'Entry gap',
+    slGap: 'SL gap',
+    tpGap: 'TP gap',
   };
   return m[k as keyof SrParams];
 };
@@ -22,7 +20,6 @@ const atr = (v: number | null) => (v === null ? '–' : `${v > 0 ? '+' : ''}${v.
 const scoreText = (s: CalibrationScore) => tr(`${s.matched} dari ${s.total} cocok · selisih rata-rata ${s.error.toFixed(2)}`, `${s.matched} of ${s.total} matched · average difference ${s.error.toFixed(2)}`);
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 const lineScoreText = (s: LineScore) => tr(`F1 ${s.f1.toFixed(2)} · presisi ${pct(s.precision)} · recall ${pct(s.recall)} (${s.pairs} pair)`, `F1 ${s.f1.toFixed(2)} · precision ${pct(s.precision)} · recall ${pct(s.recall)} (${s.pairs} pairs)`);
-const paramText = (k: string, v: unknown) => (k === 'strongPick' ? (v === 'recent' ? tr('paling baru', 'most recent') : tr('paling dekat', 'nearest')) : String(v));
 
 // Lines: the engine's lines vs the user's reference lines. Orders: the user's own orders vs
 // the engine on the same day. Both tabs can search parameters and apply them.
@@ -309,7 +306,7 @@ export function CalibrationModal({ symbols, onClose, onChanged }: Props) {
                           <td>{scoreText(b.score)}</td>
                           <td>
                             {changes.length
-                              ? changes.map(([k, v]) => `${paramLabel(k) ?? k}: ${paramText(k, sr[k as keyof SrParams])} → ${paramText(k, v)}`).join(' · ')
+                              ? changes.map(([k, v]) => `${paramLabel(k) ?? k}: ${String(sr[k as keyof SrParams])} → ${String(v)}`).join(' · ')
                               : t('Sama dengan sekarang', 'Same as current')}
                           </td>
                           <td className="act">

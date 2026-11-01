@@ -67,15 +67,10 @@ const settingsSchema = z.object({
   sr: z.object({
     // the line settings (SR_LINES) are fixed in the engine; sent values are dropped
     strongBodyPct: z.number().min(0).max(1),
-    strongAtr: z.number().min(0).max(10),
     strongMaxDistanceAtr: z.number().positive().max(20),
-    strongPick: z.enum(['recent', 'nearest']),
-    wickRatio: z.number().min(0).max(1),
-    reboundMaxDistanceAtr: z.number().positive().max(20),
     bufferAtr: z.number().min(0).max(5),
     autoTpRr: z.number().positive().max(20),
     maxLinesPerSide: z.number().int().min(0).max(50),
-    orderModel: z.enum(['ladder', 'strong']),
     entryGap: z.number().min(0).max(2),
     slGap: z.number().min(0).max(2),
     tpGap: z.number().min(0).max(1),

@@ -107,15 +107,10 @@ export type SrParams = {
   minSpacingAtr: number;
   zoneMergeAtr: number;
   strongBodyPct: number;
-  strongAtr: number;
   strongMaxDistanceAtr: number;
-  strongPick: 'recent' | 'nearest';
-  wickRatio: number;
-  reboundMaxDistanceAtr: number;
   bufferAtr: number;
   autoTpRr: number;
   maxLinesPerSide: number;
-  orderModel: 'ladder' | 'strong';
   entryGap: number;
   slGap: number;
   tpGap: number;

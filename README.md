@@ -11,7 +11,7 @@ lalu eksekusi ke MT5 lewat EA setelah Confirm. Konsep: dokumen konsep versi 1, 2
 
 ## Tahap 1: backend dan web (data contoh)
 
-- Engine S/R: `server/src/analysis/sr.ts` (fraktal, cluster ATR, candle kuat, pantulan, entry/SL/TP, TP auto, dedup entry).
+- Engine S/R: `server/src/analysis/sr.ts` (fraktal, cluster ATR, area ranging, entry/SL/TP, TP auto, dedup entry).
 - Lot dan validasi: `server/src/analysis/orders.ts` (lot dibulatkan ke bawah, stops level, harga lewat entry, lot minimum, risk per mata uang).
 - Uji otomatis: `cd server && npm test`.
 - Endpoint EA (`/api/ea/mt4/*`, `/api/ea/mt5/*`) sudah ada dan teruji dengan curl; EA-nya dibuat di tahap 2 dan 4.
@@ -44,8 +44,8 @@ Panduan langkah demi langkah lewat website (Render, Vercel, Atlas, lalu arahkan 
 - **EA MT4**: `ea/DavePaul77Data.mq4`, cara pasang di `ea/README.md`. Daftar pair diambil dari Pengaturan > Pair.
 - **Kalibrasi** (tombol Kalibrasi di toolbar): masukkan order manual (pair, tipe, entry, SL, TP, tanggal pasang).
   Aplikasi menghitung analisa dengan candle sebelum tanggal itu dan menampilkan selisih entry/SL/TP dalam ATR.
-  Cocok jika entry ≤ 0,2 ATR dan SL ≤ 0,3 ATR. **Cari parameter terbaik** mencoba 972 kombinasi
-  (penggabungan area, sentuhan, candle kuat, wick, buffer, pilihan candle kuat) dan bisa langsung diterapkan.
+  Cocok jika entry ≤ 0,2 ATR dan SL ≤ 0,3 ATR. **Cari parameter terbaik** mencoba 100 kombinasi
+  entry / SL / TP gap dan bisa langsung diterapkan.
 - Logika: `server/src/analysis/calibrate.ts` (dengan test).
 
 ## Tahap 3: kalender ekonomi dan Aggressive otomatis
@@ -103,15 +103,14 @@ sendiri (template `.tpl` di folder template chart user):
 - **SL minimal** per pair dalam pips (10/15/20/30, dari alat order lama), bisa diubah di Pengaturan > Pair.
 - **Per sisi** 6 garis terdekat dari harga; garis yang lebih dekat dari 0,3 ATR ke harga dilewati.
 - **Validasi** (replay 224 setup pair, 3.555 order): entry dalam 0,1 ATR 84,5%, SL dalam 0,1 ATR 75,8%, TP dalam 0,15 ATR
-  90,1%. Model candle kuat lama: 10,3% / 6,6% / 13,6%. Model candle kuat tetap bisa dipilih di Pengaturan > Analisa S/R.
+  90,1%. Model candle kuat + pantulan dari konsep awal (10,3% / 6,6% / 13,6%) sudah dihapus.
 
 ## Catatan kalibrasi
 
 Dengan aturan default, data 2 tahun menghasilkan banyak garis (20 sampai 30 per pair), dan TP = garis berikutnya
 sering memberi RR di bawah 1:1,5. Karena itu ada pengaturan **Maks garis berorder per sisi** (default 3: hanya 3 garis
 terdekat di atas dan di bawah harga yang diberi order; semua garis tetap dipakai sebagai TP). Isi 0 untuk semua garis.
-Parameter lain (penggabungan area, candle kuat, pantulan, pilihan candle kuat paling baru atau paling dekat) dikalibrasi
-dengan contoh order manual.
+Entry / SL / TP gap dikalibrasi dengan contoh order manual.
 
 
 ## Riwayat dari CSV (untuk backtest)
