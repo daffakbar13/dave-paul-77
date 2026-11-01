@@ -281,7 +281,7 @@ function Main({ onLogout }: { onLogout: () => void }) {
         <div className="news" role="status">
           {feed.news.map((n) => (
             <span key={n.id} className={new Date(n.at).getTime() < Date.now() ? 'past' : ''}>
-              {t('Berita merah', 'Red news')} {n.currency} {fmtNewsTime(n.at)}: {n.title}
+              {n.currency} {fmtNewsTime(n.at)}: {n.title}
             </span>
           ))}
           {feed.news.length > 0 && <span className="news-note">{newsNote}</span>}
