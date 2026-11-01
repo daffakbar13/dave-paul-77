@@ -9,6 +9,7 @@
 //   node scripts/pattern-report.ts --data dump.json [--from 2004-01-01] [--to 2026-10-31]
 //        [--out dir] [--pairs EURUSD,GBPUSD] [--json results.json]
 // Pattern settings: --minDropAtr 1 --breakoutBufferAtr 0.1 --slBufferAtr 0.1 --minRr 2 --minTargetAtr 0
+//                   --slMode candle|pattern --slMaxRiskAtr 0.6 (candle SL wider than this falls back)
 // The lines are always the locked SR_LINES.
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
@@ -31,17 +32,21 @@ const { values } = parseArgs({
     slBufferAtr: { type: 'string' },
     minRr: { type: 'string' },
     minTargetAtr: { type: 'string' },
+    slMode: { type: 'string' },
+    slMaxRiskAtr: { type: 'string' },
   },
 });
 if (!values.data) throw new Error('--data <dump.json> is required');
 
 const pp: PatternParams = { ...DEFAULT_PATTERN };
 for (const k of ['minDropAtr', 'breakoutBufferAtr', 'slBufferAtr', 'minRr', 'minTargetAtr'] as const) if (values[k] !== undefined) pp[k] = Number(values[k]);
+if (values.slMode === 'candle' || values.slMode === 'pattern') pp.slMode = values.slMode;
 
 type Dump = Record<string, { digits: number; candles: Candle[] }>;
 const dump: Dump = JSON.parse(readFileSync(values.data, 'utf8'));
 const pairs = Object.keys(dump).filter((s) => !values.pairs || values.pairs.split(',').includes(s)).sort();
-const p = DEFAULT_SR;
+// candle SL settings of Breakout JohnPaul77; only slMaxRiskAtr can be tried from here
+const p = { ...DEFAULT_SR, ...(values.slMaxRiskAtr ? { slMaxRiskAtr: Number(values.slMaxRiskAtr) } : {}) };
 const opts: ReplayOptions = {
   warmup: p.lookback,
   from: Date.parse(`${values.from}T00:00:00Z`),
@@ -126,16 +131,24 @@ const lastT = Math.max(...pairs.map((sym) => perPair.get(sym)!.cs.at(-1)!.t));
 const testYears = (Math.min(lastT, opts.to ?? Infinity) - opts.from!) / (365.25 * 86_400_000);
 const results: Record<string, unknown> = {};
 const WS = [24, 6, 6, 7, 7, 6, 6, 6, 6, 9, 9, 9, 9];
-console.log(`\n== Strategies (min RR ${pp.minRr}, SL buffer ${pp.slBufferAtr} ATR, min target ${pp.minTargetAtr} ATR; risk 1%, compounding; net = after Maxrich spreads + USD 10/lot) ==`);
+console.log(`\n== Strategies (min RR ${pp.minRr}, SL buffer ${pp.slBufferAtr} ATR, min target ${pp.minTargetAtr} ATR, SL ${pp.slMode} (max ${p.slMaxRiskAtr} ATR); risk 1%, compounding; net = after Maxrich spreads + USD 10/lot) ==`);
 console.log('"low" = reversal stop at the confirmation candle low/high, "close" = at its close; Nd = order stays N days. Breakout branches ignore the entry mode.\n');
-console.log(row(['strategy / variant', 'trades', 'win%', 'expR', 'netR', 'PF_R', 'netPF', 'maxL', '/yr', ...ERAS.map((e) => e[0])], WS));
+console.log(row(['strategy / variant', 'trades', 'win%', 'expR', 'netR', 'PF_R', 'netPF', 'maxL', '/yr', ...ERAS.map((e) => e[0]), 'candSL'], [...WS, 7]));
 for (const v of variants) {
   const raw: Record<string, RawTrade[]> = Object.fromEntries(PATTERN_STRATEGIES.map((s) => [s, []]));
+  const candleSl: Record<string, Set<string>> = Object.fromEntries(PATTERN_STRATEGIES.map((s) => [s, new Set()]));
+  const placed: Record<string, Set<string>> = Object.fromEntries(PATTERN_STRATEGIES.map((s) => [s, new Set()]));
   for (const sym of pairs) {
     const { cs, digits, days } = perPair.get(sym)!;
     const events = detectPatterns(cs, days, v.pp).filter((e) => e.second.t >= opts.from! && (opts.to === undefined || e.second.t <= opts.to));
-    const orders = patternOrders(sym, cs, days, events, v.pp, digits);
+    const orders = patternOrders(sym, cs, days, events, p, v.pp, digits);
     for (const s of PATTERN_STRATEGIES) {
+      for (const list of orders[s].values()) {
+        for (const c of list) {
+          placed[s]!.add(c.id);
+          if (c.slFrom === 'candle') candleSl[s]!.add(c.id);
+        }
+      }
       const tr = await replayOrders(sym, { candles: cs, digits }, opts, (i) => {
         const c = orders[s].get(i);
         return c ? { price: NaN, candidates: c } : null;
@@ -162,10 +175,10 @@ for (const v of variants) {
       });
       return ts.length ? `${ts.length}:${(ts.reduce((x, t) => x + t.r, 0) / ts.length).toFixed(2)}` : '-';
     });
-    console.log(row([`${s} / ${v.name}`, o.trades, pct(o.wins, o.trades), o.expectancyR ?? '-', on.expectancyR ?? '-', pfR(raw[s]!), pfR(withCosts(raw[s]!, DEFAULT_COSTS)), on.consecutiveLoss.byTrade.count, (o.trades / testYears).toFixed(1), ...era], WS));
+    console.log(row([`${s} / ${v.name}`, `${o.trades}`, pct(o.wins, o.trades), o.expectancyR ?? '-', on.expectancyR ?? '-', pfR(raw[s]!), pfR(withCosts(raw[s]!, DEFAULT_COSTS)), on.consecutiveLoss.byTrade.count, (o.trades / testYears).toFixed(1), ...era, pct(candleSl[s]!.size, placed[s]!.size)], [...WS, 7]));
     writeFileSync(`${values.out}/${s}-${v.name}.csv`, tradesCsv(net, true));
     results[`${s}/${v.name}`] = { gross: o, net: on, perPair: pairs.map((sym) => pairStats(sym, net.filter((t) => t.symbol === sym), 10_000)) };
   }
 }
-console.log('\nexpR / netR = expectancy in R gross / after costs; maxL = most losses in a row (net); /yr = trades per year over the whole test, all pairs; era cells: trades:net expectancy R of trades entered in that era');
+console.log('\nexpR / netR = expectancy in R gross / after costs; maxL = most losses in a row (net); /yr = trades per year over the whole test, all pairs; era cells: trades:net expectancy R of trades entered in that era; candSL = share of placed orders whose SL is the strong candle');
 if (values.json) writeFileSync(values.json, JSON.stringify(results, null, 1));

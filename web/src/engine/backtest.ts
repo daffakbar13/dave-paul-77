@@ -221,7 +221,7 @@ export async function patternsOf(symbol: string, data: SymbolData, p: SrParams, 
   const toIdx = opts.to === undefined ? cs.length - 1 : cs.findLastIndex((c) => c.t <= opts.to!);
   const days = await linesByDay(cs, p, data.digits, Math.max(start, fromIdx - pp.maxBetweenBars), Math.min(cs.length - 1, toIdx + 1), pause);
   const events = detectPatterns(cs, days, pp).filter((e) => e.second.i >= fromIdx && e.second.i <= toIdx);
-  return { days, events, orders: patternOrders(symbol, cs, days, events, pp, data.digits) };
+  return { days, events, orders: patternOrders(symbol, cs, days, events, p, pp, data.digits) };
 }
 
 // Applies the money: balance and risk per trade, compounding on closed trades.

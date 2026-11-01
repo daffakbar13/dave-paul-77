@@ -122,7 +122,7 @@ describe('patternOrders', () => {
   const events = detectPatterns(cs, days);
 
   it('places the reversal stop under the confirmation candle and the breakout stop above the tops', () => {
-    const o = patternOrders('X', cs, days, events, pp(), 2);
+    const o = patternOrders('X', cs, days, events, DEFAULT_SR, pp(), 2);
     const [sell] = o['top-sell'].get(8)!;
     assert.deepEqual([sell!.side, sell!.entry, sell!.sl, sell!.tp], ['sell', 99, 100.2, 96.28]);
     const [buy] = o['top-buy'].get(7)!;
@@ -133,39 +133,54 @@ describe('patternOrders', () => {
     assert.deepEqual([...o['top-sell'].keys()], [8]);
   });
 
+  it('puts the SL behind the strong candle, as Breakout JohnPaul77 does', () => {
+    // candle 7 (body 0.4 of 0.6, 0.4 ATR) is the nearest strong bearish candle above 99.0
+    const wide = { ...DEFAULT_SR, slMaxRiskAtr: 1 };
+    const [sell] = patternOrders('X', cs, days, events, wide, pp(), 2)['top-sell'].get(8)!;
+    assert.deepEqual([sell!.sl, sell!.slFrom], [99.7, 'candle']);
+    // at the default 0.6 ATR that SL is too wide: back to the pattern SL above the tops
+    const [def] = patternOrders('X', cs, days, events, DEFAULT_SR, pp(), 2)['top-sell'].get(8)!;
+    assert.deepEqual([def!.sl, def!.slFrom], [100.2, 'ladder']);
+    // the mirror for the bottom: under the strong bullish candle
+    const m = cs.map(mirror);
+    const mdays = fixedDays(m.length, [94, 100, 104]);
+    const [buy] = patternOrders('X', m, mdays, detectPatterns(m, mdays), wide, pp(), 2)['bottom-buy'].get(8)!;
+    assert.deepEqual([buy!.sl, buy!.slFrom], [100.3, 'candle']);
+  });
+
   it('withdraws the breakout once the reversal target is reached', () => {
     // no confirmation in reach (min RR 3): the breakout stays until candle 10 hits 96.28
-    const o = patternOrders('X', cs, days, events, pp({ orderDays: 10, minRr: 3 }), 2);
+    const o = patternOrders('X', cs, days, events, DEFAULT_SR, pp({ orderDays: 10, minRr: 3 }), 2);
     assert.deepEqual([...o['top-buy'].keys()], [7, 8, 9, 10]);
     assert.equal(o['top-sell'].size, 0);
   });
 
   it('takes a farther TP line with minTargetAtr', () => {
     const wide = fixedDays(cs.length, [93, 96, 100, 103, 106]);
-    const o = patternOrders('X', cs, wide, detectPatterns(cs, wide, pp({ minTargetAtr: 5 })), pp({ minTargetAtr: 5, minRr: 1 }), 2);
+    const o = patternOrders('X', cs, wide, detectPatterns(cs, wide, pp({ minTargetAtr: 5 })), DEFAULT_SR, pp({ minTargetAtr: 5, minRr: 1 }), 2);
     // 96 and 103 are within 5 ATR: the TPs come from 93 (93 + 0.07 x 7) and 106
     assert.equal(o['top-sell'].get(8)![0]!.tp, 93.49);
     assert.equal(o['top-buy'].get(7)![0]!.tp, 105.58);
   });
 
   it('withdraws the other branch once one entry is reached', () => {
-    const o = patternOrders('X', cs, days, events, pp({ orderDays: 5 }), 2);
+    const o = patternOrders('X', cs, days, events, DEFAULT_SR, pp({ orderDays: 5 }), 2);
     // the reversal fills on candle 8, so the breakout is not placed after it
     assert.deepEqual([...o['top-buy'].keys()], [7, 8]);
     assert.deepEqual([...o['top-sell'].keys()], [8]);
   });
 
   it('enters near the close in close mode and skips a small RR', () => {
-    const close = patternOrders('X', cs, days, events, pp({ entryMode: 'close' }), 2);
+    const close = patternOrders('X', cs, days, events, DEFAULT_SR, pp({ entryMode: 'close' }), 2);
     assert.equal(close['top-sell'].get(8)![0]!.entry, 99.1);
-    const strict = patternOrders('X', cs, days, events, pp({ minRr: 3 }), 2);
+    const strict = patternOrders('X', cs, days, events, DEFAULT_SR, pp({ minRr: 3 }), 2);
     assert.equal(strict['top-sell'].size, 0);
   });
 
   it('mirrors the orders for bottoms', () => {
     const m = cs.map(mirror);
     const mdays = fixedDays(m.length, [94, 100, 104]);
-    const o = patternOrders('X', m, mdays, detectPatterns(m, mdays), pp(), 2);
+    const o = patternOrders('X', m, mdays, detectPatterns(m, mdays), DEFAULT_SR, pp(), 2);
     const [buy] = o['bottom-buy'].get(8)!;
     assert.deepEqual([buy!.side, buy!.entry, buy!.sl, buy!.tp], ['buy', 101, 99.8, 103.72]);
     const [sell] = o['bottom-sell'].get(7)!;
@@ -177,7 +192,7 @@ describe('patternOrders', () => {
     // the replay starts at candle 10: ten quiet candles first
     const long = bars([...Array.from({ length: 10 }, () => TOP[0]!), ...TOP]);
     const ldays = fixedDays(long.length);
-    const o = patternOrders('X', long, ldays, detectPatterns(long, ldays), pp(), 2);
+    const o = patternOrders('X', long, ldays, detectPatterns(long, ldays), DEFAULT_SR, pp(), 2);
     const trades = await replayOrders('X', { candles: long, digits: 2 }, { warmup: 0 }, (i) => {
       const c = o['top-sell'].get(i);
       return c ? { price: NaN, candidates: c } : null;

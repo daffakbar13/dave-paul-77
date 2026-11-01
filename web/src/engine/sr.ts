@@ -136,7 +136,7 @@ function ladderCandidate(line: Line, side: Side, ctx: Ctx): Candidate {
 
   const entry = roundTo(line.price + sg * ctx.p.entryGap * g, ctx.digits);
   const buffer = ctx.p.bufferAtr * ctx.atr;
-  const strongI = ctx.p.slSource === 'candle' ? findStrongBehind(line.price, side, ctx) : undefined;
+  const strongI = ctx.p.slSource === 'candle' ? strongBehind(ctx.candles, line.price, side, ctx.atr, ctx.p) : undefined;
   const candleSl = strongI === undefined ? undefined : roundTo(side === 'buy' ? ctx.candles[strongI]!.l - buffer : ctx.candles[strongI]!.h + buffer, ctx.digits);
   // too wide a candle SL wrecks the RR against the ladder TP: keep the ladder SL instead
   const strong = candleSl !== undefined && Math.abs(entry - candleSl) <= ctx.p.slMaxRiskAtr * ctx.atr ? ctx.candles[strongI!] : undefined;
@@ -152,18 +152,18 @@ function ladderCandidate(line: Line, side: Side, ctx: Ctx): Candidate {
 // Strong D1 candle in the order direction sitting on the SL side of the line: for a buy
 // stop a bullish candle below the resistance (close still under it, high within the band),
 // mirrored for a sell stop above the support. The nearest one wins: the highest low for a
-// buy (lowest high for a sell), i.e. the tightest SL.
-function findStrongBehind(line: number, side: Side, ctx: Ctx): number | undefined {
-  const band = ctx.p.strongMaxDistanceAtr * ctx.atr;
+// buy (lowest high for a sell), i.e. the tightest SL. Returns its index in `candles`.
+export function strongBehind(candles: Candle[], line: number, side: Side, atrValue: number, p: SrParams): number | undefined {
+  const band = p.strongMaxDistanceAtr * atrValue;
   let best: number | undefined;
-  ctx.candles.forEach((c, i) => {
+  candles.forEach((c, i) => {
     const range = c.h - c.l;
     const body = Math.abs(c.c - c.o);
     const directional = side === 'buy' ? c.c > c.o : c.c < c.o;
-    if (!directional || range <= 0 || body < ctx.p.strongBodyPct * range || body < ctx.p.slStrongAtr * ctx.atr) return;
+    if (!directional || range <= 0 || body < p.strongBodyPct * range || body < p.slStrongAtr * atrValue) return;
     const behind = side === 'buy' ? c.c < line && c.h >= line - band : c.c > line && c.l <= line + band;
     if (!behind) return;
-    const prev = best === undefined ? undefined : ctx.candles[best]!;
+    const prev = best === undefined ? undefined : candles[best]!;
     if (!prev || (side === 'buy' ? c.l > prev.l : c.h < prev.h)) best = i;
   });
   return best;

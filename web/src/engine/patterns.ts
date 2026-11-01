@@ -18,7 +18,7 @@
 // tops' extreme by breakoutBufferAtr x ATR). Whichever comes first decides; a candle that
 // does both, or nothing within resolveBars, leaves it grey. The four strategies trade
 // the two branches of tops and of bottoms; each is meant for its own account.
-import { analyze, roundTo, SR_LINES } from './sr.ts';
+import { analyze, roundTo, SR_LINES, strongBehind } from './sr.ts';
 import type { Candidate, Candle, Line, Side, SrParams } from './types.ts';
 
 export type PatternKind = 'top' | 'bottom';
@@ -41,6 +41,11 @@ export type PatternParams = {
   // 'close' = stop at its close, i.e. about the next open
   entryMode: 'extreme' | 'close';
   orderDays: number; // days an order stays up (1 = only the next day), unless invalidated
+  // 'candle' = SL behind the nearest strong candle, the rule of Breakout JohnPaul77's
+  // candle SL (strongBehind with the strong* / bufferAtr / slMaxRiskAtr settings), falling
+  // back to the pattern SL when there is none or it is too wide; 'pattern' = always the
+  // pattern SL (beyond the tops for the reversal, under the line zone for the breakout)
+  slMode: 'candle' | 'pattern';
 };
 
 export const DEFAULT_PATTERN: PatternParams = {
@@ -54,6 +59,7 @@ export const DEFAULT_PATTERN: PatternParams = {
   resolveBars: 60,
   entryMode: 'extreme',
   orderDays: 1,
+  slMode: 'candle',
 };
 
 // The lines and ATR the engine had on the morning of a candle; null where not computed.
@@ -189,10 +195,14 @@ export function detectPatterns(cs: Candle[], days: DayLines[], pp: PatternParams
 // Each pattern gives two stop orders, one per branch, worked out on the oriented series
 // (a top; bottoms through the mirror):
 //   reversal: after the second top, the first bearish candle (close < open) is the
-//     confirmation; sell stop at its low (or close), SL above the extreme + slBufferAtr,
-//     TP at the next line below less tpGap x g.
-//   breakout: from the day after the second top, buy stop at the break level, SL under
-//     the line zone - slBufferAtr, TP at the next line above less tpGap x g.
+//     confirmation; sell stop at its low (or close), TP at the next line below less
+//     tpGap x g.
+//   breakout: from the day after the second top, buy stop at the break level, TP at the
+//     next line above less tpGap x g.
+// The SL sits behind the nearest strong candle on the SL side of the entry, as the candle
+// SL of Breakout JohnPaul77 does at its line (slMode 'candle'); without one, or when that
+// risks more than slMaxRiskAtr x ATR, it is the pattern SL: above the extreme +
+// slBufferAtr for the reversal, under the line zone - slBufferAtr for the breakout.
 // Each order is placed only with TP / SL >= minRr and stays up orderDays days. When price
 // reaches one branch's entry the pattern has resolved and the other branch is withdrawn,
 // whatever the account of that branch could take, so the four stay independent. Before
@@ -200,24 +210,37 @@ export function detectPatterns(cs: Candle[], days: DayLines[], pp: PatternParams
 // trades at the break level (or its SL), the breakout when price reaches the reversal
 // target.
 
-type Plan = { side: Side; entry: number; sl: number; tp: number; from: number; to: number };
+type Plan = { side: Side; entry: number; sl: number; tp: number; from: number; to: number; slFrom: 'candle' | 'ladder' };
 
 export type PatternOrders = Record<PatternStrategy, Map<number, Candidate[]>>;
 
-function planOrders(cs: Candle[], days: DayLines[], e: PatternEvent, pp: PatternParams, emit: (branch: 'rev' | 'brk', day: number, o: Plan) => void): void {
+function planOrders(cs: Candle[], days: DayLines[], e: PatternEvent, p: SrParams, pp: PatternParams, emit: (branch: 'rev' | 'brk', day: number, o: Plan) => void): void {
   const j = e.second.i;
   const A = e.atr;
   const zone = SR_LINES.clusterAtr * A;
   const okRr = (entry: number, sl: number, tp: number) => Math.abs(tp - entry) >= pp.minRr * Math.abs(entry - sl) && Math.abs(entry - sl) > 0;
+  // the SL of an order placed on the morning of candle `day`, from the candles closed by then
+  const slOf = (side: Side, entry: number, day: number, fallback: number): { sl: number; slFrom: 'candle' | 'ladder' } => {
+    if (pp.slMode === 'candle') {
+      const a = days[day]?.atr ?? A;
+      const win = cs.slice(Math.max(0, day - p.lookback), day);
+      const k = strongBehind(win, entry, side, a, p);
+      if (k !== undefined) {
+        const sl = side === 'buy' ? win[k]!.l - p.bufferAtr * a : win[k]!.h + p.bufferAtr * a;
+        if (Math.abs(entry - sl) <= p.slMaxRiskAtr * a) return { sl, slFrom: 'candle' };
+      }
+    }
+    return { sl: fallback, slFrom: 'ladder' };
+  };
 
   let brk: Plan | null = null;
   const dB = days[j + 1];
   if (dB) {
     const entry = e.breakLevel;
-    const sl = e.line - zone - pp.slBufferAtr * A;
+    const { sl, slFrom } = slOf('buy', entry, j + 1, e.line - zone - pp.slBufferAtr * A);
     const next = dB.lines.filter((l) => l.price > Math.max(entry, e.line + pp.minTargetAtr * A)).reduce<number | null>((m, l) => (m === null || l.price < m ? l.price : m), null);
     const tp = next === null ? null : next - pp.tpGap * (next - e.line);
-    if (tp !== null && tp > entry && okRr(entry, sl, tp)) brk = { side: 'buy', entry, sl, tp, from: j + 1, to: j + pp.orderDays };
+    if (tp !== null && tp > entry && okRr(entry, sl, tp)) brk = { side: 'buy', entry, sl, tp, from: j + 1, to: j + pp.orderDays, slFrom };
   }
 
   let rev: Plan | null = null;
@@ -245,22 +268,22 @@ function planOrders(cs: Candle[], days: DayLines[], e: PatternEvent, pp: Pattern
       // the first bearish candle confirms; one chance only
       searching = false;
       const entry = pp.entryMode === 'close' ? c.c : c.l;
-      const sl = e.extreme + pp.slBufferAtr * A;
+      const { sl, slFrom } = slOf('sell', entry, d + 1, e.extreme + pp.slBufferAtr * A);
       const tp = targetBelow(e.line, days[d + 1] ?? null, pp);
-      if (tp !== null && tp < entry && okRr(entry, sl, tp)) rev = { side: 'sell', entry, sl, tp, from: d + 1, to: d + pp.orderDays };
+      if (tp !== null && tp < entry && okRr(entry, sl, tp)) rev = { side: 'sell', entry, sl, tp, from: d + 1, to: d + pp.orderDays, slFrom };
     }
   }
 }
 
 // Every day's orders of the four strategies. Only days in [from, to] (indexes) are kept.
-export function patternOrders(symbol: string, cs: Candle[], days: DayLines[], events: PatternEvent[], pp: PatternParams, digits: number): PatternOrders {
+export function patternOrders(symbol: string, cs: Candle[], days: DayLines[], events: PatternEvent[], p: SrParams, pp: PatternParams, digits: number): PatternOrders {
   const out: PatternOrders = { 'top-sell': new Map(), 'top-buy': new Map(), 'bottom-buy': new Map(), 'bottom-sell': new Map() };
   const flipped = { cs: cs.map(flipCandle), days: days.map(flipDay) };
   for (const ev of events) {
     const top = ev.kind === 'top';
     const e = top ? ev : unflip(ev); // oriented: bottoms as tops of the mirror
     const sgn = top ? 1 : -1;
-    planOrders(top ? cs : flipped.cs, top ? days : flipped.days, e, pp, (branch, day, o) => {
+    planOrders(top ? cs : flipped.cs, top ? days : flipped.days, e, p, pp, (branch, day, o) => {
       const strategy: PatternStrategy = top ? (branch === 'rev' ? 'top-sell' : 'top-buy') : branch === 'rev' ? 'bottom-buy' : 'bottom-sell';
       const side: Side = top ? o.side : o.side === 'buy' ? 'sell' : 'buy';
       const cand: Candidate = {
@@ -270,6 +293,7 @@ export function patternOrders(symbol: string, cs: Candle[], days: DayLines[], ev
         entry: roundTo(sgn * o.entry, digits),
         sl: roundTo(sgn * o.sl, digits),
         tp: roundTo(sgn * o.tp, digits),
+        slFrom: o.slFrom,
       };
       const list = out[strategy].get(day);
       if (list) list.push(cand);
