@@ -31,7 +31,11 @@ const TOP: Row[] = [
   [96.4, 96.8, 96.3, 96.6],
 ];
 const mirror = (c: Candle): Candle => ({ t: c.t, o: 200 - c.o, h: 200 - c.l, l: 200 - c.h, c: 200 - c.c });
-const pp = (o: Partial<PatternParams> = {}): PatternParams => ({ ...DEFAULT_PATTERN, ...o });
+// the line-based model (break on a wick, SL behind a strong candle, TP at the next line,
+// stop at the confirmation low) most tests below were written for
+// (TOP's pullback low is also a bottom at 1.9 ATR, so the tests ask for 2)
+const LINE_MODEL: Partial<PatternParams> = { breakOn: 'wick', slMode: 'candle', tpMode: 'line', entryMode: 'extreme', minDropAtr: 2 };
+const pp = (o: Partial<PatternParams> = {}): PatternParams => ({ ...DEFAULT_PATTERN, ...LINE_MODEL, ...o });
 const near = (a: number | null | undefined, b: number) => assert.ok(a !== null && a !== undefined && Math.abs(a - b) < 1e-9, `${a} != ${b}`);
 const detect = (rows: Row[], o: Partial<PatternParams> = {}) => {
   const cs = bars(rows);
@@ -55,12 +59,12 @@ describe('detectPatterns', () => {
 
   it('needs the pullback between the tops', () => {
     assert.equal(detect(TOP, { minDropAtr: 2.5 }).length, 0);
-    // a 1.9 ATR pullback: candle 7 in the zone is still the same push
+    // a 1.9 ATR pullback with 2 required: candle 7 in the zone is still the same push
     const shallow = TOP.map((r, i): Row => (i === 5 ? [98.6, 98.7, 98.2, 98.3] : r));
-    assert.equal(detect(shallow).length, 0);
+    assert.equal(detect(shallow, { minDropAtr: 2 }).length, 0);
     // a higher high before the pullback: candle 3 was no top 1
     const higher = shallow.map((r, i): Row => (i === 7 ? [99.4, 100.3, 99.1, 99.5] : r));
-    assert.equal(detect(higher).length, 0);
+    assert.equal(detect(higher, { minDropAtr: 2 }).length, 0);
   });
 
   it('marks a later break as fail', () => {
@@ -88,7 +92,7 @@ describe('detectPatterns', () => {
 
   it('finds the mirrored double bottom', () => {
     const cs = bars(TOP).map(mirror);
-    const [e, ...rest] = detectPatterns(cs, fixedDays(cs.length, [94, 100, 104]));
+    const [e, ...rest] = detectPatterns(cs, fixedDays(cs.length, [94, 100, 104]), pp());
     assert.equal(rest.length, 0);
     assert.equal(e!.kind, 'bottom');
     near(e!.line, 99.9);
@@ -116,10 +120,43 @@ describe('detectPatterns', () => {
   });
 });
 
+describe('JohnPaul77 model (defaults)', () => {
+  const def = (rows: Row[]) => {
+    const cs = bars(rows);
+    const days = fixedDays(cs.length);
+    const q = { ...DEFAULT_PATTERN, minDropAtr: 2 };
+    const events = detectPatterns(cs, days, q);
+    return { events, orders: patternOrders('X', cs, days, events, DEFAULT_SR, q, 2) };
+  };
+
+  it('keeps a top whose wick goes through but closes back below', () => {
+    const rows: Row[] = [...TOP.slice(0, 9), [99.1, 100.6, 99.0, 99.2], ...TOP.slice(9)];
+    assert.equal(detect(rows)[0]!.status, 'fail'); // on a wick
+    const [e] = def(rows).events;
+    assert.equal(e!.status, 'success');
+  });
+
+  it('sells at the confirmation close with SL 0.6 ATR and TP 2R', () => {
+    const { orders } = def(TOP);
+    const [sell] = orders['top-sell'].get(9)!;
+    assert.deepEqual([sell!.side, sell!.entry, sell!.sl, sell!.tp], ['sell', 99.1, 99.7, 97.9]);
+    assert.equal(orders['top-buy'].size, 0);
+  });
+
+  it('buys at the close of the candle that closes above top 1', () => {
+    const rows: Row[] = [...TOP.slice(0, 8), [99.5, 100.5, 99.4, 100.4], [100.4, 100.6, 100.2, 100.5]];
+    const { events, orders } = def(rows);
+    assert.equal(events[0]!.status, 'fail');
+    const [buy] = orders['top-buy'].get(9)!;
+    assert.deepEqual([buy!.side, buy!.entry, buy!.sl, buy!.tp], ['buy', 100.4, 99.8, 101.6]);
+    assert.equal(orders['top-sell'].size, 0);
+  });
+});
+
 describe('patternOrders', () => {
   const cs = bars(TOP);
   const days = fixedDays(cs.length);
-  const events = detectPatterns(cs, days);
+  const events = detectPatterns(cs, days, pp());
 
   it('places the reversal stop under the reversal candle and the breakout stop above top 1', () => {
     const o = patternOrders('X', cs, days, events, DEFAULT_SR, pp(), 2);
@@ -136,7 +173,7 @@ describe('patternOrders', () => {
   it('fills the breakout on a top 2 that breaks straight through', () => {
     const rows = TOP.map((r, i): Row => (i === 7 ? [99.4, 100.5, 99.3, 100.4] : r));
     const b = bars(rows);
-    const o = patternOrders('X', b, days, detectPatterns(b, days), DEFAULT_SR, pp(), 2);
+    const o = patternOrders('X', b, days, detectPatterns(b, days, pp()), DEFAULT_SR, pp(), 2);
     assert.deepEqual([...o['top-buy'].keys()], [7]);
     assert.equal(o['top-sell'].size, 0);
   });
@@ -152,7 +189,7 @@ describe('patternOrders', () => {
     // the mirror for the bottom: under the strong bullish candle
     const m = cs.map(mirror);
     const mdays = fixedDays(m.length, [94, 100, 104]);
-    const [buy] = patternOrders('X', m, mdays, detectPatterns(m, mdays), wide, pp(), 2)['bottom-buy'].get(9)!;
+    const [buy] = patternOrders('X', m, mdays, detectPatterns(m, mdays, pp()), wide, pp(), 2)['bottom-buy'].get(9)!;
     assert.deepEqual([buy!.sl, buy!.slFrom], [100.3, 'candle']);
   });
 
@@ -188,7 +225,7 @@ describe('patternOrders', () => {
   it('mirrors the orders for bottoms', () => {
     const m = cs.map(mirror);
     const mdays = fixedDays(m.length, [94, 100, 104]);
-    const o = patternOrders('X', m, mdays, detectPatterns(m, mdays), DEFAULT_SR, pp(), 2);
+    const o = patternOrders('X', m, mdays, detectPatterns(m, mdays, pp()), DEFAULT_SR, pp(), 2);
     const [buy] = o['bottom-buy'].get(9)!;
     assert.deepEqual([buy!.side, buy!.entry, buy!.sl, buy!.tp], ['buy', 101, 99.8, 103.71]);
     const [sell] = o['bottom-sell'].get(7)!;
@@ -200,7 +237,7 @@ describe('patternOrders', () => {
     // the replay starts at candle 10: ten quiet candles first
     const long = bars([...Array.from({ length: 10 }, () => TOP[0]!), ...TOP]);
     const ldays = fixedDays(long.length);
-    const o = patternOrders('X', long, ldays, detectPatterns(long, ldays), DEFAULT_SR, pp(), 2);
+    const o = patternOrders('X', long, ldays, detectPatterns(long, ldays, pp()), DEFAULT_SR, pp(), 2);
     const trades = await replayOrders('X', { candles: long, digits: 2 }, { warmup: 0 }, (i) => {
       const c = o['top-sell'].get(i);
       return c ? { price: NaN, candidates: c } : null;
@@ -238,7 +275,8 @@ describe('runBacktest with a pattern strategy', () => {
         assert.equal(t.side, side[strategy]);
         if (t.side === 'buy') assert.ok(t.sl < t.entry && t.entry < t.tp);
         else assert.ok(t.sl > t.entry && t.entry > t.tp);
-        assert.ok(t.tpPips >= 2 * t.slPips - 0.1, `RR ${t.tpPips}/${t.slPips}`);
+        // prices are rounded to the digits, so a 2R TP can come out a rounding step short
+        assert.ok(t.tpPips >= 2 * t.slPips - 0.25, `RR ${t.tpPips}/${t.slPips}`);
       }
     }
     assert.ok(total > 0, 'no pattern trade at all');

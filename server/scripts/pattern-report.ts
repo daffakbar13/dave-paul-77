@@ -9,7 +9,8 @@
 //   node scripts/pattern-report.ts --data dump.json [--from 2004-01-01] [--to 2026-10-31]
 //        [--out dir] [--pairs EURUSD,GBPUSD] [--json results.json]
 // Pattern settings: --minDropAtr 1 --breakoutBufferAtr 0.1 --slBufferAtr 0.1 --minRr 2 --minTargetAtr 0
-//                   --slMode candle|pattern --slMaxRiskAtr 0.6 (candle SL wider than this falls back)
+//                   --slMode fixed|candle|pattern --slAtr 0.6 --slMaxRiskAtr 0.6 (candle SL wider falls back)
+//                   --tpMode rr|line --tpRr 2 --breakOn close|wick
 // The lines are always the locked SR_LINES.
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
@@ -34,13 +35,21 @@ const { values } = parseArgs({
     minTargetAtr: { type: 'string' },
     slMode: { type: 'string' },
     slMaxRiskAtr: { type: 'string' },
+    slAtr: { type: 'string' },
+    tpRr: { type: 'string' },
+    tpMode: { type: 'string' },
+    breakOn: { type: 'string' },
   },
 });
 if (!values.data) throw new Error('--data <dump.json> is required');
 
 const pp: PatternParams = { ...DEFAULT_PATTERN };
-for (const k of ['minDropAtr', 'breakoutBufferAtr', 'slBufferAtr', 'minRr', 'minTargetAtr'] as const) if (values[k] !== undefined) pp[k] = Number(values[k]);
-if (values.slMode === 'candle' || values.slMode === 'pattern') pp.slMode = values.slMode;
+for (const k of ['minDropAtr', 'breakoutBufferAtr', 'slBufferAtr', 'minRr', 'minTargetAtr', 'slAtr', 'tpRr'] as const) if (values[k] !== undefined) pp[k] = Number(values[k]);
+if (values.slMode === 'fixed' || values.slMode === 'candle' || values.slMode === 'pattern') pp.slMode = values.slMode;
+if (values.tpMode === 'rr' || values.tpMode === 'line') pp.tpMode = values.tpMode;
+if (values.breakOn === 'close' || values.breakOn === 'wick') pp.breakOn = values.breakOn;
+// a fixed RR TP always meets a minimum RR up to it
+if (pp.tpMode === 'rr' && values.minRr === undefined) pp.minRr = Math.min(pp.minRr, pp.tpRr);
 
 type Dump = Record<string, { digits: number; candles: Candle[] }>;
 const dump: Dump = JSON.parse(readFileSync(values.data, 'utf8'));
@@ -115,10 +124,9 @@ for (const [y, r] of [...tot.byYear].sort((a, b) => a[0] - b[0])) {
 
 // --- 2. the four strategies ---------------------------------------------------------
 const variants: { name: string; pp: PatternParams }[] = [
-  { name: 'low-1d', pp: { ...pp, entryMode: 'extreme', orderDays: 1 } },
   { name: 'close-1d', pp: { ...pp, entryMode: 'close', orderDays: 1 } },
-  { name: 'low-5d', pp: { ...pp, entryMode: 'extreme', orderDays: 5 } },
-  { name: 'low-10d', pp: { ...pp, entryMode: 'extreme', orderDays: 10 } },
+  { name: 'low-1d', pp: { ...pp, entryMode: 'extreme', orderDays: 1 } },
+  { name: 'close-5d', pp: { ...pp, entryMode: 'close', orderDays: 5 } },
 ];
 const ERAS: [string, number, number][] = [
   ['2004-09', 2004, 2009],
@@ -131,8 +139,8 @@ const lastT = Math.max(...pairs.map((sym) => perPair.get(sym)!.cs.at(-1)!.t));
 const testYears = (Math.min(lastT, opts.to ?? Infinity) - opts.from!) / (365.25 * 86_400_000);
 const results: Record<string, unknown> = {};
 const WS = [24, 6, 6, 7, 7, 6, 6, 6, 6, 9, 9, 9, 9];
-console.log(`\n== Strategies (min RR ${pp.minRr}, SL buffer ${pp.slBufferAtr} ATR, min target ${pp.minTargetAtr} ATR, SL ${pp.slMode} (max ${p.slMaxRiskAtr} ATR); risk 1%, compounding; net = after Maxrich spreads + USD 10/lot) ==`);
-console.log('"low" = reversal stop at the confirmation candle low/high, "close" = at its close; Nd = order stays N days. Breakout branches ignore the entry mode.\n');
+console.log(`\n== Strategies (min RR ${pp.minRr}, SL buffer ${pp.slBufferAtr} ATR, min target ${pp.minTargetAtr} ATR, SL ${pp.slMode === 'fixed' ? `${pp.slAtr} ATR` : `${pp.slMode} (max ${p.slMaxRiskAtr} ATR)`}, TP ${pp.tpMode === 'rr' ? `${pp.tpRr}R` : 'line'}, break on ${pp.breakOn}; risk 1%, compounding; net = after Maxrich spreads + USD 10/lot) ==`);
+console.log('"close" = reversal entry at the confirmation candle close, "low" = stop at its low/high; Nd = order stays N days. Breakout branches ignore the entry mode.\n');
 console.log(row(['strategy / variant', 'trades', 'win%', 'expR', 'netR', 'PF_R', 'netPF', 'maxL', '/yr', ...ERAS.map((e) => e[0]), 'candSL'], [...WS, 7]));
 for (const v of variants) {
   const raw: Record<string, RawTrade[]> = Object.fromEntries(PATTERN_STRATEGIES.map((s) => [s, []]));
@@ -158,7 +166,7 @@ for (const v of variants) {
   }
   for (const s of PATTERN_STRATEGIES) {
     // breakout branches do not depend on the entry mode
-    if (v.name === 'close-1d' && (s === 'top-buy' || s === 'bottom-sell')) continue;
+    if (v.name === 'low-1d' && (s === 'top-buy' || s === 'bottom-sell')) continue;
     const gross = compound(raw[s]!, 10_000, 1);
     const net = compound(withCosts(raw[s]!, DEFAULT_COSTS), 10_000, 1);
     const o = overall(gross, 10_000);
