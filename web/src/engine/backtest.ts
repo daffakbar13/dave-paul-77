@@ -7,8 +7,9 @@
 // Money is added afterwards (`compound`): every trade risks riskPct of the balance on the
 // day it fills, and the balance only counts trades that closed on an earlier day.
 import type { BtTrade } from './backtestStats.ts';
+import { DEFAULT_PATTERN, detectPatterns, linesByDay, PATTERN_STRATEGIES, patternOrders, type DayLines, type PatternEvent, type PatternOrders, type PatternParams, type PatternStrategy } from './patterns.ts';
 import { analyze, pipSize, roundTo } from './sr.ts';
-import type { Candle, Side, SrParams, SymbolData } from './types.ts';
+import type { Candidate, Candle, Side, SrParams, SymbolData } from './types.ts';
 
 const MIN_RISK_PIPS = 1e-6;
 
@@ -86,12 +87,13 @@ function settle(tr: RawTrade, result: 'TP' | 'SL', pip: number): void {
   tr.r = roundTo(tr.pips / tr.slPips, 4);
 }
 
-// Orders must have sane geometry; one with SL on its entry (no risk) is dropped.
+// Orders must have sane geometry; one with SL on its entry (no risk) is dropped. A NaN
+// `ref` skips the entry-beyond-price check (the pattern strategies place their own stops).
 function usable(side: Side, entry: number, sl: number, tp: number, ref: number, pip: number): boolean {
   if (!Number.isFinite(entry) || !Number.isFinite(sl) || !Number.isFinite(tp)) return false;
   if (Math.abs(entry - sl) / pip < MIN_RISK_PIPS) return false;
-  if (side === 'buy') return sl < entry && tp > entry && entry > ref;
-  return sl > entry && tp < entry && entry < ref;
+  if (side === 'buy') return sl < entry && tp > entry && (Number.isNaN(ref) || entry > ref);
+  return sl > entry && tp < entry && (Number.isNaN(ref) || entry < ref);
 }
 
 // Lets the event loop run after ~10 ms of work. A 22-year replay of one pair is a second of
@@ -109,7 +111,19 @@ export function makePause(everyMs = 10): () => Promise<void> {
   };
 }
 
-export async function replaySymbol(symbol: string, data: SymbolData, p: SrParams, opts: ReplayOptions, pause?: () => Promise<void>): Promise<RawTrade[]> {
+// The orders of one morning: candidates and the price they are checked against.
+export type DayOrders = { price: number; candidates: Candidate[] };
+
+// Breakout JohnPaul77: the engine's ladder orders of every morning.
+export function replaySymbol(symbol: string, data: SymbolData, p: SrParams, opts: ReplayOptions, pause?: () => Promise<void>): Promise<RawTrade[]> {
+  const cs = data.candles;
+  return replayOrders(symbol, data, opts, (i) => analyze(symbol, cs.slice(Math.max(0, i - p.lookback), i), p, data.digits, undefined, data.inputs), pause);
+}
+
+// The day loop shared by every strategy: `ordersAt(i)` gives the orders placed on the
+// morning of candle i (from closed candles only); fills, exits and the one position per
+// pair and side are the same for all of them.
+export async function replayOrders(symbol: string, data: SymbolData, opts: ReplayOptions, ordersAt: (i: number) => DayOrders | null, pause?: () => Promise<void>): Promise<RawTrade[]> {
   const cs = data.candles;
   const pip = pipSize(data.digits);
   const trades: RawTrade[] = [];
@@ -137,8 +151,9 @@ export async function replaySymbol(symbol: string, data: SymbolData, p: SrParams
 
     if (opts.from !== undefined && day.t < opts.from) continue;
 
-    const a = analyze(symbol, cs.slice(Math.max(0, i - p.lookback), i), p, data.digits, undefined, data.inputs);
+    const a = ordersAt(i);
     if (pause) await pause();
+    if (!a) continue;
     // the stop nearest the open is reached first, so it takes the side's one position
     const maxCostR = opts.costs?.enabled ? opts.costs.maxCostR : 0;
     const costPips = maxCostR > 0 ? costPipsOf(symbol, data.digits, opts.costs!) : 0;
@@ -180,6 +195,33 @@ export async function replaySymbol(symbol: string, data: SymbolData, p: SrParams
     }
   }
   return trades;
+}
+
+// The four double top / bottom strategies of one pair, each replayed on its own (its own
+// account, one position per side). The lines are worked out once for all four.
+export async function replayPattern(symbol: string, data: SymbolData, p: SrParams, pp: PatternParams, opts: ReplayOptions, pause?: () => Promise<void>): Promise<Record<PatternStrategy, RawTrade[]>> {
+  const { orders } = await patternsOf(symbol, data, p, pp, opts, pause);
+  const out = {} as Record<PatternStrategy, RawTrade[]>;
+  for (const s of PATTERN_STRATEGIES) {
+    out[s] = await replayOrders(symbol, data, opts, (i) => {
+      const candidates = orders[s].get(i);
+      return candidates ? { price: NaN, candidates } : null;
+    }, pause);
+  }
+  return out;
+}
+
+// Patterns and orders of one pair. The lines start maxBetweenBars before the first test
+// day, so a first top just before it still counts.
+export async function patternsOf(symbol: string, data: SymbolData, p: SrParams, pp: PatternParams, opts: ReplayOptions, pause?: () => Promise<void>): Promise<{ days: DayLines[]; events: PatternEvent[]; orders: PatternOrders }> {
+  const cs = data.candles;
+  const start = Math.max(opts.warmup, 10);
+  const first = opts.from === undefined ? start : cs.findIndex((c) => c.t >= opts.from!);
+  const fromIdx = first < 0 ? cs.length : Math.max(start, first);
+  const toIdx = opts.to === undefined ? cs.length - 1 : cs.findLastIndex((c) => c.t <= opts.to!);
+  const days = await linesByDay(cs, p, data.digits, Math.max(start, fromIdx - pp.maxBetweenBars), Math.min(cs.length - 1, toIdx + 1), pause);
+  const events = detectPatterns(cs, days, pp).filter((e) => e.second.i >= fromIdx && e.second.i <= toIdx);
+  return { days, events, orders: patternOrders(symbol, cs, days, events, pp, data.digits) };
 }
 
 // Applies the money: balance and risk per trade, compounding on closed trades.
@@ -351,6 +393,10 @@ export type BacktestInput = {
   from?: number;
   to?: number;
   costs?: CostSettings; // only for the maxCostR filter; the Net/Gross switch applies costs afterwards
+  // backtest only, never in the settings: 'breakout' (default) is Breakout JohnPaul77, the
+  // others trade one branch of the double top / bottom patterns (patterns.ts)
+  strategy?: 'breakout' | PatternStrategy;
+  pattern?: Partial<PatternParams>;
   onProgress?: (done: number, total: number) => void;
   pause?: () => Promise<void>; // default: give the event loop a turn every ~10 ms; a worker passes a no-op
 };
@@ -376,7 +422,11 @@ export async function runBacktest(input: BacktestInput): Promise<BacktestRun> {
   for (const name of names) {
     const d = input.data.get(name)!;
     coverage.push(coverageOf(name, d.candles, opts));
-    for (const t of await replaySymbol(name, d, input.params, opts, pause)) if (t.result !== 'Open') raw.push(t);
+    const strategy = input.strategy ?? 'breakout';
+    const trades = strategy === 'breakout'
+      ? await replaySymbol(name, d, input.params, opts, pause)
+      : await replayPattern(name, d, input.params, { ...DEFAULT_PATTERN, ...input.pattern }, opts, pause).then((r) => r[strategy]);
+    for (const t of trades) if (t.result !== 'Open') raw.push(t);
     input.onProgress?.(++done, names.length);
     await pause();
   }
