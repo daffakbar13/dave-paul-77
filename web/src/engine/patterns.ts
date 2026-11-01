@@ -1,24 +1,27 @@
-// Double top / double bottom on the locked S/R lines. Backtest only: nothing here reaches
-// the live orders, the EA or the settings.
+// Double top / double bottom, traded to the locked S/R lines. Backtest only: nothing here
+// reaches the live orders, the EA or the settings.
 //
-// A top is a D1 candle that comes up into a resistance line's zone (clusterAtr x ATR on
-// either side of the line) from below and closes back under the line. A double top is a
-// second top at the same line (within the same zone) after price first dropped away from
-// the line by at least minDropAtr x ATR; without that drop it is one long push and the
-// later candle replaces the first. After a double top the second top is the first top of
-// the next one (a triple top gives two patterns). Bottoms are the mirror at support, and
-// are found by running the top rules on the price mirror. No neckline, no trend filter.
+// Top 1 is a swing high: higher than the swingBars candles on each side, so it is known
+// only once the last of them has closed. Once price has pulled back from it by at least
+// minDropAtr x ATR, the first candle that comes back up into its zone (sameTopAtr x ATR
+// under the high, or above it) is top 2: the double top. It needs no rejection of its own
+// and there is no time limit between the tops; a higher high before the pullback means
+// there was no top 1. What follows decides it: a reversal candle and a fall to the target
+// (success), or no reversal and a break past top 1 (fail), also when top 2 itself breaks
+// straight through. Top 2 is the next top 1 unless it broke the level (a triple top gives
+// two patterns). Bottoms are the mirror, found by running the same rules on the price
+// mirror. No neckline, no trend filter. This follows the boxes JohnPaul77 marks by hand.
 //
-// The lines of a day are the ones the engine drew that morning from the candles that had
+// The targets are the engine's S/R lines of that morning, drawn from the candles that had
 // closed, exactly as replaySymbol sees them, so the walk never looks ahead. Every distance
 // is in ATR or in the gap between two lines, never in pips, so pairs and decades compare.
 //
-// A pattern resolves one of two ways: the reversal (price reaches the next line beyond,
-// less tpGap x g, the same TP the ladder uses) or the breakout (price trades past the
-// tops' extreme by breakoutBufferAtr x ATR). Whichever comes first decides; a candle that
-// does both, or nothing within resolveBars, leaves it grey. The four strategies trade
-// the two branches of tops and of bottoms; each is meant for its own account.
-import { analyze, roundTo, SR_LINES, strongBehind } from './sr.ts';
+// The reversal target is the next line beyond the pattern, less tpGap x g (the TP the
+// ladder uses); the break level is top 1 + breakoutBufferAtr x ATR. Whichever is traded
+// first decides; a candle that does both, or nothing within resolveBars, leaves it grey.
+// The four strategies trade the two branches of tops and of bottoms; each is meant for
+// its own account.
+import { analyze, roundTo, strongBehind } from './sr.ts';
 import type { Candidate, Candle, Line, Side, SrParams } from './types.ts';
 
 export type PatternKind = 'top' | 'bottom';
@@ -27,35 +30,39 @@ export type PatternStrategy = 'top-sell' | 'top-buy' | 'bottom-buy' | 'bottom-se
 export const PATTERN_STRATEGIES: PatternStrategy[] = ['top-sell', 'top-buy', 'bottom-buy', 'bottom-sell'];
 
 export type PatternParams = {
-  minDropAtr: number; // drop away from the line between the two tops
-  breakoutBufferAtr: number; // breakout level = tops' extreme + this x ATR
-  slBufferAtr: number; // reversal SL beyond the extreme, breakout SL beyond the line zone
+  swingBars: number; // top 1: higher than this many candles on each side
+  sameTopAtr: number; // top 2 comes within this x ATR of top 1 (its zone)
+  minDropAtr: number; // pullback from top 1 before top 2 counts
+  breakoutBufferAtr: number; // break level = top 1 + this x ATR
+  slBufferAtr: number; // reversal SL beyond the tops, breakout SL beyond the zone
   minRr: number; // orders with a smaller TP / SL distance are not placed
   tpGap: number; // TP = next line - tpGap x g, as in the ladder
-  // the TP line must lie at least this x ATR beyond the pattern line; 0 = simply the next
-  // line. The locked lines sit ~0.75 ATR apart, so the next line is often within a candle.
+  // the TP line must lie at least this x ATR beyond top 1 (and beyond its zone); 0 = the
+  // next line past the zone
   minTargetAtr: number;
-  maxBetweenBars: number; // a first top older than this many candles is forgotten
+  maxBetweenBars: number; // a top 1 older than this many candles is forgotten; 0 = never
   resolveBars: number; // a pattern undecided after this many candles is grey
   // reversal entry: 'extreme' = stop at the confirmation candle's low (high for bottoms),
   // 'close' = stop at its close, i.e. about the next open
   entryMode: 'extreme' | 'close';
-  orderDays: number; // days an order stays up (1 = only the next day), unless invalidated
+  orderDays: number; // days an order stays up after it is placed, unless invalidated
   // 'candle' = SL behind the nearest strong candle, the rule of Breakout JohnPaul77's
   // candle SL (strongBehind with the strong* / bufferAtr / slMaxRiskAtr settings), falling
   // back to the pattern SL when there is none or it is too wide; 'pattern' = always the
-  // pattern SL (beyond the tops for the reversal, under the line zone for the breakout)
+  // pattern SL (beyond the tops for the reversal, under the zone for the breakout)
   slMode: 'candle' | 'pattern';
 };
 
 export const DEFAULT_PATTERN: PatternParams = {
-  minDropAtr: 1,
+  swingBars: 3,
+  sameTopAtr: 0.5,
+  minDropAtr: 2,
   breakoutBufferAtr: 0.1,
   slBufferAtr: 0.1,
   minRr: 2,
   tpGap: 0.07,
   minTargetAtr: 0,
-  maxBetweenBars: 120,
+  maxBetweenBars: 0,
   resolveBars: 60,
   entryMode: 'extreme',
   orderDays: 1,
@@ -69,12 +76,12 @@ export type Touch = { i: number; t: number; extreme: number }; // extreme: high 
 
 export type PatternEvent = {
   kind: PatternKind;
-  line: number; // the line at the second touch
-  atr: number; // ATR on the morning of the second touch
+  line: number; // the pattern level: top 1's high (low of a bottom)
+  atr: number; // ATR when top 1 became known; every distance of the pattern uses it
   first: Touch;
   second: Touch;
-  extreme: number; // highest high of the tops (lowest low of the bottoms)
-  breakLevel: number; // extreme + breakoutBufferAtr x ATR
+  extreme: number; // highest high of the two tops (lowest low of the bottoms)
+  breakLevel: number; // top 1 + breakoutBufferAtr x ATR
   target: number | null; // reversal TP; null when no line lies beyond the pattern
   status: PatternStatus;
   resolvedAt: number | null; // the candle that decided it
@@ -96,74 +103,82 @@ export async function linesByDay(cs: Candle[], p: SrParams, digits: number, from
   return out;
 }
 
-// The line a candle tops at: it opens and closes below the line, its high lies in the
-// line's zone. Of two lines the one nearest the high.
-function topLine(c: Candle, d: NonNullable<DayLines>): number | null {
-  const zone = SR_LINES.clusterAtr * d.atr;
-  let best: number | null = null;
-  for (const l of d.lines) {
-    if (!(c.o < l.price && c.c < l.price && c.h >= l.price - zone && c.h <= l.price + zone)) continue;
-    if (best === null || Math.abs(c.h - l.price) < Math.abs(c.h - best)) best = l.price;
-  }
-  return best;
+// Reversal TP below a top at `level`: the next line under its zone (and at least
+// minTargetAtr away), plus tpGap x g.
+function targetBelow(level: number, d: DayLines, atrValue: number, pp: PatternParams): number | null {
+  if (!d) return null;
+  const gap = Math.max(pp.sameTopAtr, pp.minTargetAtr) * atrValue;
+  const next = d.lines.filter((l) => l.price < level - gap).reduce<number | null>((m, l) => (m === null || l.price > m ? l.price : m), null);
+  return next === null ? null : next + pp.tpGap * (level - next);
 }
 
-// Reversal TP below a resistance at `line`: the next line under its zone (and at least
-// minTargetAtr away), plus tpGap x g.
-function targetBelow(line: number, d: DayLines, pp: PatternParams): number | null {
-  if (!d) return null;
-  const gap = Math.max(SR_LINES.clusterAtr, pp.minTargetAtr) * d.atr;
-  const next = d.lines.filter((l) => l.price < line - gap).reduce<number | null>((m, l) => (m === null || l.price > m ? l.price : m), null);
-  return next === null ? null : next + pp.tpGap * (line - next);
+function isSwingHigh(cs: Candle[], k: number, n: number): boolean {
+  for (let m = 1; m <= n; m++) if (!(cs[k]!.h > cs[k - m]!.h && cs[k]!.h > cs[k + m]!.h)) return false;
+  return true;
 }
 
 // Double tops of an (oriented) series; bottoms come from the mirror.
 function findTops(cs: Candle[], days: DayLines[], pp: PatternParams, kind: PatternKind): PatternEvent[] {
-  type Pending = { anchor: number; touch: Touch; low: number };
-  let pending: Pending[] = [];
+  // armed: the pullback is done, so the next candle in the zone is top 2
+  type Top = { touch: Touch; atr: number; low: number; armed: boolean };
+  let tops: Top[] = [];
+  const seen = new Set<number>(); // candles that have been a top 1 once
   const out: PatternEvent[] = [];
+  const n = pp.swingBars;
   for (let i = 0; i < cs.length; i++) {
     const c = cs[i]!;
     const d = days[i];
-    if (!d) continue;
-    const zone = SR_LINES.clusterAtr * d.atr;
-    const line = topLine(c, d);
-    let touched: Pending | null = null;
-    if (line !== null) {
-      const touch: Touch = { i, t: c.t, extreme: c.h };
-      const k = pending.findIndex((q) => Math.abs(q.anchor - line) <= zone);
-      const q = pending[k];
-      if (q && line - q.low >= pp.minDropAtr * d.atr) {
-        out.push(resolve(cs, days, pp, kind, q.touch, touch, line, d.atr));
-        touched = { anchor: line, touch, low: Infinity };
-        pending[k] = touched;
-      } else if (q) {
-        // no drop in between: the same push, carried on by this candle
-        touched = { anchor: line, touch: { ...touch, extreme: Math.max(q.touch.extreme, c.h) }, low: Infinity };
-        pending[k] = touched;
-      } else {
-        touched = { anchor: line, touch, low: Infinity };
-        pending.push(touched);
+    // this candle against the tops known this morning
+    const next: Top[] = [];
+    for (const q of tops) {
+      if (q.armed && c.h >= q.touch.extreme - pp.sameTopAtr * q.atr) {
+        const e = resolve(cs, days, pp, kind, q, { i, t: c.t, extreme: c.h });
+        out.push(e);
+        // top 2 is the next top 1, unless it broke the level
+        if (c.h < e.breakLevel && !seen.has(i)) {
+          seen.add(i);
+          next.push({ touch: e.second, atr: d?.atr ?? q.atr, low: Infinity, armed: false });
+        }
+        continue;
       }
+      if (!q.armed && c.h > q.touch.extreme) continue; // higher before any pullback: no top
+      if (pp.maxBetweenBars > 0 && i - q.touch.i > pp.maxBetweenBars) continue;
+      next.push(q);
     }
-    // a close above the zone breaks the line; an old first top is forgotten
-    pending = pending.filter((q) => q === touched || (c.c <= q.anchor + zone && i - q.touch.i <= pp.maxBetweenBars));
-    for (const q of pending) if (q !== touched) q.low = Math.min(q.low, c.l);
+    tops = next;
+    // the pullback, counted at the close
+    for (const q of tops) {
+      if (q.touch.i === i) continue;
+      q.low = Math.min(q.low, c.l);
+      if (!q.armed && q.touch.extreme - q.low >= pp.minDropAtr * q.atr) q.armed = true;
+    }
+    // a swing high whose right side closes with this candle; known from tomorrow
+    const k = i - n;
+    const atrValue = days[i + 1]?.atr ?? d?.atr;
+    if (k >= n && atrValue && isSwingHigh(cs, k, n) && !seen.has(k)) {
+      seen.add(k);
+      const low = Math.min(...cs.slice(k + 1, i + 1).map((x) => x.l));
+      tops.push({ touch: { i: k, t: cs[k]!.t, extreme: cs[k]!.h }, atr: atrValue, low, armed: cs[k]!.h - low >= pp.minDropAtr * atrValue });
+    }
   }
   return out;
 }
 
-function resolve(cs: Candle[], days: DayLines[], pp: PatternParams, kind: PatternKind, first: Touch, second: Touch, line: number, atrValue: number): PatternEvent {
-  const extreme = Math.max(first.extreme, second.extreme);
-  const breakLevel = extreme + pp.breakoutBufferAtr * atrValue;
-  // the lines once the second top has closed
-  const target = targetBelow(line, days[second.i + 1] ?? days[second.i] ?? null, pp);
-  const e: PatternEvent = { kind, line, atr: atrValue, first, second, extreme, breakLevel, target, status: 'grey', resolvedAt: null };
+function resolve(cs: Candle[], days: DayLines[], pp: PatternParams, kind: PatternKind, top: { touch: Touch; atr: number }, second: Touch): PatternEvent {
+  const first = top.touch;
+  const level = first.extreme;
+  const breakLevel = level + pp.breakoutBufferAtr * top.atr;
+  const extreme = Math.max(level, Math.min(second.extreme, breakLevel));
+  // the lines once top 2 has closed
+  const target = targetBelow(level, days[second.i + 1] ?? days[second.i] ?? null, top.atr, pp);
+  const e: PatternEvent = { kind, line: level, atr: top.atr, first, second, extreme, breakLevel, target, status: 'grey', resolvedAt: null };
   const last = Math.min(second.i + pp.resolveBars, cs.length - 1);
-  for (let k = second.i + 1; k <= last; k++) {
+  // top 2 itself can break straight through; its low came before it rose, so it never
+  // reaches the target
+  for (let k = second.i; k <= last; k++) {
     const c = cs[k]!;
     const up = c.h >= breakLevel;
-    const down = target !== null && c.l <= target;
+    const down = k > second.i && target !== null && c.l <= target;
     if (!up && !down) continue;
     e.resolvedAt = c.t;
     if (up && down) e.greyBy = 'both';
@@ -194,15 +209,17 @@ export function detectPatterns(cs: Candle[], days: DayLines[], pp: PatternParams
 // --- orders ----------------------------------------------------------------------
 // Each pattern gives two stop orders, one per branch, worked out on the oriented series
 // (a top; bottoms through the mirror):
-//   reversal: after the second top, the first bearish candle (close < open) is the
-//     confirmation; sell stop at its low (or close), TP at the next line below less
-//     tpGap x g.
-//   breakout: from the day after the second top, buy stop at the break level, TP at the
-//     next line above less tpGap x g.
+//   reversal: from top 2 on, the first bearish candle (close < open; top 2 itself counts)
+//     is the reversal candle; sell stop at its low (or close) from the next day, TP at the
+//     next line below less tpGap x g.
+//   breakout: buy stop at the break level, TP at the next line above less tpGap x g. It
+//     stands once the pullback from top 1 is done, so it is there on the morning of top 2
+//     (a top 2 that breaks straight through fills it); only that morning and the
+//     orderDays after it can fill, so those are the days it is placed.
 // The SL sits behind the nearest strong candle on the SL side of the entry, as the candle
 // SL of Breakout JohnPaul77 does at its line (slMode 'candle'); without one, or when that
 // risks more than slMaxRiskAtr x ATR, it is the pattern SL: above the extreme +
-// slBufferAtr for the reversal, under the line zone - slBufferAtr for the breakout.
+// slBufferAtr for the reversal, under the zone of top 1 - slBufferAtr for the breakout.
 // Each order is placed only with TP / SL >= minRr and stays up orderDays days. When price
 // reaches one branch's entry the pattern has resolved and the other branch is withdrawn,
 // whatever the account of that branch could take, so the four stay independent. Before
@@ -217,7 +234,7 @@ export type PatternOrders = Record<PatternStrategy, Map<number, Candidate[]>>;
 function planOrders(cs: Candle[], days: DayLines[], e: PatternEvent, p: SrParams, pp: PatternParams, emit: (branch: 'rev' | 'brk', day: number, o: Plan) => void): void {
   const j = e.second.i;
   const A = e.atr;
-  const zone = SR_LINES.clusterAtr * A;
+  const zone = pp.sameTopAtr * A;
   const okRr = (entry: number, sl: number, tp: number) => Math.abs(tp - entry) >= pp.minRr * Math.abs(entry - sl) && Math.abs(entry - sl) > 0;
   // the SL of an order placed on the morning of candle `day`, from the candles closed by then
   const slOf = (side: Side, entry: number, day: number, fallback: number): { sl: number; slFrom: 'candle' | 'ladder' } => {
@@ -234,19 +251,19 @@ function planOrders(cs: Candle[], days: DayLines[], e: PatternEvent, p: SrParams
   };
 
   let brk: Plan | null = null;
-  const dB = days[j + 1];
+  const dB = days[j];
   if (dB) {
     const entry = e.breakLevel;
-    const { sl, slFrom } = slOf('buy', entry, j + 1, e.line - zone - pp.slBufferAtr * A);
+    const { sl, slFrom } = slOf('buy', entry, j, e.line - zone - pp.slBufferAtr * A);
     const next = dB.lines.filter((l) => l.price > Math.max(entry, e.line + pp.minTargetAtr * A)).reduce<number | null>((m, l) => (m === null || l.price < m ? l.price : m), null);
     const tp = next === null ? null : next - pp.tpGap * (next - e.line);
-    if (tp !== null && tp > entry && okRr(entry, sl, tp)) brk = { side: 'buy', entry, sl, tp, from: j + 1, to: j + pp.orderDays, slFrom };
+    if (tp !== null && tp > entry && okRr(entry, sl, tp)) brk = { side: 'buy', entry, sl, tp, from: j, to: j + pp.orderDays, slFrom };
   }
 
   let rev: Plan | null = null;
   let searching = true; // still waiting for the confirmation candle
   const last = Math.min(j + pp.resolveBars, cs.length - 1);
-  for (let d = j + 1; d <= last; d++) {
+  for (let d = j; d <= last; d++) {
     const revLive = rev && d >= rev.from && d <= rev.to;
     const brkLive = brk && d <= brk.to;
     if (!revLive && !brkLive && !searching) return;
@@ -260,16 +277,16 @@ function planOrders(cs: Candle[], days: DayLines[], e: PatternEvent, p: SrParams
       searching = false;
     }
     if (rev && c.h >= rev.sl) rev = null;
-    if (e.target !== null && c.l <= e.target) {
+    if (d > j && e.target !== null && c.l <= e.target) {
       brk = null;
       searching = false;
     }
     if (searching && c.c < c.o) {
-      // the first bearish candle confirms; one chance only
+      // the first bearish candle is the reversal; one chance only
       searching = false;
       const entry = pp.entryMode === 'close' ? c.c : c.l;
       const { sl, slFrom } = slOf('sell', entry, d + 1, e.extreme + pp.slBufferAtr * A);
-      const tp = targetBelow(e.line, days[d + 1] ?? null, pp);
+      const tp = targetBelow(e.line, days[d + 1] ?? null, A, pp);
       if (tp !== null && tp < entry && okRr(entry, sl, tp)) rev = { side: 'sell', entry, sl, tp, from: d + 1, to: d + pp.orderDays, slFrom };
     }
   }

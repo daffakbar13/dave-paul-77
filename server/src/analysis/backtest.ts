@@ -211,15 +211,15 @@ export async function replayPattern(symbol: string, data: SymbolData, p: SrParam
   return out;
 }
 
-// Patterns and orders of one pair. The lines start maxBetweenBars before the first test
-// day, so a first top just before it still counts.
+// Patterns and orders of one pair. The lines start a lookback (about 2 years) before the
+// first test day, so a top 1 from before it still counts.
 export async function patternsOf(symbol: string, data: SymbolData, p: SrParams, pp: PatternParams, opts: ReplayOptions, pause?: () => Promise<void>): Promise<{ days: DayLines[]; events: PatternEvent[]; orders: PatternOrders }> {
   const cs = data.candles;
   const start = Math.max(opts.warmup, 10);
   const first = opts.from === undefined ? start : cs.findIndex((c) => c.t >= opts.from!);
   const fromIdx = first < 0 ? cs.length : Math.max(start, first);
   const toIdx = opts.to === undefined ? cs.length - 1 : cs.findLastIndex((c) => c.t <= opts.to!);
-  const days = await linesByDay(cs, p, data.digits, Math.max(start, fromIdx - pp.maxBetweenBars), Math.min(cs.length - 1, toIdx + 1), pause);
+  const days = await linesByDay(cs, p, data.digits, Math.max(start, fromIdx - (pp.maxBetweenBars || p.lookback)), Math.min(cs.length - 1, toIdx + 1), pause);
   const events = detectPatterns(cs, days, pp).filter((e) => e.second.i >= fromIdx && e.second.i <= toIdx);
   return { days, events, orders: patternOrders(symbol, cs, days, events, p, pp, data.digits) };
 }
