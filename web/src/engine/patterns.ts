@@ -83,6 +83,22 @@ export const DEFAULT_PATTERN: PatternParams = {
   slAtr: 0.6,
 };
 
+// Settings locked per strategy after the in-sample / out-of-sample check (Nov 2026): chosen
+// on 2004-15 only, from the middle of a stable area (pullback 1.5-2 ATR, SL 1-1.5 ATR, TP
+// 2-3R all held up), then tested once on 2016-26. top-buy: +0.12R in-sample, +0.09R
+// out-of-sample net, against +0.00 / +0.05R for a buy on every day with the same SL/TP.
+// Strategies without an entry run on DEFAULT_PATTERN.
+export const PATTERN_LOCKED: Partial<Record<PatternStrategy, Partial<PatternParams>>> = {
+  'top-buy': { minDropAtr: 1.5, breakOn: 'close', slMode: 'fixed', slAtr: 1.5, tpMode: 'rr', tpRr: 2, orderDays: 1 },
+};
+
+// The settings a strategy runs on: its locked ones, then any override of a test.
+export const patternParamsFor = (strategy: PatternStrategy, overrides: Partial<PatternParams> = {}): PatternParams => ({
+  ...DEFAULT_PATTERN,
+  ...PATTERN_LOCKED[strategy],
+  ...overrides,
+});
+
 // The lines and ATR the engine had on the morning of a candle; null where not computed.
 export type DayLines = { lines: Line[]; atr: number } | null;
 

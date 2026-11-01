@@ -7,7 +7,7 @@
 // Money is added afterwards (`compound`): every trade risks riskPct of the balance on the
 // day it fills, and the balance only counts trades that closed on an earlier day.
 import type { BtTrade } from './backtestStats.ts';
-import { DEFAULT_PATTERN, detectPatterns, linesByDay, PATTERN_STRATEGIES, patternOrders, type DayLines, type PatternEvent, type PatternOrders, type PatternParams, type PatternStrategy } from './patterns.ts';
+import { detectPatterns, linesByDay, PATTERN_STRATEGIES, patternOrders, patternParamsFor, type DayLines, type PatternEvent, type PatternOrders, type PatternParams, type PatternStrategy } from './patterns.ts';
 import { analyze, pipSize, roundTo } from './sr.ts';
 import type { Candidate, Candle, Side, SrParams, SymbolData } from './types.ts';
 
@@ -425,7 +425,7 @@ export async function runBacktest(input: BacktestInput): Promise<BacktestRun> {
     const strategy = input.strategy ?? 'breakout';
     const trades = strategy === 'breakout'
       ? await replaySymbol(name, d, input.params, opts, pause)
-      : await replayPattern(name, d, input.params, { ...DEFAULT_PATTERN, ...input.pattern }, opts, pause).then((r) => r[strategy]);
+      : await replayPattern(name, d, input.params, patternParamsFor(strategy, input.pattern), opts, pause).then((r) => r[strategy]);
     for (const t of trades) if (t.result !== 'Open') raw.push(t);
     input.onProgress?.(++done, names.length);
     await pause();

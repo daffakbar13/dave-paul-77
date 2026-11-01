@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { replayOrders, runBacktest } from './backtest.ts';
-import { DEFAULT_PATTERN, detectPatterns, patternOrders, patternStats, type DayLines, type PatternParams } from './patterns.ts';
+import { DEFAULT_PATTERN, detectPatterns, patternOrders, patternParamsFor, patternStats, type DayLines, type PatternParams } from './patterns.ts';
 import { DEFAULT_SR } from './sr.ts';
 import type { Candle, Line } from './types.ts';
 
@@ -150,6 +150,16 @@ describe('JohnPaul77 model (defaults)', () => {
     const [buy] = orders['top-buy'].get(9)!;
     assert.deepEqual([buy!.side, buy!.entry, buy!.sl, buy!.tp], ['buy', 100.4, 99.8, 101.6]);
     assert.equal(orders['top-sell'].size, 0);
+  });
+});
+
+describe('patternParamsFor', () => {
+  it('gives top-buy its locked settings and leaves the others on the defaults', () => {
+    const tb = patternParamsFor('top-buy');
+    assert.deepEqual([tb.minDropAtr, tb.slAtr, tb.tpRr, tb.breakOn, tb.slMode, tb.tpMode, tb.orderDays], [1.5, 1.5, 2, 'close', 'fixed', 'rr', 1]);
+    assert.deepEqual(patternParamsFor('top-sell'), DEFAULT_PATTERN);
+    // a test can still override a locked value
+    assert.equal(patternParamsFor('top-buy', { slAtr: 1 }).slAtr, 1);
   });
 });
 
