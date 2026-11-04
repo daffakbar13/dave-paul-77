@@ -34,7 +34,10 @@ export const valuePair = (symbol: string) => VALUE[symbol] ?? null;
 export type SignalRow = {
   id: string;
   symbol: string;
+  side: OrderRow['side'];
   type: OrderRow['type'];
+  running: boolean;
+  reason?: string;
   entry: number;
   sl: number;
   tp: number;
@@ -47,39 +50,47 @@ export type SignalRow = {
 
 const round1 = (v: number) => Math.round(v * 10) / 10;
 
-// Valid app orders as TF signals, with every limit that would make TF reject one.
-export function toSignals(rows: OrderRow[]): SignalRow[] {
+// Pips, RR, Valued Pips and every per-signal limit that would make TF reject it.
+// The gap between two signals on one side is TF's own check against signals already
+// sent, so it is not repeated here.
+export function tfCheck(symbol: string, entry: number, sl: number, tp: number) {
+  const pip = pipSize(symbol);
+  const group = GROUPS[symbol];
+  const slPips = round1(Math.abs(entry - sl) / pip);
+  const tpPips = round1(Math.abs(tp - entry) / pip);
+  const rr = slPips > 0 ? tpPips / slPips : 0;
+  const value = VALUE[symbol] ?? null;
+  const problems: string[] = [];
+  if (!group) problems.push(tr('Pair tidak ada di aturan TF', 'Pair is not in the TF rules'));
+  else {
+    if (slPips < group.minPips) problems.push(`SL ${slPips} < min ${group.minPips} pips`);
+    if (slPips > group.maxPips) problems.push(tr(`SL ${slPips} > maks ${group.maxPips} pips`, `SL ${slPips} > max ${group.maxPips} pips`));
+    if (tpPips < group.minPips) problems.push(`TP ${tpPips} < min ${group.minPips} pips`);
+    if (tpPips > group.maxPips) problems.push(tr(`TP ${tpPips} > maks ${group.maxPips} pips`, `TP ${tpPips} > max ${group.maxPips} pips`));
+  }
+  if (rr > MAX_RR + 1e-9) problems.push(tr(`RR 1:${rr.toFixed(1)} melebihi 1:${MAX_RR}`, `RR 1:${rr.toFixed(1)} exceeds 1:${MAX_RR}`));
+  return { slPips, tpPips, rr, vp: value === null ? null : round1(tpPips * value), problems };
+}
+
+// One buy stop and one sell stop per pair, in the server's pair order. A side with a
+// running position shows that position (the latest-filled level when several run);
+// otherwise its nearest valid stop: the lowest buy stop, the highest sell stop (both
+// sit on their side of price, so no quote is needed).
+export function nearestSignals(rows: OrderRow[]): SignalRow[] {
   const out: SignalRow[] = [];
-  const valid = rows.filter((r) => r.status === 'valid' && r.entry !== null && r.sl !== null && r.tp !== null);
-  const symbols = [...new Set(valid.map((r) => r.symbol))].sort();
+  const priced = rows.filter((r) => r.entry !== null && r.sl !== null && r.tp !== null);
+  const symbols = [...new Set(rows.map((r) => r.symbol))];
   for (const symbol of symbols) {
-    const pip = pipSize(symbol);
-    const group = GROUPS[symbol];
-    const list = valid.filter((r) => r.symbol === symbol).sort((a, b) => a.entry! - b.entry!);
-    const lastEntry: Partial<Record<OrderRow['side'], number>> = {};
-    for (const r of list) {
-      const slPips = round1(Math.abs(r.entry! - r.sl!) / pip);
-      const tpPips = round1(Math.abs(r.tp! - r.entry!) / pip);
-      const rr = slPips > 0 ? tpPips / slPips : 0;
-      const value = VALUE[symbol] ?? null;
-      const problems: string[] = [];
-      if (!group) problems.push(tr('Pair tidak ada di aturan TF', 'Pair is not in the TF rules'));
-      else {
-        if (slPips < group.minPips) problems.push(`SL ${slPips} < min ${group.minPips} pips`);
-        if (slPips > group.maxPips) problems.push(tr(`SL ${slPips} > maks ${group.maxPips} pips`, `SL ${slPips} > max ${group.maxPips} pips`));
-        if (tpPips < group.minPips) problems.push(`TP ${tpPips} < min ${group.minPips} pips`);
-        if (tpPips > group.maxPips) problems.push(tr(`TP ${tpPips} > maks ${group.maxPips} pips`, `TP ${tpPips} > max ${group.maxPips} pips`));
-        const prev = lastEntry[r.side];
-        if (prev !== undefined) {
-          const gap = round1(Math.abs(r.entry! - prev) / pip);
-          if (gap < group.gap) problems.push(tr(`Selisih ke signal sebelumnya ${gap} < ${group.gap} pips`, `Gap to the previous signal ${gap} < ${group.gap} pips`));
-        }
-      }
-      if (rr > MAX_RR + 1e-9) problems.push(tr(`RR 1:${rr.toFixed(1)} melebihi 1:${MAX_RR}`, `RR 1:${rr.toFixed(1)} exceeds 1:${MAX_RR}`));
-      lastEntry[r.side] = r.entry!;
+    for (const side of ['buy', 'sell'] as const) {
+      const mine = priced.filter((r) => r.symbol === symbol && r.side === side);
+      const higherFirst = (a: OrderRow, b: OrderRow) => b.entry! - a.entry!;
+      const running = mine.filter((r) => r.status === 'running').sort(side === 'buy' ? higherFirst : (a, b) => -higherFirst(a, b));
+      const valid = mine.filter((r) => r.status === 'valid').sort(side === 'buy' ? (a, b) => -higherFirst(a, b) : higherFirst);
+      const r = running[0] ?? valid[0];
+      if (!r) continue;
       out.push({
-        id: r.id, symbol, type: r.type, entry: r.entry!, sl: r.sl!, tp: r.tp!, slPips, tpPips, rr,
-        vp: value === null ? null : round1(tpPips * value), problems,
+        id: r.id, symbol, side, type: r.type, running: r.status === 'running', reason: r.reason,
+        entry: r.entry!, sl: r.sl!, tp: r.tp!, ...tfCheck(symbol, r.entry!, r.sl!, r.tp!),
       });
     }
   }

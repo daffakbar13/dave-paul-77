@@ -6,6 +6,7 @@ import { Chart } from './components/Chart.tsx';
 import { ExecuteModal } from './components/ExecuteModal.tsx';
 import { JournalModal } from './components/JournalModal.tsx';
 import { NewsModal } from './components/NewsModal.tsx';
+import { SignalsModal } from './components/SignalsModal.tsx';
 import { PendingModal } from './components/PendingModal.tsx';
 import { SettingsModal } from './components/SettingsModal.tsx';
 import { ago, fmtDate, fmtMoney, fmtNewsTime } from './format.ts';
@@ -93,7 +94,7 @@ function Login({ onDone }: { onDone: () => void }) {
   );
 }
 
-type ModalKind = 'pending' | 'execute' | 'settings' | 'calibration' | 'journal' | 'news' | 'backtest' | null;
+type ModalKind = 'pending' | 'execute' | 'settings' | 'calibration' | 'journal' | 'news' | 'backtest' | 'signals' | null;
 
 const MT4_STALE_MINUTES = 10;
 
@@ -255,6 +256,9 @@ function Main({ onLogout }: { onLogout: () => void }) {
           <button type="button" onClick={() => setModal('pending')}>
             Pending Orders
           </button>
+          <button type="button" onClick={() => setModal('signals')}>
+            {t('Sinyal TF', 'TF signals')}
+          </button>
           <button type="button" className="primary" onClick={() => setModal('execute')}>
             Execute
           </button>
@@ -344,6 +348,7 @@ function Main({ onLogout }: { onLogout: () => void }) {
       {modal === 'execute' && (
         <ExecuteModal accounts={accounts} initialAccountId={accountId} aggressive={aggressive} onClose={() => setModal(null)} onChanged={refresh} />
       )}
+      {modal === 'signals' && <SignalsModal account={account} aggressive={aggressive} newsPairs={newsPairs} news={feed?.news ?? []} onClose={() => setModal(null)} />}
       {modal === 'settings' && <SettingsModal onClose={() => setModal(null)} onChanged={refresh} />}
       {modal === 'journal' && <JournalModal accounts={accounts} initialAccountId={accountId} onClose={() => setModal(null)} />}
       {modal === 'backtest' && <BacktestModal onClose={() => setModal(null)} />}
