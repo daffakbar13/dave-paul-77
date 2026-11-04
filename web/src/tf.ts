@@ -72,14 +72,14 @@ export function tfCheck(symbol: string, entry: number, sl: number, tp: number) {
   return { slPips, tpPips, rr, vp: value === null ? null : round1(tpPips * value), problems };
 }
 
-// One buy stop and one sell stop per pair, in the server's pair order. A side with a
+// One buy stop and one sell stop per pair, pairs A-Z, buy before sell. A side with a
 // running position shows that position (the latest-filled level when several run);
 // otherwise its nearest valid stop: the lowest buy stop, the highest sell stop (both
 // sit on their side of price, so no quote is needed).
 export function nearestSignals(rows: OrderRow[]): SignalRow[] {
   const out: SignalRow[] = [];
   const priced = rows.filter((r) => r.entry !== null && r.sl !== null && r.tp !== null);
-  const symbols = [...new Set(rows.map((r) => r.symbol))];
+  const symbols = [...new Set(rows.map((r) => r.symbol))].sort((a, b) => a.localeCompare(b));
   for (const symbol of symbols) {
     for (const side of ['buy', 'sell'] as const) {
       const mine = priced.filter((r) => r.symbol === symbol && r.side === side);
