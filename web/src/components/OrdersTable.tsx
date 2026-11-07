@@ -9,7 +9,7 @@ type Props = {
   busyId: string | null;
 };
 
-export const statusText = (): Record<OrderRow['status'], string> => ({
+const statusText = (): Record<OrderRow['status'], string> => ({
   valid: 'Valid',
   skipped: tr('Dilewati', 'Skipped'),
   invalid: tr('Tidak valid', 'Invalid'),
@@ -50,12 +50,12 @@ export function OrdersTable({ rows, onCancel, onRestore, busyId }: Props) {
               <tr key={r.id} className={cls}>
                 <td>{r.symbol}</td>
                 <td>{r.type}</td>
-                <td className="num entry">{fmtPrice(r.entry, d)}</td>
-                <td className="num sltp">
+                <td className="num">{fmtPrice(r.entry, d)}</td>
+                <td className="num">
                   {fmtPrice(r.sl, d)}
                   {r.slFrom === 'ladder' && r.sl !== null && <span className="tag" title={t('Tidak ada candle kuat di sisi SL garis ini', 'No strong candle on the SL side of this line')}>{t('SL tangga', 'SL ladder')}</span>}
                 </td>
-                <td className="num sltp">
+                <td className="num">
                   {fmtPrice(r.tp, d)}
                   {r.tpAuto && <span className="tag">TP auto</span>}
                 </td>
@@ -64,12 +64,10 @@ export function OrdersTable({ rows, onCancel, onRestore, busyId }: Props) {
                   {fmtMoney(r.risk)}
                   {r.multiplier > 1 && r.status === 'valid' && <span className="aggr"> {r.multiplier}x</span>}
                 </td>
-                <td className={`num${r.status === 'valid' && r.lowRr ? ' low-rr-text' : ''}`}>{fmtRr(r.rr)}</td>
+                <td className="num">{fmtRr(r.rr)}</td>
                 <td className="status">
-                  <span className={`pill pill-${r.status === 'valid' && r.lowRr ? 'low-rr' : r.status}`}>
-                    {STATUS_TEXT[r.status]}
-                    {r.status === 'valid' && r.lowRr && t(' · RR rendah', ' · low RR')}
-                  </span>
+                  {STATUS_TEXT[r.status]}
+                  {r.status === 'valid' && r.lowRr && t(' · RR rendah', ' · low RR')}
                   {r.reason && r.status !== 'cancelled' && <span className="reason">{engineText(r.reason)}</span>}
                 </td>
                 <td className="act">

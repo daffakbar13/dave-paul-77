@@ -3,14 +3,13 @@ import { api, hasToken, setToken, UNAUTHORIZED, type Account, type Analysis, typ
 import { BacktestModal } from './components/BacktestModal.tsx';
 import { CalibrationModal } from './components/CalibrationModal.tsx';
 import { Chart } from './components/Chart.tsx';
-import { ExecuteView } from './components/ExecuteView.tsx';
+import { ExecuteModal } from './components/ExecuteModal.tsx';
 import { JournalModal } from './components/JournalModal.tsx';
 import { NewsModal } from './components/NewsModal.tsx';
-import { OrdersPanel } from './components/OrdersPanel.tsx';
 import { SignalsModal } from './components/SignalsModal.tsx';
 import { PendingModal } from './components/PendingModal.tsx';
 import { SettingsModal } from './components/SettingsModal.tsx';
-import { ago, fmtDate, fmtMoney, fmtNewsTime, fmtPrice } from './format.ts';
+import { ago, fmtDate, fmtMoney, fmtNewsTime } from './format.ts';
 import { engineText, getLang, setLang, useLang, useT } from './i18n.ts';
 
 const ACCOUNT_KEY = 'dp77-account';
@@ -178,31 +177,15 @@ function Main({ onLogout }: { onLogout: () => void }) {
     }
   };
 
-  // restore from the orders panel; busyId keeps a second click from firing twice
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const restore = async (row: OrderRow) => {
-    setBusyId(row.id);
-    try {
-      await api.restore(row.id);
-      refresh();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusyId(null);
-    }
-  };
-
   const account = accounts.find((a) => a.id === accountId) ?? null;
+  const cancelledHere = analysis?.rows.filter((r) => r.status === 'cancelled').length ?? 0;
 
   const restoreAll = async () => {
-    setBusyId('*');
     try {
       await api.restoreAll(symbol ?? undefined);
       refresh();
     } catch (e) {
       setError((e as Error).message);
-    } finally {
-      setBusyId(null);
     }
   };
 
@@ -235,37 +218,40 @@ function Main({ onLogout }: { onLogout: () => void }) {
             ? t('Aggressive otomatis nonaktif untuk akun ini.', 'Automatic Aggressive is off for this account.')
             : '';
   const stale = account && (!account.balanceAt || analysis?.account?.stale);
-  const mt4Fresh = !!mt4 && Date.now() - new Date(mt4.lastSeenAt).getTime() < MT4_STALE_MINUTES * 60_000;
-
-  // Execute replaces the whole screen; the main screen's state stays as it was
-  if (modal === 'execute') {
-    return (
-      <ExecuteView
-        accounts={accounts}
-        initialAccountId={accountId}
-        aggressive={aggressive}
-        aggrActive={aggrActive}
-        aggrLabel={aggrLabel}
-        onClose={() => setModal(null)}
-        onChanged={refresh}
-      />
-    );
-  }
 
   return (
     <div className="app">
-      <header className="topbar">
-        <div className="brand">
-          <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
-            <rect x="1" y="1" width="20" height="20" rx="5" fill="none" stroke="var(--sr)" strokeWidth="1.5" />
-            <path d="M5 14h12M5 8h12" stroke="var(--sr)" strokeWidth="1.5" />
-            <path d="M9 4v14" stroke="var(--entry)" strokeWidth="1.5" strokeDasharray="2 2" />
-          </svg>
-          <span>DavePaul77</span>
+      <header className="toolbar">
+        <div className="acct tabular">
+          <label>
+            <span className="sr-only">{t('Akun', 'Account')}</span>
+            <select value={accountId ?? ''} onChange={(e) => setAccountId(e.target.value || null)} aria-label={t('Akun', 'Account')}>
+              {!accounts.length && <option value="">{t('Belum ada akun', 'No accounts yet')}</option>}
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {t('Akun', 'Account')}: {a.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          {account && (
+            <span className={stale ? 'warn' : 'muted'}>
+              Balance {fmtMoney(account.balance)} {account.currency ?? ''} ({t('sinkron', 'synced')} {ago(account.balanceAt)})
+            </span>
+          )}
         </div>
-        <nav className="sections" aria-label={t('Bagian', 'Sections')}>
-          <button type="button" aria-current="page">
-            {t('Grafik', 'Chart')}
+        <div className="tool-actions">
+          <button
+            type="button"
+            className={aggrActive ? 'aggr-on' : aggressive === 'off' ? 'aggr-off' : ''}
+            aria-pressed={aggrActive}
+            title={aggrTitle}
+            onClick={() => setAggressive(aggrActive ? 'off' : 'on')}
+          >
+            {aggrLabel}
+          </button>
+          <button type="button" onClick={() => setModal('news')}>
+            {t('Berita', 'News')}
           </button>
           <button type="button" onClick={() => setModal('pending')}>
             Pending Orders
@@ -273,8 +259,8 @@ function Main({ onLogout }: { onLogout: () => void }) {
           <button type="button" onClick={() => setModal('signals')}>
             {t('Sinyal TF', 'TF signals')}
           </button>
-          <button type="button" onClick={() => setModal('news')}>
-            {t('Berita', 'News')}
+          <button type="button" className="primary" onClick={() => setModal('execute')}>
+            Execute
           </button>
           <button type="button" onClick={() => setModal('journal')}>
             {t('Jurnal', 'Journal')}
@@ -285,75 +271,15 @@ function Main({ onLogout }: { onLogout: () => void }) {
           <button type="button" onClick={() => setModal('calibration')}>
             {t('Kalibrasi', 'Calibration')}
           </button>
-        </nav>
-        <div className="top-actions">
-          <button
-            type="button"
-            className={`aggr-pill${aggrActive ? ' aggr-on' : aggressive === 'off' ? ' aggr-off' : ''}`}
-            aria-pressed={aggrActive}
-            title={aggrTitle}
-            onClick={() => setAggressive(aggrActive ? 'off' : 'on')}
-          >
-            <span className="pill-dot" aria-hidden="true" />
-            <span className="pill-text">{aggrLabel}</span>
+          <LangToggle />
+          <button type="button" className="icon" aria-label={t('Pengaturan', 'Settings')} title={t('Pengaturan', 'Settings')} onClick={() => setModal('settings')}>
+            ⚙
           </button>
-          <LangToggle className="icon-btn lang" />
-          <button type="button" className="icon-btn" aria-label={t('Pengaturan', 'Settings')} title={t('Pengaturan', 'Settings')} onClick={() => setModal('settings')}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-              <circle cx="12" cy="12" r="3" />
-              <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
-            </svg>
-          </button>
-          <button type="button" className="icon-btn" aria-label={t('Keluar', 'Log out')} title={t('Keluar', 'Log out')} onClick={onLogout}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
-            </svg>
+          <button type="button" className="link" onClick={onLogout}>
+            {t('Keluar', 'Log out')}
           </button>
         </div>
       </header>
-
-      <div className="status-strip tabular">
-        <label className="stat">
-          <span className="stat-label">{t('Akun', 'Account')}</span>
-          <select value={accountId ?? ''} onChange={(e) => setAccountId(e.target.value || null)}>
-            {!accounts.length && <option value="">{t('Belum ada akun', 'No accounts yet')}</option>}
-            {accounts.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        {account && (
-          <>
-            <div className="stat">
-              <span className="stat-label">Balance</span>
-              <span className={`stat-value mono${stale ? ' warn' : ''}`}>
-                {fmtMoney(account.balance)} <span className="muted">{account.currency ?? ''}</span>
-              </span>
-            </div>
-            <div className="stat">
-              <span className="stat-label">{t('Sinkron', 'Synced')}</span>
-              <span className={stale ? 'warn' : ''}>{ago(account.balanceAt)}</span>
-            </div>
-          </>
-        )}
-        <div className="status-chips">
-          <span
-            className={`chip-status${mt4Fresh ? '' : ' warn'}`}
-            title={mt4?.brokerOffsetMinutes !== undefined ? `${t('server broker', 'broker server')} UTC${mt4.brokerOffsetMinutes >= 0 ? '+' : ''}${mt4.brokerOffsetMinutes / 60}` : undefined}
-          >
-            <span className={`pill-dot${mt4Fresh ? ' ok' : ''}`} aria-hidden="true" />
-            MT4 {mt4 ? t(`terakhir kirim ${ago(mt4.lastSeenAt)}`, `last sent ${ago(mt4.lastSeenAt)}`) : t('belum pernah kirim data', 'has never sent data')}
-            {mt4?.brokerOffsetMinutes !== undefined && ` · UTC${mt4.brokerOffsetMinutes >= 0 ? '+' : ''}${mt4.brokerOffsetMinutes / 60}`}
-          </span>
-          {analysis && analysis.symbol === symbol && (
-            <span className="chip-status muted">
-              {t('Candle terakhir', 'Last candle')} <span className="chip-value">{fmtDate(new Date(analysis.lastCandleAt).getTime())}</span>
-            </span>
-          )}
-        </div>
-      </div>
 
       {feed && (feed.news.length > 0 || feed.status.error) && (
         <div className="news" role="status">
@@ -371,54 +297,25 @@ function Main({ onLogout }: { onLogout: () => void }) {
       )}
       {error && <div className="error-bar">{error}</div>}
 
-      <div className="desk">
-      <nav className="pair-list" ref={tabsRef} aria-label="Pair">
-        <div className="pair-list-head" aria-hidden="true">
-          <span>Pair</span>
-          <span>{t('Kandidat', 'Candidates')}</span>
-        </div>
-        {symbols.map((s) => (
-          <button key={s.name} type="button" className={s.name === symbol ? 'active' : ''} aria-current={s.name === symbol} onClick={() => setSymbol(s.name)}>
-            <span className="pair-name">{s.name}</span>
-            {newsPairs.has(s.name) && (
-              <span className="news-mark" title={t('Ada berita merah untuk mata uang pair ini', 'Red news for this pair\'s currencies')} aria-label={t('berita merah', 'red news')}>
-                !
-              </span>
-            )}
-            {s.candidates > 0 && (
-              <span className="count" aria-label={t(`${s.candidates} kandidat`, `${s.candidates} candidates`)}>
-                {s.candidates}
-              </span>
-            )}
-          </button>
-        ))}
-      </nav>
-
       <main className="stage">
         {analysis && analysis.symbol === symbol ? (
           <>
-            <div className="chart-bar">
-              <div className="chart-title">
-                <h1>{analysis.symbol}</h1>
-                <span className="tf">D1</span>
-                <span className="mono">{fmtPrice(analysis.price, analysis.digits)}</span>
-              </div>
-              <div className="legend tabular">
-                <span>
-                  <i className="key key-sr" />
-                  S/R · {analysis.lines.length} {t('garis', 'lines')} {analysis.lines[0]?.source === 'manual' ? t('manual', 'manual') : t('mesin', 'engine')}
-                  {analysis.referenceLines.length > 0 && analysis.lines[0]?.source !== 'manual' ? t(` (+${analysis.referenceLines.length} referensi Anda)`, ` (+${analysis.referenceLines.length} of your references)`) : ''}
+            <Chart analysis={analysis} colors={colors} focusId={focusId} onlyFocused={onlyFocused} onFocus={setFocusId} onCancel={cancel} />
+            <div className="chart-tools">
+              <span className="muted tabular">
+                {analysis.lines.length} {t('garis', 'lines')} {analysis.lines[0]?.source === 'manual' ? t('manual', 'manual') : t('mesin', 'engine')}{analysis.referenceLines.length > 0 && analysis.lines[0]?.source !== 'manual' ? t(` (+${analysis.referenceLines.length} referensi Anda)`, ` (+${analysis.referenceLines.length} of your references)`) : ''} · {analysis.rows.filter((r) => r.status === 'valid').length} {t('order valid', 'valid orders')} · {t('candle terakhir', 'last candle')}{' '}
+                {fmtDate(new Date(analysis.lastCandleAt).getTime())} ·{' '}
+                <span className={mt4 && Date.now() - new Date(mt4.lastSeenAt).getTime() < MT4_STALE_MINUTES * 60_000 ? '' : 'warn'}>
+                  MT4 {mt4 ? t(`terakhir kirim ${ago(mt4.lastSeenAt)}`, `last sent ${ago(mt4.lastSeenAt)}`) : t('belum pernah kirim data', 'has never sent data')}
+                  {mt4?.brokerOffsetMinutes !== undefined && ` ({t('server broker', 'broker server')} UTC${mt4.brokerOffsetMinutes >= 0 ? '+' : ''}${mt4.brokerOffsetMinutes / 60})`}
                 </span>
-                <span>
-                  <i className="key key-entry" />
-                  Entry
-                </span>
-                <span>
-                  <i className="key key-sltp" />
-                  SL / TP
-                </span>
-              </div>
-              <div className="seg" role="group" aria-label={t('Tampilkan order', 'Show orders')}>
+              </span>
+              {cancelledHere > 0 && (
+                <button type="button" className="restore-all" title={t(`Kembalikan semua order ${analysis.symbol} yang dibatalkan dengan X`, `Restore all ${analysis.symbol} orders cancelled with X`)} onClick={restoreAll}>
+                  {t('Pulihkan semua', 'Restore all')} ({cancelledHere})
+                </button>
+              )}
+              <div className="seg">
                 <button type="button" aria-pressed={!onlyFocused} onClick={() => setOnlyFocused(false)}>
                   {t('Semua', 'All')}
                 </button>
@@ -427,31 +324,30 @@ function Main({ onLogout }: { onLogout: () => void }) {
                 </button>
               </div>
             </div>
-            <Chart analysis={analysis} colors={colors} focusId={focusId} onlyFocused={onlyFocused} onFocus={setFocusId} onCancel={cancel} />
           </>
         ) : (
           <div className="empty muted">{symbol ? t('Memuat…', 'Loading…') : t('Belum ada pair aktif. Atur di Pengaturan.', 'No active pairs yet. Set them up in Settings.')}</div>
         )}
       </main>
 
-      {analysis && analysis.symbol === symbol && (
-        <OrdersPanel
-          symbol={analysis.symbol}
-          rows={analysis.rows}
-          digits={analysis.digits}
-          currency={analysis.account?.currency ?? account?.currency ?? null}
-          focusId={focusId}
-          busyId={busyId}
-          onFocus={setFocusId}
-          onCancel={cancel}
-          onRestore={restore}
-          onRestoreAll={restoreAll}
-          onExecute={() => setModal('execute')}
-        />
-      )}
-      </div>
+      <nav className="tabs" ref={tabsRef} aria-label="Pair">
+        {symbols.map((s) => (
+          <button key={s.name} type="button" className={s.name === symbol ? 'active' : ''} aria-current={s.name === symbol} onClick={() => setSymbol(s.name)}>
+            {s.name}
+            {s.candidates > 0 && <span className="dot" aria-label={t(`${s.candidates} kandidat`, `${s.candidates} candidates`)}>•</span>}
+            {newsPairs.has(s.name) && (
+              <span className="news-mark" title={t('Ada berita merah untuk mata uang pair ini', 'Red news for this pair\'s currencies')} aria-label={t('berita merah', 'red news')}>
+                !
+              </span>
+            )}
+          </button>
+        ))}
+      </nav>
 
       {modal === 'pending' && <PendingModal account={account} accounts={accounts} aggressive={aggressive} onClose={() => setModal(null)} onChanged={refresh} />}
+      {modal === 'execute' && (
+        <ExecuteModal accounts={accounts} initialAccountId={accountId} aggressive={aggressive} onClose={() => setModal(null)} onChanged={refresh} />
+      )}
       {modal === 'signals' && <SignalsModal account={account} aggressive={aggressive} newsPairs={newsPairs} news={feed?.news ?? []} onClose={() => setModal(null)} />}
       {modal === 'settings' && <SettingsModal onClose={() => setModal(null)} onChanged={refresh} />}
       {modal === 'journal' && <JournalModal accounts={accounts} initialAccountId={accountId} onClose={() => setModal(null)} />}
