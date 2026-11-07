@@ -27,10 +27,9 @@ type Props = {
 
 type Label = { key: string; rowId: string; kind: 'entry' | 'sl' | 'tp'; y: number; row: OrderRow };
 
-// MT4 look: lime outline + wick, bull body hollow, bear body white
-const CANDLE = '#00FF00';
-const CANDLE_BODY_UP = 'rgba(0, 0, 0, 0)';
-const CANDLE_BODY_DOWN = '#FFFFFF';
+// Colours come from the tokens in styles.css. Up candles green, down candles grey: red is
+// kept for SL/TP only.
+const cssVar = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 const REFERENCE = 'rgba(154, 163, 173, 0.45)';
 
 function alpha(hex: string, a: number): string {
@@ -59,13 +58,16 @@ export function Chart({ analysis, colors, focusId, onlyFocused, onFocus, onCance
 
   // chart + series live for the component's lifetime
   useEffect(() => {
+    const up = cssVar('--candle');
+    const down = cssVar('--candle-down');
+    const border = cssVar('--border');
     const chart = createChart(box.current!, {
       autoSize: true,
-      layout: { background: { type: ColorType.Solid, color: '#000000' }, textColor: '#9AA3AD', fontFamily: 'system-ui, -apple-system, sans-serif', fontSize: 12 },
-      grid: { vertLines: { visible: false }, horzLines: { visible: false } },
-      rightPriceScale: { borderColor: '#2A2F36' },
+      layout: { background: { type: ColorType.Solid, color: cssVar('--chart') }, textColor: cssVar('--muted'), fontFamily: cssVar('--font-mono'), fontSize: 11 },
+      grid: { vertLines: { visible: false }, horzLines: { color: cssVar('--panel') } },
+      rightPriceScale: { borderColor: border },
       timeScale: {
-        borderColor: '#2A2F36',
+        borderColor: border,
         rightOffset: 8,
         tickMarkFormatter: (t: Time) => fmtDate(timeMs(t)),
       },
@@ -73,15 +75,17 @@ export function Chart({ analysis, colors, focusId, onlyFocused, onFocus, onCance
       localization: { timeFormatter: (t: Time) => fmtDate(timeMs(t)) },
     });
     const series = chart.addSeries(CandlestickSeries, {
-      upColor: CANDLE_BODY_UP,
-      downColor: CANDLE_BODY_DOWN,
-      borderUpColor: CANDLE,
-      borderDownColor: CANDLE,
-      wickUpColor: CANDLE,
-      wickDownColor: CANDLE,
+      upColor: up,
+      downColor: down,
+      borderUpColor: up,
+      borderDownColor: down,
+      wickUpColor: up,
+      wickDownColor: down,
       priceLineVisible: false,
       lastValueVisible: true,
     });
+    // the price scale is measured with the mono font; redraw once it has loaded
+    void document.fonts?.ready.then(() => chartRef.current?.applyOptions({ layout: { fontFamily: cssVar('--font-mono') } }));
     chart.subscribeCrosshairMove((p) => {
       const d = p.time !== undefined ? (p.seriesData.get(series) as CandlestickData<Time> | undefined) : undefined;
       setHover(d && 'open' in d ? { t: timeMs(p.time!), o: d.open, h: d.high, l: d.low, c: d.close } : null);
@@ -114,31 +118,56 @@ export function Chart({ analysis, colors, focusId, onlyFocused, onFocus, onCance
     [orders, onlyFocused, focusId],
   );
 
-  // price lines: S/R in yellow, entry in white, SL/TP in red; non-focused orders dimmed
+  // price lines: S/R in yellow, entry in white, SL/TP in red; non-focused orders dimmed.
+  // Right-side labels: the two S/R lines nearest price on each side, every entry price, and
+  // titles plus SL/TP prices for the focused order (or the only one shown). More would
+  // pile up on the axis: a pair can carry 30 lines and a dozen orders.
   useEffect(() => {
     const series = seriesRef.current!;
     for (const l of linesRef.current) series.removePriceLine(l);
     const created: IPriceLine[] = [];
-    const add = (price: number, color: string, style: LineStyle, axis: boolean, width: 1 | 2 = 1) =>
-      created.push(series.createPriceLine({ price, color, lineStyle: style, lineWidth: width, axisLabelVisible: axis, title: '' }));
+    const onLight = cssVar('--on-light');
+    type Opt = { axis?: string; title?: string; width?: 1 | 2 };
+    const add = (price: number, color: string, style: LineStyle, { axis, title = '', width = 1 }: Opt = {}) =>
+      created.push(
+        series.createPriceLine({
+          price,
+          color,
+          lineStyle: style,
+          lineWidth: width,
+          title,
+          axisLabelVisible: axis !== undefined,
+          axisLabelColor: axis ?? '',
+          axisLabelTextColor: onLight,
+        }),
+      );
 
     // the lines orders are built on, solid; the user's reference lines faint and dashed
     const used = new Set(analysis.lines.map((l) => l.price));
-    for (const price of analysis.referenceLines) if (!used.has(price)) add(price, REFERENCE, LineStyle.LargeDashed, false);
-    for (const line of analysis.lines) add(line.price, colors.sr, LineStyle.Solid, false, line.source === 'manual' ? 2 : 1);
+    for (const price of analysis.referenceLines) if (!used.has(price)) add(price, REFERENCE, LineStyle.LargeDashed);
+    const price = analysis.price;
+    const above = analysis.lines.filter((l) => l.price >= price).sort((a, b) => a.price - b.price).slice(0, 2);
+    const below = analysis.lines.filter((l) => l.price < price).sort((a, b) => b.price - a.price).slice(0, 2);
+    const near = new Set([...above, ...below]);
+    for (const line of analysis.lines) add(line.price, colors.sr, LineStyle.Solid, { axis: near.has(line) ? colors.sr : undefined, width: line.source === 'manual' ? 2 : 1 });
     for (const r of visible) {
       const focused = active === r.id;
       const dim = active !== null && !focused;
+      const levels = focused || visible.length === 1;
       const weak = r.status === 'invalid' ? 0.45 : 1;
       // a level whose position is still open: same colours, sparse dots, never re-sent
       const style = r.status === 'running' ? LineStyle.SparseDotted : LineStyle.Dashed;
-      add(r.entry!, alpha(colors.entry, (dim ? 0.15 : 1) * weak), style, focused, r.status === 'running' ? 2 : 1);
+      add(r.entry!, alpha(colors.entry, (dim ? 0.15 : 1) * weak), style, {
+        axis: dim ? undefined : alpha(colors.entry, weak),
+        title: levels ? (r.status === 'running' ? `${r.side} #${r.position}` : r.type) : '',
+        width: r.status === 'running' ? 2 : 1,
+      });
       const sltp = alpha(colors.sltp, (dim ? 0.12 : focused ? 1 : 0.4) * weak);
-      add(r.sl!, sltp, LineStyle.Dashed, focused);
-      add(r.tp!, sltp, LineStyle.Dashed, focused);
+      add(r.sl!, sltp, LineStyle.Dashed, levels ? { axis: colors.sltp, title: 'SL' } : {});
+      add(r.tp!, sltp, LineStyle.Dashed, levels ? { axis: colors.sltp, title: r.tpAuto ? 'TP auto' : 'TP' } : {});
     }
     linesRef.current = created;
-  }, [analysis.lines, analysis.referenceLines, visible, active, colors]);
+  }, [analysis.lines, analysis.referenceLines, analysis.price, visible, active, colors]);
 
   // Left-edge labels follow the price scale; recomputed every frame, state updated only
   // when a position changed. Overlapping labels are pushed down.
