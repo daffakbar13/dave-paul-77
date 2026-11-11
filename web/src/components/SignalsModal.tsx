@@ -112,6 +112,7 @@ export function SignalsModal({ account, aggressive, newsPairs, news, onClose }: 
     <Modal title={t('Sinyal TF', 'TF signals')} onClose={onClose} wide footer={signals ? <span className="muted">{t(`${doneCount} dari ${count} sudah dibuat`, `${doneCount} of ${count} created`)} · {hint}</span> : undefined}>
       {error && <p className="error">{error}</p>}
       {!account && <p className="muted pad">{t('Tambahkan akun MT5 di Pengaturan dulu.', 'Add an MT5 account in Settings first.')}</p>}
+      <div className="sig-split">
       {current && <SignalDetail s={current} news={newsPairs.has(current.symbol) ? newsFor(current.symbol) : ''} done={!!done[doneKey(current)]} onToggle={() => toggleDone(current)} />}
       {signals && !signals.length && <p className="muted pad">{t('Belum ada buy/sell stop yang valid.', 'No valid buy/sell stops yet.')}</p>}
       {signals && signals.length > 0 && (
@@ -175,6 +176,7 @@ export function SignalsModal({ account, aggressive, newsPairs, news, onClose }: 
           </table>
         </div>
       )}
+      </div>
     </Modal>
   );
 }

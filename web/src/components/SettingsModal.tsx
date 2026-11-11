@@ -151,7 +151,8 @@ export function SettingsModal({ onClose, onChanged }: Props) {
 
   return (
     <Modal title={t('Pengaturan', 'Settings')} onClose={onClose} wide>
-      <div className="seg" role="tablist">
+      <div className="settings-split">
+      <div className="side-nav" role="tablist" aria-orientation="vertical">
         {(
           [
             ['general', t('Umum', 'General')],
@@ -166,6 +167,7 @@ export function SettingsModal({ onClose, onChanged }: Props) {
           </button>
         ))}
       </div>
+      <div className="settings-pane">
       {message && <p className="ok">{message}</p>}
       {error && <p className="error">{error}</p>}
 
@@ -453,6 +455,8 @@ export function SettingsModal({ onClose, onChanged }: Props) {
           />
         </div>
       )}
+      </div>
+      </div>
     </Modal>
   );
 }
