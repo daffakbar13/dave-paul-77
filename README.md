@@ -72,7 +72,7 @@ Panduan langkah demi langkah lewat website (Render, Vercel, Atlas, lalu arahkan 
 ## Alert berita Telegram (Cloudflare Worker)
 
 `worker/` jalan setiap 5 menit di Cloudflare (tanpa laptop/Render): alert berita high impact ke topik **News Alert**
-(48 jam, 24 jam, 4 jam, 1 jam, 30 menit sebelum rilis, dan saat rilis, masing-masing sekali) dan **Daily Outlook** 05:00 WIB (48 jam ke depan). Setup dan
+(32 jam, 24 jam, 4 jam, 1 jam, 30 menit sebelum rilis, dan saat rilis, masing-masing sekali) dan **Daily Outlook** 05:00 WIB (32 jam ke depan, s.d. 13:00 WIB besok). Setup dan
 deploy: `worker/README.md`.
 
 ## Tahap 4: EA MT5 eksekutor

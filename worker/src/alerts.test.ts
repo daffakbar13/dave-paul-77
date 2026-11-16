@@ -38,11 +38,11 @@ function simulate(c: Calendar, from: number, to: number, log = fresh()): string[
 }
 
 describe('planAlerts', () => {
-  it('sends 48h, 24h, 4h, 1h, 30m and the release once each, then nothing after the release', () => {
+  it('sends 32h, 24h, 4h, 1h, 30m and the release once each, then nothing after the release', () => {
     const at = NOW + 50 * H;
     const sent = simulate(cal([item(at)]), NOW, at + H);
     assert.deepEqual(sent, [
-      '🔴 <b>High impact · in 48 hours</b>',
+      '🔴 <b>High impact · in 32 hours</b>',
       '🔴 <b>High impact · in 24 hours</b>',
       '⏰ <b>High impact · in 4 hours</b>',
       '⏰ <b>High impact · in 1 hour</b>',
@@ -54,7 +54,7 @@ describe('planAlerts', () => {
   it('a late run still sends the release alert up to 15 minutes after, with the real delay', () => {
     const at = NOW;
     const log = fresh();
-    for (const s of ['48h', '24h', '4h', '1h', '30m'] as const) log.events[eventKey(item(at))] = [...(log.events[eventKey(item(at))] ?? []), s];
+    for (const s of ['32h', '24h', '4h', '1h', '30m'] as const) log.events[eventKey(item(at))] = [...(log.events[eventKey(item(at))] ?? []), s];
     const [o] = planAlerts(cal([item(at)]), log, at + 10 * M, PAIRS);
     assert.match(o!.text, /🚨 <b>High impact · released 10 minutes ago<\/b>/);
     assert.equal(planAlerts(cal([item(at)]), fresh(), at + 15 * M, PAIRS).length, 0);
@@ -82,7 +82,7 @@ describe('planAlerts', () => {
     const [o] = planAlerts(cal([item(at)]), log, NOW, PAIRS);
     assert.match(o!.text, /High impact · in 2 hours 10 minutes/);
     o!.mark(log);
-    assert.deepEqual(log.events[eventKey(item(at))], ['48h', '24h', '4h']);
+    assert.deepEqual(log.events[eventKey(item(at))], ['32h', '24h', '4h']);
     assert.equal(planAlerts(cal([item(at)]), log, NOW + 5 * M, PAIRS).length, 0);
   });
 
@@ -99,7 +99,7 @@ describe('planAlerts', () => {
 });
 
 describe('planOthers', () => {
-  it('sends medium and low news once, 30 minutes before, grouped by time; never high', () => {
+  it('sends medium and low news 30 minutes before and at the release, grouped by time; never high', () => {
     const at = NOW + 2 * H;
     const c = cal([item(at, 'EUR', 'CPI', 'medium'), item(at, 'GBP', 'PMI', 'low'), item(at, 'USD', 'NFP'), item(at + H, 'JPY', 'BoJ', 'low')]);
     const log = fresh();
@@ -112,7 +112,20 @@ describe('planOthers', () => {
     );
     out[0]!.mark(log);
     assert.equal(planOthers(c, log, at - 25 * M, PAIRS).length, 0);
-    assert.equal(planOthers(c, log, at, PAIRS).length, 0); // released
+    const rel = planOthers(c, log, at, PAIRS);
+    assert.equal(rel.length, 1);
+    assert.equal(rel[0]!.text.split('\n')[0], '🔔 <b>News · releasing now</b>');
+    rel[0]!.mark(log);
+    assert.equal(planOthers(c, log, at + 5 * M, PAIRS).length, 0);
+    assert.equal(planOthers(c, log, at + 15 * M, PAIRS).length, 0);
+  });
+
+  it('a late run sends the release up to 15 minutes after, with the real delay', () => {
+    const at = NOW;
+    const c = cal([item(at, 'NZD', 'RBNZ Financial Stability Report', 'low')]);
+    const [o] = planOthers(c, fresh(), at + 10 * M, PAIRS);
+    assert.match(o!.text, /News · released 10 minutes ago/);
+    assert.equal(planOthers(c, fresh(), at + 15 * M, PAIRS).length, 0);
   });
 
   it('a late first sight shows the real time left', () => {
@@ -129,23 +142,25 @@ describe('planDigest', () => {
     item(Date.parse('2026-10-23T12:30:00Z'), 'EUR', 'CPI', 'medium'),
     item(Date.parse('2026-10-23T18:00:00Z'), 'NZD', 'GDP q/q'), // Sat 01:00 WIB
     item(Date.parse('2026-10-23T22:00:00Z'), 'JPY', 'Next day'), // Sat 05:00 WIB
-    item(Date.parse('2026-10-24T22:00:00Z'), 'CHF', 'After window'), // Sun 05:00 WIB
+    item(Date.parse('2026-10-24T05:30:00Z'), 'GBP', 'Last in window'), // Sat 12:30 WIB
+    item(Date.parse('2026-10-24T06:00:00Z'), 'CHF', 'After window'), // Sat 13:00 WIB
   ];
 
-  it('lists news of every impact from 05:00 WIB for 48 hours, once', () => {
+  it('lists news of every impact from 05:00 WIB to 13:00 WIB the next day, once', () => {
     const log = fresh();
     const d = planDigest(cal(items), log, fivePastFive);
     assert.equal(
       d!.text,
       [
         '📅 <b>Daily Outlook · Fri, 23 Oct</b>',
-        'All news from 05:00 WIB today to 05:00 WIB in two days',
+        'All news from 05:00 WIB today to 13:00 WIB tomorrow',
         '',
         '19:30 · 🔴 USD · Non-Farm Employment Change',
         '19:30 · 🟠 EUR · CPI',
         '<i>Sat, 24 Oct</i>',
         '01:00 · 🔴 NZD · GDP q/q',
         '05:00 · 🔴 JPY · Next day',
+        '12:30 · 🔴 GBP · Last in window',
       ].join('\n'),
     );
     d!.mark(log);

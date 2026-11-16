@@ -5,12 +5,13 @@ import { HOUR, MINUTE, type Calendar, type NewsItem } from './calendar.ts';
 
 const WIB = 7 * HOUR; // Asia/Jakarta, no daylight saving
 const DIGEST_HOUR = 5; // 05:00 WIB
+const DIGEST_HOURS = 32; // 05:00 WIB to 13:00 WIB the next day
 const DIGEST_LATEST_HOUR = 8; // still sent until 08:00 WIB if the 05:00 run failed
 const STALE_AFTER = 12 * HOUR;
 const KEEP_SENT = 2 * 24 * HOUR;
 
 export const STAGES = [
-  { id: '48h', ms: 48 * HOUR, label: 'in 48 hours' },
+  { id: '32h', ms: 32 * HOUR, label: 'in 32 hours' },
   { id: '24h', ms: 24 * HOUR, label: 'in 24 hours' },
   { id: '4h', ms: 4 * HOUR, label: 'in 4 hours' },
   { id: '1h', ms: HOUR, label: 'in 1 hour' },
@@ -122,50 +123,60 @@ export function planAlerts(cal: Calendar, log: SentLog, now: number, pairs: stri
 
 // --- Other News -------------------------------------------------------------
 // Medium and low impact (red stays in News Alert): one heads-up 30 minutes before each
-// release time, kept in `events` like a high-impact event's 30m stage.
+// release time and one at the release (up to RELEASE_GRACE late), kept in `events` like a
+// high-impact event's 30m and now stages.
 const OTHER_BEFORE = 30 * MINUTE;
 const IMPACT_ICON = { high: '🔴', medium: '🟠', low: '🟡' } as const;
 
 export function planOthers(cal: Calendar, log: SentLog, now: number, pairs: string[]): Outgoing[] {
-  const groups = new Map<number, NewsItem[]>();
+  const groups = new Map<string, { at: number; stage: '30m' | 'now'; items: NewsItem[] }>();
   for (const n of cal.items) {
     if (n.impact === 'high') continue;
     const at = Date.parse(n.at);
-    if (at <= now || at - now > OTHER_BEFORE || log.events[eventKey(n)]?.includes('30m')) continue;
-    groups.set(at, [...(groups.get(at) ?? []), n]);
+    const remaining = at - now;
+    if (remaining <= -RELEASE_GRACE || remaining > OTHER_BEFORE) continue;
+    const stage = remaining <= 0 ? 'now' : '30m';
+    if (log.events[eventKey(n)]?.includes(stage)) continue;
+    const g = groups.get(`${at}|${stage}`) ?? { at, stage, items: [] };
+    g.items.push(n);
+    groups.set(`${at}|${stage}`, g);
   }
-  return [...groups.entries()]
-    .sort(([a], [b]) => a - b)
-    .map(([at, items]) => {
+  return [...groups.values()]
+    .sort((a, b) => a.at - b.at)
+    .map(({ at, stage, items }) => {
       const remaining = at - now;
-      const label = remaining > OTHER_BEFORE - 10 * MINUTE ? 'in 30 minutes' : `in ${fmtRemaining(remaining)}`;
+      let label: string;
+      if (stage === 'now') label = remaining > -2 * MINUTE ? 'releasing now' : `released ${fmtRemaining(-remaining)} ago`;
+      else label = remaining > OTHER_BEFORE - 10 * MINUTE ? 'in 30 minutes' : `in ${fmtRemaining(remaining)}`;
       const lines = [`🔔 <b>News · ${label}</b>`, `${fmtDay(at)} · ${fmtTime(at)} WIB`];
       for (const n of items) lines.push(`• ${IMPACT_ICON[n.impact]} ${n.currency} · ${escape(n.title)}`);
       const affected = pairsFor([...new Set(items.map((n) => n.currency))], pairs);
       if (affected.length) lines.push(`Pairs: ${affected.join(', ')}`);
+      const done: StageId[] = stage === 'now' ? ['30m', 'now'] : ['30m'];
       return {
         topic: 'other' as const,
         text: lines.join('\n'),
         mark: (l: SentLog) => {
-          for (const n of items) l.events[eventKey(n)] = ['30m'];
+          for (const n of items) l.events[eventKey(n)] = [...new Set([...(l.events[eventKey(n)] ?? []), ...done])];
         },
       };
     });
 }
 
 // --- Daily Outlook ----------------------------------------------------------
-// 05:00 WIB every day, weekends included, listing every impact for the 48 hours from
-// 05:00 (an order placed in the morning must see tomorrow's morning news too). Runs until 08:00 retry a failed send.
+// 05:00 WIB every day, weekends included, listing every impact for the 32 hours from
+// 05:00 to 13:00 WIB the next day, like the web banner (an order placed in the morning must
+// see tomorrow's morning news too). Runs until 08:00 retry a failed send.
 export function planDigest(cal: Calendar, log: SentLog, now: number): Outgoing | null {
   const d = wib(now);
   const date = wibDate(now);
   if (d.getUTCHours() < DIGEST_HOUR || d.getUTCHours() >= DIGEST_LATEST_HOUR) return null;
   if (log.digests.includes(date)) return null;
   const start = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), DIGEST_HOUR) - WIB;
-  const end = start + 48 * HOUR;
+  const end = start + DIGEST_HOURS * HOUR;
   const items = cal.items.filter((n) => Date.parse(n.at) >= start && Date.parse(n.at) < end);
 
-  const lines = [`📅 <b>Daily Outlook · ${fmtDay(now)}</b>`, `All news from 05:00 WIB today to 05:00 WIB in two days`, ''];
+  const lines = [`📅 <b>Daily Outlook · ${fmtDay(now)}</b>`, `All news from 05:00 WIB today to 13:00 WIB tomorrow`, ''];
   if (!items.length) lines.push('No news.');
   let day = '';
   for (const n of items) {
