@@ -124,7 +124,7 @@ function Main({ onLogout }: { onLogout: () => void }) {
   const loadMeta = useCallback(async () => {
     try {
       const [s, a, n] = await Promise.all([api.symbols(), api.accounts(), api.news()]);
-      const active = s.symbols.filter((x) => x.active);
+      const active = s.symbols.filter((x) => x.active).sort((x, y) => x.name.localeCompare(y.name));
       setSymbols(active);
       setColors(s.colors);
       setMt4(s.mt4);
@@ -326,7 +326,7 @@ function Main({ onLogout }: { onLogout: () => void }) {
                 {fmtDate(new Date(analysis.lastCandleAt).getTime())} ·{' '}
                 <span className={mt4 && Date.now() - new Date(mt4.lastSeenAt).getTime() < MT4_STALE_MINUTES * 60_000 ? '' : 'warn'}>
                   MT4 {mt4 ? t(`terakhir kirim ${ago(mt4.lastSeenAt)}`, `last sent ${ago(mt4.lastSeenAt)}`) : t('belum pernah kirim data', 'has never sent data')}
-                  {mt4?.brokerOffsetMinutes !== undefined && ` ({t('server broker', 'broker server')} UTC${mt4.brokerOffsetMinutes >= 0 ? '+' : ''}${mt4.brokerOffsetMinutes / 60})`}
+                  {mt4?.brokerOffsetMinutes !== undefined && ` (${t('server broker', 'broker server')} UTC${mt4.brokerOffsetMinutes >= 0 ? '+' : ''}${mt4.brokerOffsetMinutes / 60})`}
                 </span>
               </span>
               {cancelledHere > 0 && (
