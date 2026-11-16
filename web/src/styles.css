@@ -1226,6 +1226,46 @@ button.restore-all {
   overflow: hidden;
 }
 
+.audit-top {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) 2fr;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.audit-side {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.audit-side > .audit-groups {
+  margin-bottom: 12px;
+}
+.audit-chart {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 260px;
+}
+.audit-chart h3 {
+  margin: 0 0 4px;
+}
+.audit-chart-box {
+  flex: 1;
+  position: relative;
+  background: var(--well);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.audit-chart-box > div {
+  position: absolute;
+  inset: 8px 4px 4px 8px;
+}
+@media (max-width: 760px) {
+  .audit-top {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* --- backtest --------------------------------------------------------------- */
 .tiles.big > div {
   padding: 12px 14px;

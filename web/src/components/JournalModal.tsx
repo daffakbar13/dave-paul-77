@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api, type Account, type AuditGroup, type CloseReason, type Journal, type JournalTrade } from '../api.ts';
 import { digitsOf, fmtLot, fmtMoney, fmtPrice, fmtRr, fmtWibDateTime } from '../format.ts';
 import { useT } from '../i18n.ts';
+import { JournalChart } from './JournalChart.tsx';
 import { Modal } from './Modal.tsx';
 
 type Props = { accounts: Account[]; initialAccountId: string | null; onClose: () => void };
@@ -192,15 +193,24 @@ export function JournalModal({ accounts, initialAccountId, onClose }: Props) {
           </ul>
 
           {s.trades > 0 && (
-            <div className="audit-groups">
+            <>
+            <div className="audit-top">
               <GroupTable title={t('Per pair', 'Per pair')} groups={a.bySymbol} />
-              <GroupTable title={t('Alasan close', 'Close reason')} groups={a.byReason} />
-              <GroupTable title="Normal / Aggressive" groups={a.byMode} />
+              <div className="audit-side">
+                <div className="audit-groups">
+                  <GroupTable title={t('Alasan close', 'Close reason')} groups={a.byReason} />
+                  <GroupTable title="Normal / Aggressive" groups={a.byMode} />
+                </div>
+                <JournalChart trades={data.trades} currency={cur} />
+              </div>
+            </div>
+            <div className="audit-groups">
               <GroupTable title={t('Sumber SL', 'SL source')} groups={a.bySlFrom} />
               <GroupTable title={t('RR rencana', 'Planned RR')} groups={a.byRr} />
               <GroupTable title={t('Garis', 'Lines')} groups={a.byLineSource} />
               <GroupTable title={t('Arah', 'Direction')} groups={a.bySide} />
             </div>
+            </>
           )}
 
           <h3>{t('Trade close', 'Closed trades')} ({data.trades.length})</h3>
