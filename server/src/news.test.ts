@@ -21,6 +21,9 @@ describe('newsWindowEnd', () => {
     assert.equal(newsWindowEnd(wib('2026-10-27T23:00:00'), 48), wib('2026-10-30T05:00:00')); // Tue 23:00 -> Fri 05:00
     assert.equal(newsWindowEnd(wib('2026-10-28T02:00:00'), 48), wib('2026-10-30T05:00:00')); // Wed 02:00 -> Fri 05:00
     assert.equal(newsWindowEnd(wib('2026-10-27T05:00:00'), 48), wib('2026-10-29T05:00:00'));
+    // 32 h (the default): 05:00 WIB to 13:00 WIB the next day
+    assert.equal(newsWindowEnd(wib('2026-10-27T07:00:00'), 32), wib('2026-10-28T13:00:00')); // Tue 07:00 -> Wed 13:00
+    assert.equal(newsWindowEnd(wib('2026-10-27T23:00:00'), 32), wib('2026-10-29T13:00:00')); // Tue 23:00 -> Thu 13:00
   });
 });
 

@@ -29,7 +29,7 @@ export const EMPTY_CALENDAR: Calendar = { items: [], fetchedAt: null, attemptedA
 export class RateLimitError extends Error {
   readonly retryAfterMs: number;
   constructor(retryAfterMs: number) {
-    super(`rate limit, coba lagi setelah ${Math.ceil(retryAfterMs / MINUTE)} menit`);
+    super(`rate limit, retry in ${Math.ceil(retryAfterMs / MINUTE)} minutes`);
     this.retryAfterMs = retryAfterMs;
   }
 }
@@ -39,7 +39,7 @@ const IMPACT: Record<string, Impact> = { High: 'high', Medium: 'medium', Low: 'l
 // Same rules as the server's parser: holidays and malformed rows are dropped. Unlike the
 // server, any currency is kept ("All" included); the alerts filter on impact only.
 export function parseForexFactory(raw: unknown): NewsItem[] {
-  if (!Array.isArray(raw)) throw new Error('Format kalender tidak dikenal');
+  if (!Array.isArray(raw)) throw new Error('Unknown calendar format');
   const out: NewsItem[] = [];
   for (const r of raw as Record<string, unknown>[]) {
     const impact = IMPACT[String(r.impact)];
@@ -61,7 +61,7 @@ function xmlField(event: string, name: string): string {
 // The XML feed: date MM-DD-YYYY and time like "8:30am", both in UTC (unlike the JSON
 // feed's New York offset). Rows without a clock time ("All Day", "Tentative") are dropped.
 export function parseForexFactoryXml(xml: string): NewsItem[] {
-  if (!xml.includes('<weeklyevents')) throw new Error('Format kalender tidak dikenal');
+  if (!xml.includes('<weeklyevents')) throw new Error('Unknown calendar format');
   const out: NewsItem[] = [];
   for (const [, ev = ''] of xml.matchAll(/<event>([\s\S]*?)<\/event>/g)) {
     const impact = IMPACT[xmlField(ev, 'impact')];
@@ -94,7 +94,7 @@ async function fetchText(url: string, accept: string, fetcher: typeof fetch): Pr
   // When limited the feed may also answer 200 with an HTML "request denied" page.
   if (/^\s*<!DOCTYPE html|^\s*<html/i.test(text)) {
     if (/rate|limit|denied/i.test(text)) throw new RateLimitError(RETRY_AFTER_LIMIT);
-    throw new Error('Format kalender tidak dikenal');
+    throw new Error('Unknown calendar format');
   }
   return text;
 }

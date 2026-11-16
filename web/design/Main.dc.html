@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Trading desk</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;background:#0a0b0d}
+a{color:#8f97a1}a:hover{color:#e6e8eb}
+.dp-body{display:grid;grid-template-columns:208px minmax(0,1fr) 360px}
+.dp-nav{display:flex;gap:2px;overflow-x:auto}
+@media (max-width:1100px){.dp-body{grid-template-columns:minmax(0,1fr)}.dp-pairs{flex-direction:row !important;overflow-x:auto;border-right:none !important;border-bottom:1px solid #252a31}.dp-pairs-head{display:none !important}.dp-side{border-left:none !important;border-top:1px solid #252a31}}
+@media (max-width:640px){.dp-status{display:none !important}.dp-top{flex-wrap:wrap}}
+</style>
+</helmet>
+<div style="min-height: 900px; display: flex; flex-direction: column; background: #0a0b0d; color: #e6e8eb; font-family: Inter, system-ui, -apple-system, Roboto, 'Noto Sans', sans-serif; font-size: 13px; line-height: 1.45">
+
+<!-- Top bar -->
+<header class="dp-top" style="display: flex; align-items: center; gap: 20px; padding: 0 20px; min-height: 56px; background: #121418; border-bottom: 1px solid #252a31">
+<div style="display: flex; align-items: center; gap: 10px">
+<svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><rect x="1" y="1" width="20" height="20" rx="5" fill="none" stroke="#ffd60a" stroke-width="1.5"></rect><path d="M5 14h12M5 8h12" stroke="#ffd60a" stroke-width="1.5"></path><path d="M9 4v14" stroke="#ffffff" stroke-width="1.5" stroke-dasharray="2 2"></path></svg>
+<span style="font-weight: 700; font-size: 15px; letter-spacing: -0.01em">DavePaul77</span>
+</div>
+<nav class="dp-nav" aria-label="Sections" style="flex: 1; min-width: 0">
+<a href="#" aria-current="page" style="padding: 8px 12px; border-radius: 8px; background: #1e2228; color: #e6e8eb; text-decoration: none; font-weight: 500; white-space: nowrap">Chart</a>
+<a href="#" style="padding: 8px 12px; border-radius: 8px; text-decoration: none; white-space: nowrap">Pending orders</a>
+<a href="#" style="padding: 8px 12px; border-radius: 8px; text-decoration: none; white-space: nowrap">TF signals</a>
+<a href="#" style="padding: 8px 12px; border-radius: 8px; text-decoration: none; white-space: nowrap">News</a>
+<a href="#" style="padding: 8px 12px; border-radius: 8px; text-decoration: none; white-space: nowrap">Journal</a>
+<a href="#" style="padding: 8px 12px; border-radius: 8px; text-decoration: none; white-space: nowrap">Backtest</a>
+<a href="#" style="padding: 8px 12px; border-radius: 8px; text-decoration: none; white-space: nowrap">Calibration</a>
+</nav>
+<div style="display: flex; align-items: center; gap: 8px">
+<button type="button" aria-pressed="true" title="Click to turn Aggressive off for this session" style="display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px; border-radius: 999px; border: 1px solid #ff9f1c; background: rgba(255,159,28,0.14); color: #ffb44d; font: inherit; font-weight: 600; cursor: pointer">
+<span style="width: 8px; height: 8px; border-radius: 50%; background: #ff9f1c"></span>Aggressive 2x · auto (USD)
+</button>
+<button type="button" style="height: 36px; min-width: 44px; padding: 0 10px; border-radius: 8px; border: 1px solid #252a31; background: transparent; color: #8f97a1; font: inherit; font-weight: 600; cursor: pointer">ID</button>
+<button type="button" aria-label="Settings" style="width: 44px; height: 36px; border-radius: 8px; border: 1px solid #252a31; background: transparent; color: #8f97a1; display: grid; place-items: center; cursor: pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"></path></svg></button>
+<button type="button" aria-label="Log out" style="width: 44px; height: 36px; border-radius: 8px; border: 1px solid #252a31; background: transparent; color: #8f97a1; display: grid; place-items: center; cursor: pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"></path></svg></button>
+</div>
+</header>
+
+<!-- Account + status strip -->
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px 28px; padding: 12px 20px; border-bottom: 1px solid #252a31; background: #0e1013">
+<label style="display: flex; flex-direction: column; gap: 2px">
+<span style="font-size: 11px; color: #8f97a1; text-transform: uppercase; letter-spacing: 0.06em">Account</span>
+<select aria-label="Account" style="background: transparent; border: none; color: #e6e8eb; font: inherit; font-size: 15px; font-weight: 600; padding: 0; min-height: 24px"><option>Demo A</option><option>Demo B</option></select>
+</label>
+<div style="display: flex; flex-direction: column; gap: 2px">
+<span style="font-size: 11px; color: #8f97a1; text-transform: uppercase; letter-spacing: 0.06em">Balance</span>
+<span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 15px; font-weight: 600">10,000.00 <span style="color: #8f97a1; font-weight: 400">USD</span></span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 2px">
+<span style="font-size: 11px; color: #8f97a1; text-transform: uppercase; letter-spacing: 0.06em">Synced</span>
+<span>2 min ago</span>
+</div>
+<div class="dp-status" style="margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap">
+<span style="display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 10px; border-radius: 999px; background: #15181c; border: 1px solid #252a31"><span style="width: 7px; height: 7px; border-radius: 50%; background: #3bd16f"></span>MT4 · last sent 1 min ago · UTC+2</span>
+<span style="display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 10px; border-radius: 999px; background: #15181c; border: 1px solid #252a31; color: #8f97a1">Last candle <span style="color: #e6e8eb">06 Nov</span></span>
+<span style="display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 10px; border-radius: 999px; background: #15181c; border: 1px solid #252a31; color: #8f97a1">EA MT5 <span style="color: #e6e8eb">idle</span></span>
+</div>
+</div>
+
+<!-- News strip -->
+<div role="status" style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; padding: 10px 20px; background: rgba(255,159,28,0.08); border-bottom: 1px solid rgba(255,159,28,0.35); color: #ffb44d">
+<span style="display: inline-flex; align-items: center; gap: 6px; font-weight: 600"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path></svg>High impact</span>
+<span><b style="font-family: 'JetBrains Mono', ui-monospace, monospace">USD</b> 20:30 WIB · Non-Farm Payrolls</span>
+<span><b style="font-family: 'JetBrains Mono', ui-monospace, monospace">USD</b> 20:30 WIB · Unemployment Rate</span>
+<span style="color: #c9a77a">Aggressive is on for the related pairs.</span>
+<a href="#" style="margin-left: auto; color: #ffb44d; font-weight: 500">All news →</a>
+</div>
+
+<!-- Body -->
+<div class="dp-body" style="flex: 1; min-height: 0">
+
+<!-- Pair list -->
+<nav class="dp-pairs" aria-label="Pair" style="display: flex; flex-direction: column; gap: 2px; padding: 12px; border-right: 1px solid #252a31; background: #0e1013">
+<div class="dp-pairs-head" style="display: flex; justify-content: space-between; padding: 4px 10px 8px; font-size: 11px; color: #8f97a1; text-transform: uppercase; letter-spacing: 0.06em"><span>Pairs</span><span>Candidates</span></div>
+<button type="button" aria-current="true" style="display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 10px; border-radius: 8px; border: 1px solid #3a414a; background: #1e2228; color: #e6e8eb; font: inherit; font-weight: 600; text-align: left; cursor: pointer; white-space: nowrap"><span style="flex: 1; font-family: 'JetBrains Mono', ui-monospace, monospace">EURUSD</span><span aria-label="Red news" style="color: #ff9f1c; font-weight: 700">!</span><span style="min-width: 22px; padding: 1px 6px; border-radius: 6px; background: #ffd60a; color: #0a0b0d; font-size: 11px; text-align: center">2</span></button>
+<button type="button" style="display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 10px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: #c4c9cf; font: inherit; text-align: left; cursor: pointer; white-space: nowrap"><span style="flex: 1; font-family: 'JetBrains Mono', ui-monospace, monospace">GBPUSD</span><span aria-label="Red news" style="color: #ff9f1c; font-weight: 700">!</span><span style="min-width: 22px; padding: 1px 6px; border-radius: 6px; background: #2a2f36; font-size: 11px; text-align: center">1</span></button>
+<button type="button" style="display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 10px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: #c4c9cf; font: inherit; text-align: left; cursor: pointer; white-space: nowrap"><span style="flex: 1; font-family: 'JetBrains Mono', ui-monospace, monospace">USDJPY</span><span aria-label="Red news" style="color: #ff9f1c; font-weight: 700">!</span><span style="min-width: 22px; padding: 1px 6px; border-radius: 6px; background: #2a2f36; font-size: 11px; text-align: center">2</span></button>
+<button type="button" style="display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 10px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: #c4c9cf; font: inherit; text-align: left; cursor: pointer; white-space: nowrap"><span style="flex: 1; font-family: 'JetBrains Mono', ui-monospace, monospace">AUDUSD</span><span aria-label="Red news" style="color: #ff9f1c; font-weight: 700">!</span></button>
+<button type="button" style="display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 10px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: #c4c9cf; font: inherit; text-align: left; cursor: pointer; white-space: nowrap"><span style="flex: 1; font-family: 'JetBrains Mono', ui-monospace, monospace">NZDUSD</span><span aria-label="Red news" style="color: #ff9f1c; font-weight: 700">!</span><span style="min-width: 22px; padding: 1px 6px; border-radius: 6px; background: #2a2f36; font-size: 11px; text-align: center">1</span></button>
+<button type="button" style="display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 10px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: #c4c9cf; font: inherit; text-align: left; cursor: pointer; white-space: nowrap"><span style="flex: 1; font-family: 'JetBrains Mono', ui-monospace, monospace">USDCAD</span><span aria-label="Red news" style="color: #ff9f1c; font-weight: 700">!</span></button>
+<button type="button" style="display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 10px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: #c4c9cf; font: inherit; text-align: left; cursor: pointer; white-space: nowrap"><span style="flex: 1; font-family: 'JetBrains Mono', ui-monospace, monospace">USDCHF</span><span aria-label="Red news" style="color: #ff9f1c; font-weight: 700">!</span><span style="min-width: 22px; padding: 1px 6px; border-radius: 6px; background: #2a2f36; font-size: 11px; text-align: center">1</span></button>
+<button type="button" style="display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 10px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: #c4c9cf; font: inherit; text-align: left; cursor: pointer; white-space: nowrap"><span style="flex: 1; font-family: 'JetBrains Mono', ui-monospace, monospace">EURJPY</span><span style="min-width: 22px; padding: 1px 6px; border-radius: 6px; background: #2a2f36; font-size: 11px; text-align: center">2</span></button>
+<button type="button" style="display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 10px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: #c4c9cf; font: inherit; text-align: left; cursor: pointer; white-space: nowrap"><span style="flex: 1; font-family: 'JetBrains Mono', ui-monospace, monospace">GBPJPY</span></button>
+<button type="button" style="display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 10px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: #c4c9cf; font: inherit; text-align: left; cursor: pointer; white-space: nowrap"><span style="flex: 1; font-family: 'JetBrains Mono', ui-monospace, monospace">EURGBP</span><span style="min-width: 22px; padding: 1px 6px; border-radius: 6px; background: #2a2f36; font-size: 11px; text-align: center">1</span></button>
+<button type="button" style="display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 10px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: #c4c9cf; font: inherit; text-align: left; cursor: pointer; white-space: nowrap"><span style="flex: 1; font-family: 'JetBrains Mono', ui-monospace, monospace">AUDJPY</span></button>
+<button type="button" style="display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 10px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: #c4c9cf; font: inherit; text-align: left; cursor: pointer; white-space: nowrap"><span style="flex: 1; font-family: 'JetBrains Mono', ui-monospace, monospace">EURAUD</span></button>
+<button type="button" style="display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 10px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: #c4c9cf; font: inherit; text-align: left; cursor: pointer; white-space: nowrap"><span style="flex: 1; font-family: 'JetBrains Mono', ui-monospace, monospace">CADJPY</span><span style="min-width: 22px; padding: 1px 6px; border-radius: 6px; background: #2a2f36; font-size: 11px; text-align: center">1</span></button>
+<button type="button" style="display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 10px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: #c4c9cf; font: inherit; text-align: left; cursor: pointer; white-space: nowrap"><span style="flex: 1; font-family: 'JetBrains Mono', ui-monospace, monospace">CHFJPY</span></button>
+<button type="button" style="display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 10px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: #c4c9cf; font: inherit; text-align: left; cursor: pointer; white-space: nowrap"><span style="flex: 1; font-family: 'JetBrains Mono', ui-monospace, monospace">GBPCHF</span></button>
+</nav>
+
+<!-- Chart -->
+<main style="display: flex; flex-direction: column; min-width: 0; background: #000000">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding: 14px 20px; border-bottom: 1px solid #1a1d22">
+<div style="display: flex; align-items: baseline; gap: 12px">
+<h1 style="margin: 0; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 22px; font-weight: 600; letter-spacing: -0.01em">EURUSD</h1>
+<span style="padding: 2px 8px; border-radius: 6px; background: #1e2228; color: #c4c9cf; font-size: 12px; font-weight: 600">D1</span>
+<span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 15px">1.08541</span>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 16px; color: #8f97a1; font-size: 12px">
+<span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 16px; height: 2px; background: #ffd60a"></span>S/R · 3 engine</span>
+<span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 16px; border-top: 2px dashed #ffffff"></span>Entry</span>
+<span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 16px; height: 2px; background: #ff453a"></span>SL / TP</span>
+</div>
+<div role="group" aria-label="Show orders" style="margin-left: auto; display: flex; padding: 3px; border-radius: 8px; background: #15181c; border: 1px solid #252a31">
+<button type="button" aria-pressed="false" style="height: 30px; padding: 0 12px; border: none; border-radius: 6px; background: transparent; color: #8f97a1; font: inherit; cursor: pointer">All</button>
+<button type="button" aria-pressed="true" style="height: 30px; padding: 0 12px; border: none; border-radius: 6px; background: #2a2f36; color: #e6e8eb; font: inherit; font-weight: 500; cursor: pointer">Selected only</button>
+</div>
+</div>
+
+<div style="flex: 1; display: flex; min-height: 520px; padding: 16px 0 16px 16px">
+<div style="position: relative; flex: 1; min-width: 0">
+<svg viewBox="0 0 800 420" preserveAspectRatio="none" role="img" aria-label="EURUSD daily candles with support and resistance lines and the selected buy stop" style="position: absolute; inset: 0; width: 100%; height: 100%">
+<g stroke="#15181c" vector-effect="non-scaling-stroke"><line x1="0" x2="800" y1="84" y2="84" vector-effect="non-scaling-stroke"></line><line x1="0" x2="800" y1="168" y2="168" vector-effect="non-scaling-stroke"></line><line x1="0" x2="800" y1="252" y2="252" vector-effect="non-scaling-stroke"></line><line x1="0" x2="800" y1="336" y2="336" vector-effect="non-scaling-stroke"></line></g>
+<rect x="0" y="16.8" width="800" height="67.2" fill="rgba(59,209,111,0.05)"></rect>
+<rect x="0" y="84" width="800" height="53.8" fill="rgba(255,69,58,0.06)"></rect>
+<line x1="0" x2="800" y1="97.4" y2="97.4" stroke="#ffd60a" stroke-width="1.5" vector-effect="non-scaling-stroke"></line>
+<line x1="0" x2="800" y1="193.2" y2="193.2" stroke="#ffd60a" stroke-width="1.5" vector-effect="non-scaling-stroke"></line>
+<line x1="0" x2="800" y1="268.8" y2="268.8" stroke="#ffd60a" stroke-width="1.5" vector-effect="non-scaling-stroke"></line>
+<line x1="0" x2="800" y1="16.8" y2="16.8" stroke="#ff453a" stroke-width="1.5" vector-effect="non-scaling-stroke"></line>
+<line x1="0" x2="800" y1="137.8" y2="137.8" stroke="#ff453a" stroke-width="1.5" vector-effect="non-scaling-stroke"></line>
+<line x1="0" x2="800" y1="84" y2="84" stroke="#ffffff" stroke-width="1.5" stroke-dasharray="6 4" vector-effect="non-scaling-stroke"></line>
+<line x1="0" x2="800" y1="211.7" y2="211.7" stroke="#ffffff" stroke-opacity="0.35" stroke-width="1" stroke-dasharray="6 4" vector-effect="non-scaling-stroke"></line>
+<line x1="0" x2="800" y1="161" y2="161" stroke="#3bd16f" stroke-opacity="0.5" stroke-width="1" stroke-dasharray="2 3" vector-effect="non-scaling-stroke"></line>
+<line x1="16.0" x2="16.0" y1="228.0" y2="258.9" stroke="#6b737d" vector-effect="non-scaling-stroke"></line><rect x="10.0" y="231.8" width="12" height="17.1" fill="#6b737d"></rect><line x1="40.6" x2="40.6" y1="232.8" y2="249.6" stroke="#3bd16f" vector-effect="non-scaling-stroke"></line><rect x="34.6" y="246.2" width="12" height="2.7" fill="#3bd16f"></rect><line x1="65.2" x2="65.2" y1="211.4" y2="258.4" stroke="#3bd16f" vector-effect="non-scaling-stroke"></line><rect x="59.2" y="222.5" width="12" height="23.7" fill="#3bd16f"></rect><line x1="89.8" x2="89.8" y1="215.4" y2="248.2" stroke="#6b737d" vector-effect="non-scaling-stroke"></line><rect x="83.8" y="222.5" width="12" height="20.9" fill="#6b737d"></rect><line x1="114.4" x2="114.4" y1="187.5" y2="244.4" stroke="#3bd16f" vector-effect="non-scaling-stroke"></line><rect x="108.4" y="197.4" width="12" height="46.0" fill="#3bd16f"></rect><line x1="139.0" x2="139.0" y1="171.5" y2="205.2" stroke="#6b737d" vector-effect="non-scaling-stroke"></line><rect x="133.0" y="197.4" width="12" height="4.9" fill="#6b737d"></rect><line x1="163.6" x2="163.6" y1="190.8" y2="218.1" stroke="#6b737d" vector-effect="non-scaling-stroke"></line><rect x="157.6" y="202.3" width="12" height="14.9" fill="#6b737d"></rect><line x1="188.2" x2="188.2" y1="204.5" y2="217.8" stroke="#3bd16f" vector-effect="non-scaling-stroke"></line><rect x="182.2" y="208.0" width="12" height="9.2" fill="#3bd16f"></rect><line x1="212.8" x2="212.8" y1="191.4" y2="219.1" stroke="#3bd16f" vector-effect="non-scaling-stroke"></line><rect x="206.8" y="198.3" width="12" height="9.7" fill="#3bd16f"></rect><line x1="237.4" x2="237.4" y1="174.4" y2="205.4" stroke="#3bd16f" vector-effect="non-scaling-stroke"></line><rect x="231.4" y="192.5" width="12" height="5.8" fill="#3bd16f"></rect><line x1="262.0" x2="262.0" y1="190.7" y2="238.5" stroke="#6b737d" vector-effect="non-scaling-stroke"></line><rect x="256.0" y="192.5" width="12" height="31.2" fill="#6b737d"></rect><line x1="286.6" x2="286.6" y1="208.2" y2="225.8" stroke="#3bd16f" vector-effect="non-scaling-stroke"></line><rect x="280.6" y="216.0" width="12" height="7.7" fill="#3bd16f"></rect><line x1="311.2" x2="311.2" y1="137.7" y2="224.5" stroke="#3bd16f" vector-effect="non-scaling-stroke"></line><rect x="305.2" y="138.2" width="12" height="77.8" fill="#3bd16f"></rect><line x1="335.8" x2="335.8" y1="135.3" y2="187.5" stroke="#6b737d" vector-effect="non-scaling-stroke"></line><rect x="329.8" y="138.2" width="12" height="42.7" fill="#6b737d"></rect><line x1="360.4" x2="360.4" y1="177.1" y2="187.0" stroke="#6b737d" vector-effect="non-scaling-stroke"></line><rect x="354.4" y="180.9" width="12" height="5.1" fill="#6b737d"></rect><line x1="385.0" x2="385.0" y1="180.3" y2="204.1" stroke="#6b737d" vector-effect="non-scaling-stroke"></line><rect x="379.0" y="186.0" width="12" height="9.9" fill="#6b737d"></rect><line x1="409.6" x2="409.6" y1="135.4" y2="202.8" stroke="#3bd16f" vector-effect="non-scaling-stroke"></line><rect x="403.6" y="140.5" width="12" height="55.4" fill="#3bd16f"></rect><line x1="434.2" x2="434.2" y1="130.1" y2="146.6" stroke="#3bd16f" vector-effect="non-scaling-stroke"></line><rect x="428.2" y="139.8" width="12" height="1.5" fill="#3bd16f"></rect><line x1="458.8" x2="458.8" y1="116.2" y2="152.5" stroke="#3bd16f" vector-effect="non-scaling-stroke"></line><rect x="452.8" y="117.4" width="12" height="22.4" fill="#3bd16f"></rect><line x1="483.4" x2="483.4" y1="107.5" y2="125.3" stroke="#3bd16f" vector-effect="non-scaling-stroke"></line><rect x="477.4" y="108.9" width="12" height="8.5" fill="#3bd16f"></rect><line x1="508.0" x2="508.0" y1="94.6" y2="125.4" stroke="#3bd16f" vector-effect="non-scaling-stroke"></line><rect x="502.0" y="99.3" width="12" height="9.6" fill="#3bd16f"></rect><line x1="532.6" x2="532.6" y1="93.7" y2="122.3" stroke="#6b737d" vector-effect="non-scaling-stroke"></line><rect x="526.6" y="99.3" width="12" height="17.9" fill="#6b737d"></rect><line x1="557.2" x2="557.2" y1="114.0" y2="119.0" stroke="#3bd16f" vector-effect="non-scaling-stroke"></line><rect x="551.2" y="116.1" width="12" height="1.5" fill="#3bd16f"></rect><line x1="581.8" x2="581.8" y1="105.9" y2="138.6" stroke="#6b737d" vector-effect="non-scaling-stroke"></line><rect x="575.8" y="116.1" width="12" height="18.5" fill="#6b737d"></rect><line x1="606.4" x2="606.4" y1="107.3" y2="144.5" stroke="#3bd16f" vector-effect="non-scaling-stroke"></line><rect x="600.4" y="122.5" width="12" height="12.1" fill="#3bd16f"></rect><line x1="631.0" x2="631.0" y1="95.5" y2="129.5" stroke="#3bd16f" vector-effect="non-scaling-stroke"></line><rect x="625.0" y="103.3" width="12" height="19.2" fill="#3bd16f"></rect><line x1="655.6" x2="655.6" y1="95.5" y2="125.8" stroke="#6b737d" vector-effect="non-scaling-stroke"></line><rect x="649.6" y="103.3" width="12" height="4.6" fill="#6b737d"></rect><line x1="680.2" x2="680.2" y1="100.9" y2="142.3" stroke="#6b737d" vector-effect="non-scaling-stroke"></line><rect x="674.2" y="107.9" width="12" height="14.6" fill="#6b737d"></rect><line x1="704.8" x2="704.8" y1="111.2" y2="131.3" stroke="#3bd16f" vector-effect="non-scaling-stroke"></line><rect x="698.8" y="121.0" width="12" height="1.5" fill="#3bd16f"></rect><line x1="729.4" x2="729.4" y1="96.5" y2="167.9" stroke="#6b737d" vector-effect="non-scaling-stroke"></line><rect x="723.4" y="121.0" width="12" height="29.0" fill="#6b737d"></rect><line x1="754.0" x2="754.0" y1="135.5" y2="151.3" stroke="#3bd16f" vector-effect="non-scaling-stroke"></line><rect x="748.0" y="143.1" width="12" height="6.9" fill="#3bd16f"></rect><line x1="778.6" x2="778.6" y1="141.9" y2="164.8" stroke="#6b737d" vector-effect="non-scaling-stroke"></line><rect x="772.6" y="143.1" width="12" height="18.0" fill="#6b737d"></rect>
+</svg>
+<span style="position: absolute; left: 8px; top: calc(4% + 4px); font-size: 11px; color: #ff6b62">TP · Buy stop</span>
+<span style="position: absolute; left: 8px; top: calc(20% - 18px); font-size: 11px; color: #ffffff">Entry · Buy stop 0.31</span>
+<span style="position: absolute; left: 8px; top: calc(32.8% + 4px); font-size: 11px; color: #ff6b62">SL</span>
+<span style="position: absolute; left: 8px; top: calc(50.4% + 4px); font-size: 11px; color: #9aa1aa">Entry · Sell stop 0.29</span>
+</div>
+<div aria-hidden="true" style="position: relative; width: 84px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px">
+<span style="position: absolute; left: 6px; top: calc(4% - 9px); padding: 1px 5px; border-radius: 4px; background: #ff453a; color: #0a0b0d; font-weight: 600">1.09400</span>
+<span style="position: absolute; left: 6px; top: calc(20% - 19px); padding: 1px 5px; border-radius: 4px; background: #ffffff; color: #0a0b0d; font-weight: 600">1.09000</span>
+<span style="position: absolute; left: 6px; top: calc(23.2% + 1px); padding: 1px 5px; border-radius: 4px; background: #ffd60a; color: #0a0b0d; font-weight: 600">1.08920</span>
+<span style="position: absolute; left: 6px; top: calc(32.8% - 9px); padding: 1px 5px; border-radius: 4px; background: #ff453a; color: #0a0b0d; font-weight: 600">1.08680</span>
+<span style="position: absolute; left: 6px; top: calc(38.3% - 9px); padding: 1px 5px; border-radius: 4px; background: #3bd16f; color: #0a0b0d; font-weight: 600">1.08541</span>
+<span style="position: absolute; left: 6px; top: calc(46% - 9px); padding: 1px 5px; border-radius: 4px; background: #ffd60a; color: #0a0b0d; font-weight: 600">1.08350</span>
+<span style="position: absolute; left: 6px; top: calc(50.4% - 1px); padding: 1px 5px; border-radius: 4px; border: 1px solid #5a616b; color: #c4c9cf">1.08240</span>
+<span style="position: absolute; left: 6px; top: calc(64% - 9px); padding: 1px 5px; border-radius: 4px; background: #ffd60a; color: #0a0b0d; font-weight: 600">1.07900</span>
+</div>
+</div>
+</main>
+
+<!-- Orders panel -->
+<aside class="dp-side" aria-label="Order candidates" style="display: flex; flex-direction: column; border-left: 1px solid #252a31; background: #121418">
+<div style="display: flex; align-items: center; justify-content: space-between; padding: 16px 20px 12px">
+<h2 style="margin: 0; font-size: 14px; font-weight: 600">Order candidates <span style="color: #8f97a1; font-weight: 400">· EURUSD</span></h2>
+<button type="button" style="height: 32px; padding: 0 10px; border: none; background: transparent; color: #8f97a1; font: inherit; cursor: pointer">Restore all (1)</button>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 10px; padding: 0 16px; flex: 1">
+
+<article style="border-radius: 12px; border: 1px solid #ffffff; background: #181b20; padding: 14px">
+<div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px">
+<span style="font-weight: 600; font-size: 14px">Buy stop</span>
+<span style="padding: 2px 8px; border-radius: 999px; background: rgba(59,209,111,0.14); color: #5fe08a; font-size: 11px; font-weight: 600">Valid</span>
+<span style="padding: 2px 8px; border-radius: 999px; background: rgba(255,159,28,0.14); color: #ffb44d; font-size: 11px; font-weight: 600">2x</span>
+<button type="button" aria-label="Cancel EURUSD Buy stop" style="margin-left: auto; width: 32px; height: 32px; border: none; border-radius: 6px; background: transparent; color: #8f97a1; display: grid; place-items: center; cursor: pointer"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"></path></svg></button>
+</div>
+<dl style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px 12px; margin: 0; font-family: 'JetBrains Mono', ui-monospace, monospace">
+<div><dt style="font-family: Inter, system-ui, sans-serif; font-size: 11px; color: #8f97a1">Entry</dt><dd style="margin: 0; color: #ffffff">1.09000</dd></div>
+<div><dt style="font-family: Inter, system-ui, sans-serif; font-size: 11px; color: #8f97a1">SL</dt><dd style="margin: 0; color: #ff6b62">1.08680</dd></div>
+<div><dt style="font-family: Inter, system-ui, sans-serif; font-size: 11px; color: #8f97a1">TP</dt><dd style="margin: 0; color: #ff6b62">1.09400</dd></div>
+<div><dt style="font-family: Inter, system-ui, sans-serif; font-size: 11px; color: #8f97a1">Lot</dt><dd style="margin: 0">0.62</dd></div>
+<div><dt style="font-family: Inter, system-ui, sans-serif; font-size: 11px; color: #8f97a1">Risk</dt><dd style="margin: 0">198.40</dd></div>
+<div><dt style="font-family: Inter, system-ui, sans-serif; font-size: 11px; color: #8f97a1">RR</dt><dd style="margin: 0">1.25</dd></div>
+</dl>
+</article>
+
+<article style="border-radius: 12px; border: 1px solid #252a31; background: #15181c; padding: 14px">
+<div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px">
+<span style="font-weight: 600; font-size: 14px">Sell stop</span>
+<span style="padding: 2px 8px; border-radius: 999px; background: rgba(255,243,176,0.12); color: #fff3b0; font-size: 11px; font-weight: 600">Valid · low RR</span>
+<span style="padding: 2px 8px; border-radius: 999px; background: rgba(255,159,28,0.14); color: #ffb44d; font-size: 11px; font-weight: 600">2x</span>
+<button type="button" aria-label="Cancel EURUSD Sell stop" style="margin-left: auto; width: 32px; height: 32px; border: none; border-radius: 6px; background: transparent; color: #8f97a1; display: grid; place-items: center; cursor: pointer"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"></path></svg></button>
+</div>
+<dl style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px 12px; margin: 0; font-family: 'JetBrains Mono', ui-monospace, monospace; color: #c4c9cf">
+<div><dt style="font-family: Inter, system-ui, sans-serif; font-size: 11px; color: #8f97a1">Entry</dt><dd style="margin: 0">1.08240</dd></div>
+<div><dt style="font-family: Inter, system-ui, sans-serif; font-size: 11px; color: #8f97a1">SL</dt><dd style="margin: 0">1.08580</dd></div>
+<div><dt style="font-family: Inter, system-ui, sans-serif; font-size: 11px; color: #8f97a1">TP <span style="color: #8f97a1">auto</span></dt><dd style="margin: 0">1.07960</dd></div>
+<div><dt style="font-family: Inter, system-ui, sans-serif; font-size: 11px; color: #8f97a1">Lot</dt><dd style="margin: 0">0.58</dd></div>
+<div><dt style="font-family: Inter, system-ui, sans-serif; font-size: 11px; color: #8f97a1">Risk</dt><dd style="margin: 0">197.20</dd></div>
+<div><dt style="font-family: Inter, system-ui, sans-serif; font-size: 11px; color: #8f97a1">RR</dt><dd style="margin: 0; color: #fff3b0">0.82</dd></div>
+</dl>
+</article>
+
+<article style="border-radius: 12px; border: 1px dashed #2a2f36; padding: 12px 14px; color: #8f97a1">
+<div style="display: flex; align-items: center; gap: 8px">
+<span style="font-weight: 600; color: #9aa1aa">Sell stop @ 1.07900</span>
+<span style="padding: 2px 8px; border-radius: 999px; background: #1e2228; font-size: 11px; font-weight: 600">Cancelled</span>
+<button type="button" style="margin-left: auto; height: 32px; padding: 0 8px; border: none; background: transparent; color: #6cb6ff; font: inherit; cursor: pointer">Restore</button>
+</div>
+</article>
+
+</div>
+
+<div style="margin-top: 16px; padding: 16px 20px 20px; border-top: 1px solid #252a31; display: flex; flex-direction: column; gap: 12px">
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px">
+<div style="padding: 10px 12px; border-radius: 10px; background: #0e1013"><div style="font-size: 11px; color: #8f97a1">Valid orders · all pairs</div><div style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 18px; font-weight: 600">5</div></div>
+<div style="padding: 10px 12px; border-radius: 10px; background: #0e1013"><div style="font-size: 11px; color: #8f97a1">Total risk</div><div style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 18px; font-weight: 600">888.80 <span style="font-size: 12px; color: #8f97a1">USD</span></div></div>
+</div>
+<button type="button" style="height: 48px; border-radius: 10px; border: none; background: #ffffff; color: #0a0b0d; font: inherit; font-size: 15px; font-weight: 700; cursor: pointer">Review &amp; execute</button>
+</div>
+</aside>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

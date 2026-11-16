@@ -46,7 +46,7 @@ describe('run', () => {
     assert.equal(feedCalls, 1);
     assert.equal(telegram.length, 1);
     assert.equal(telegram[0]!.message_thread_id, 7);
-    assert.match(String(telegram[0]!.text), /🔴 <b>High impact · 7 jam 30 menit lagi[\s\S]*USD · Non-Farm[\s\S]*Pair: EURUSD/);
+    assert.match(String(telegram[0]!.text), /🔴 <b>High impact · in 7 hours 30 minutes[\s\S]*USD · Non-Farm[\s\S]*Pairs: EURUSD/);
     const w = writes();
 
     await run(env, now + 5 * 60_000, fetcher);
@@ -56,7 +56,7 @@ describe('run', () => {
 
     await run(env, now + 7 * H, fetcher); // 30 minutes before
     assert.equal(telegram.length, 2);
-    assert.match(String(telegram[1]!.text), /30 menit lagi/);
+    assert.match(String(telegram[1]!.text), /in 30 minutes/);
   });
 
   it('sends medium/low news to its own topic only when TOPIC_OTHER_NEWS is set', async () => {
@@ -113,6 +113,6 @@ describe('run', () => {
     await run(env, now + 5 * 60_000, fetcher);
     assert.equal(feedCalls, 2); // XML and JSON once each, then retry-after 10 minutes
     assert.equal(texts.length, 1);
-    assert.match(texts[0]!, /belum pernah berhasil diambil \(rate limit/);
+    assert.match(texts[0]!, /never fetched \(rate limit/);
   });
 });

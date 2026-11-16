@@ -23,7 +23,7 @@ export type Settings = {
 export const DEFAULT_SETTINGS: Omit<Settings, '_id'> = {
   version: 1,
   rrThreshold: 1.5,
-  newsWindowHours: 48,
+  newsWindowHours: 32, // 05:00 WIB to 13:00 WIB the next day
   commandTtlHours: 24,
   balanceStaleMinutes: 60,
   quoteMaxAgeMinutes: 30,

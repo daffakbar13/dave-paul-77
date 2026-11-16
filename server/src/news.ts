@@ -185,7 +185,7 @@ async function fetchAndStore(db: Collections, provider: NewsProvider): Promise<N
 }
 
 // The window runs `hours` from the 05:00 WIB nearest to now (the morning briefing time), not from now:
-// Tue 07:00 -> anchor Tue 05:00 -> ends Thu 05:00; Tue 23:00 -> anchor Wed 05:00 -> ends Fri 05:00.
+// with the default 32 h: Tue 07:00 -> anchor Tue 05:00 -> ends Wed 13:00; Tue 23:00 -> anchor Wed 05:00 -> ends Thu 13:00.
 const ANCHOR_UTC_HOUR = 22; // 05:00 WIB = 22:00 UTC the day before
 export function newsWindowEnd(now: number, hours: number): number {
   const day = 24 * HOUR;

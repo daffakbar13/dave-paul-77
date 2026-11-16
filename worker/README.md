@@ -5,7 +5,8 @@ Cloudflare Worker gratis yang jalan **setiap 5 menit**, tanpa laptop dan tanpa R
 - Mengambil feed ForexFactory paling sering 4 jam sekali (1 jam sebelum Daily Outlook) dan menyimpannya di KV. Versi
   XML dulu (JSON hampir selalu kena rate limit dari IP Cloudflare yang dipakai bersama), JSON sebagai cadangan.
 - **News Alert** (topik grup Telegram): setiap berita *high impact* (semua mata uang) dikirim saat masuk jendela
-  48 jam, 24 jam, lalu 4 jam, 1 jam dan 30 menit sebelum rilis. Berita di jam yang sama digabung dalam satu pesan. Tiap tahap
+  48 jam, 24 jam, lalu 4 jam, 1 jam, 30 menit sebelum rilis, dan tepat saat rilis (🚨, masih dikirim
+  sampai 15 menit sesudahnya jika run telat). Berita di jam yang sama digabung dalam satu pesan. Tiap tahap
   hanya sekali; jika run telat, hanya tahap terdekat yang dikirim. Jadwal berubah = berita baru, alert mulai lagi.
 - **Other News** (topik sendiri, opsional): berita *medium* 🟠 dan *low* 🟡 semua mata uang, sekali 30 menit
   sebelum rilis, digabung per jam rilis. Berita merah tetap hanya di News Alert. Tidak dikirim sebelum

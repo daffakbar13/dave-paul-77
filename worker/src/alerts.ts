@@ -10,12 +10,15 @@ const STALE_AFTER = 12 * HOUR;
 const KEEP_SENT = 2 * 24 * HOUR;
 
 export const STAGES = [
-  { id: '48h', ms: 48 * HOUR, label: '48 jam lagi' },
-  { id: '24h', ms: 24 * HOUR, label: '24 jam lagi' },
-  { id: '4h', ms: 4 * HOUR, label: '4 jam lagi' },
-  { id: '1h', ms: HOUR, label: '1 jam lagi' },
-  { id: '30m', ms: 30 * MINUTE, label: '30 menit lagi' },
+  { id: '48h', ms: 48 * HOUR, label: 'in 48 hours' },
+  { id: '24h', ms: 24 * HOUR, label: 'in 24 hours' },
+  { id: '4h', ms: 4 * HOUR, label: 'in 4 hours' },
+  { id: '1h', ms: HOUR, label: 'in 1 hour' },
+  { id: '30m', ms: 30 * MINUTE, label: 'in 30 minutes' },
+  { id: 'now', ms: 0, label: 'releasing now' },
 ] as const;
+// The release alert is still sent this long after the release time (a late or failed run).
+const RELEASE_GRACE = 15 * MINUTE;
 export type StageId = (typeof STAGES)[number]['id'];
 type Stage = (typeof STAGES)[number];
 
@@ -34,8 +37,8 @@ export type Outgoing = { topic: Topic; text: string; mark: (log: SentLog) => voi
 export const eventKey = (n: NewsItem) => `${n.currency}|${n.title}|${n.at}`;
 
 // --- formatting -------------------------------------------------------------
-const DAYS = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const pad = (n: number) => String(n).padStart(2, '0');
 
 // The WIB wall clock as UTC fields of a shifted Date.
@@ -49,10 +52,11 @@ export const wibDate = (ms: number) => wib(ms).toISOString().slice(0, 10);
 
 export function fmtRemaining(ms: number): string {
   const mins = Math.max(1, Math.round(ms / MINUTE));
-  if (mins < 60) return `${mins} menit`;
+  const unit = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  if (mins < 60) return unit(mins, 'minute');
   const h = Math.floor(mins / 60);
   const m = mins % 60;
-  return m ? `${h} jam ${m} menit` : `${h} jam`;
+  return m ? `${unit(h, 'hour')} ${unit(m, 'minute')}` : unit(h, 'hour');
 }
 
 const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -71,6 +75,7 @@ export function pairsFor(currencies: string[], pairs: string[]): string[] {
 // --- News Alert -------------------------------------------------------------
 // The stage an event is in now: the closest threshold it has passed.
 function currentStage(remaining: number): Stage | null {
+  if (remaining <= -RELEASE_GRACE) return null;
   let found: Stage | null = null;
   for (const s of STAGES) if (remaining <= s.ms) found = s;
   return found;
@@ -78,13 +83,15 @@ function currentStage(remaining: number): Stage | null {
 
 function alertText(at: number, items: NewsItem[], stage: Stage, now: number, pairs: string[]): string {
   const remaining = at - now;
-  // On time it reads "1 jam lagi"; an event first seen late (or a late run) shows the real gap.
-  const label = stage.id !== STAGES[0].id && remaining > stage.ms - 10 * MINUTE ? stage.label : `${fmtRemaining(remaining)} lagi`;
-  const head = stage.ms >= 24 * HOUR ? '🔴' : '⏰';
+  // On time it reads "in 1 hour"; an event first seen late (or a late run) shows the real gap.
+  let label: string;
+  if (stage.id === 'now') label = remaining > -2 * MINUTE ? stage.label : `released ${fmtRemaining(-remaining)} ago`;
+  else label = stage.id !== STAGES[0].id && remaining > stage.ms - 10 * MINUTE ? stage.label : `in ${fmtRemaining(remaining)}`;
+  const head = stage.id === 'now' ? '🚨' : stage.ms >= 24 * HOUR ? '🔴' : '⏰';
   const lines = [`${head} <b>High impact · ${label}</b>`, `${fmtDay(at)} · ${fmtTime(at)} WIB`];
   for (const n of items) lines.push(`• ${n.currency} · ${escape(n.title)}`);
   const affected = pairsFor([...new Set(items.map((n) => n.currency))], pairs);
-  if (affected.length) lines.push(`Pair: ${affected.join(', ')}`);
+  if (affected.length) lines.push(`Pairs: ${affected.join(', ')}`);
   return lines.join('\n');
 }
 
@@ -95,7 +102,7 @@ export function planAlerts(cal: Calendar, log: SentLog, now: number, pairs: stri
     if (n.impact !== 'high') continue;
     const at = Date.parse(n.at);
     const stage = currentStage(at - now);
-    if (at <= now || !stage || log.events[eventKey(n)]?.includes(stage.id)) continue;
+    if (!stage || log.events[eventKey(n)]?.includes(stage.id)) continue;
     const g = groups.get(`${at}|${stage.id}`) ?? { at, stage, items: [] };
     g.items.push(n);
     groups.set(`${at}|${stage.id}`, g);
@@ -106,7 +113,7 @@ export function planAlerts(cal: Calendar, log: SentLog, now: number, pairs: stri
       topic: 'alert' as const,
       text: alertText(at, items, stage, now, pairs),
       mark: (l: SentLog) => {
-        // The stage sent and every earlier one: a late run never sends "4 jam lagi" after "1 jam lagi".
+        // The stage sent and every earlier one: a late run never sends "in 4 hours" after "in 1 hour".
         const done = STAGES.filter((s) => s.ms >= stage.ms).map((s) => s.id);
         for (const n of items) l.events[eventKey(n)] = [...new Set([...(l.events[eventKey(n)] ?? []), ...done])];
       },
@@ -131,11 +138,11 @@ export function planOthers(cal: Calendar, log: SentLog, now: number, pairs: stri
     .sort(([a], [b]) => a - b)
     .map(([at, items]) => {
       const remaining = at - now;
-      const label = remaining > OTHER_BEFORE - 10 * MINUTE ? '30 menit lagi' : `${fmtRemaining(remaining)} lagi`;
+      const label = remaining > OTHER_BEFORE - 10 * MINUTE ? 'in 30 minutes' : `in ${fmtRemaining(remaining)}`;
       const lines = [`🔔 <b>News · ${label}</b>`, `${fmtDay(at)} · ${fmtTime(at)} WIB`];
       for (const n of items) lines.push(`• ${IMPACT_ICON[n.impact]} ${n.currency} · ${escape(n.title)}`);
       const affected = pairsFor([...new Set(items.map((n) => n.currency))], pairs);
-      if (affected.length) lines.push(`Pair: ${affected.join(', ')}`);
+      if (affected.length) lines.push(`Pairs: ${affected.join(', ')}`);
       return {
         topic: 'other' as const,
         text: lines.join('\n'),
@@ -158,8 +165,8 @@ export function planDigest(cal: Calendar, log: SentLog, now: number): Outgoing |
   const end = start + 48 * HOUR;
   const items = cal.items.filter((n) => Date.parse(n.at) >= start && Date.parse(n.at) < end);
 
-  const lines = [`📅 <b>Daily Outlook · ${fmtDay(now)}</b>`, `Semua berita 05:00 WIB s.d. lusa 05:00 WIB`, ''];
-  if (!items.length) lines.push('Tidak ada berita.');
+  const lines = [`📅 <b>Daily Outlook · ${fmtDay(now)}</b>`, `All news from 05:00 WIB today to 05:00 WIB in two days`, ''];
+  if (!items.length) lines.push('No news.');
   let day = '';
   for (const n of items) {
     const at = Date.parse(n.at);
@@ -182,8 +189,8 @@ const isStale = (cal: Calendar, now: number) =>
   cal.fetchedAt ? now - Date.parse(cal.fetchedAt) > STALE_AFTER : cal.error !== null;
 
 function staleNote(cal: Calendar, now: number): string {
-  const age = cal.fetchedAt ? `terakhir berhasil ${fmtRemaining(now - Date.parse(cal.fetchedAt))} lalu` : 'belum pernah berhasil diambil';
-  return `Kalender ForexFactory ${age} (${escape(cal.error ?? 'belum diperbarui')}); alert bisa terlewat.`;
+  const age = cal.fetchedAt ? `last fetched ${fmtRemaining(now - Date.parse(cal.fetchedAt))} ago` : 'never fetched';
+  return `ForexFactory calendar ${age} (${escape(cal.error ?? 'not updated')}); alerts may be missed.`;
 }
 
 // One warning when the kept calendar goes stale, one note when it recovers.
@@ -194,7 +201,7 @@ export function planHealth(cal: Calendar, log: SentLog, now: number): Outgoing |
     return { topic: 'alert', text: `⚠️ ${staleNote(cal, now)}`, mark: (l) => void (l.staleWarned = id) };
   }
   if (log.staleWarned && cal.fetchedAt) {
-    return { topic: 'alert', text: '✅ Kalender ForexFactory kembali normal.', mark: (l) => void (l.staleWarned = null) };
+    return { topic: 'alert', text: '✅ ForexFactory calendar is back to normal.', mark: (l) => void (l.staleWarned = null) };
   }
   return null;
 }

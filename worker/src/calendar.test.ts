@@ -82,7 +82,7 @@ describe('parseForexFactoryXml', () => {
   });
 
   it('rejects an unexpected payload', () => {
-    assert.throws(() => parseForexFactoryXml('<html>denied</html>'), /tidak dikenal/);
+    assert.throws(() => parseForexFactoryXml('<html>denied</html>'), /Unknown calendar format/);
   });
 });
 

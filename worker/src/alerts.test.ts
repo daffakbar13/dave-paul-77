@@ -38,16 +38,26 @@ function simulate(c: Calendar, from: number, to: number, log = fresh()): string[
 }
 
 describe('planAlerts', () => {
-  it('sends 48h, 24h, 4h, 1h and 30m once each, then nothing after the release', () => {
+  it('sends 48h, 24h, 4h, 1h, 30m and the release once each, then nothing after the release', () => {
     const at = NOW + 50 * H;
     const sent = simulate(cal([item(at)]), NOW, at + H);
     assert.deepEqual(sent, [
-      '🔴 <b>High impact · 48 jam lagi</b>',
-      '🔴 <b>High impact · 24 jam lagi</b>',
-      '⏰ <b>High impact · 4 jam lagi</b>',
-      '⏰ <b>High impact · 1 jam lagi</b>',
-      '⏰ <b>High impact · 30 menit lagi</b>',
+      '🔴 <b>High impact · in 48 hours</b>',
+      '🔴 <b>High impact · in 24 hours</b>',
+      '⏰ <b>High impact · in 4 hours</b>',
+      '⏰ <b>High impact · in 1 hour</b>',
+      '⏰ <b>High impact · in 30 minutes</b>',
+      '🚨 <b>High impact · releasing now</b>',
     ]);
+  });
+
+  it('a late run still sends the release alert up to 15 minutes after, with the real delay', () => {
+    const at = NOW;
+    const log = fresh();
+    for (const s of ['48h', '24h', '4h', '1h', '30m'] as const) log.events[eventKey(item(at))] = [...(log.events[eventKey(item(at))] ?? []), s];
+    const [o] = planAlerts(cal([item(at)]), log, at + 10 * M, PAIRS);
+    assert.match(o!.text, /🚨 <b>High impact · released 10 minutes ago<\/b>/);
+    assert.equal(planAlerts(cal([item(at)]), fresh(), at + 15 * M, PAIRS).length, 0);
   });
 
   it('filters on impact only: any currency, no medium or low', () => {
@@ -55,22 +65,22 @@ describe('planAlerts', () => {
     const out = planAlerts(cal([item(at, 'CNY', 'GDP q/y'), item(at, 'EUR', 'CPI', 'medium'), item(at, 'GBP', 'PMI', 'low')]), fresh(), NOW, PAIRS);
     assert.equal(out.length, 1);
     assert.match(out[0]!.text, /CNY · GDP q\/y/);
-    assert.doesNotMatch(out[0]!.text, /Pair:/); // no listed pair has CNY
+    assert.doesNotMatch(out[0]!.text, /Pairs:/); // no listed pair has CNY
   });
 
   it('groups events at the same time into one message and lists the affected pairs', () => {
     const at = NOW + 2 * H;
     const out = planAlerts(cal([item(at), item(at, 'USD', 'Unemployment Rate'), item(at + H, 'EUR', 'CPI')]), fresh(), NOW, PAIRS);
     assert.equal(out.length, 2);
-    assert.match(out[0]!.text, /Non-Farm[\s\S]*Unemployment Rate\nPair: AUDUSD, EURUSD, USDJPY$/);
-    assert.match(out[0]!.text, /Jum, 23 Okt · 14:00 WIB/);
+    assert.match(out[0]!.text, /Non-Farm[\s\S]*Unemployment Rate\nPairs: AUDUSD, EURUSD, USDJPY$/);
+    assert.match(out[0]!.text, /Fri, 23 Oct · 14:00 WIB/);
   });
 
   it('an event first seen late gets only its current stage, with the real time left', () => {
     const at = NOW + 2 * H + 10 * M;
     const log = fresh();
     const [o] = planAlerts(cal([item(at)]), log, NOW, PAIRS);
-    assert.match(o!.text, /High impact · 2 jam 10 menit lagi/);
+    assert.match(o!.text, /High impact · in 2 hours 10 minutes/);
     o!.mark(log);
     assert.deepEqual(log.events[eventKey(item(at))], ['48h', '24h', '4h']);
     assert.equal(planAlerts(cal([item(at)]), log, NOW + 5 * M, PAIRS).length, 0);
@@ -98,7 +108,7 @@ describe('planOthers', () => {
     assert.equal(out.length, 1);
     assert.equal(
       out[0]!.text,
-      ['🔔 <b>News · 30 menit lagi</b>', 'Jum, 23 Okt · 14:00 WIB', '• 🟠 EUR · CPI', '• 🟡 GBP · PMI', 'Pair: EURUSD, EURGBP'].join('\n'),
+      ['🔔 <b>News · in 30 minutes</b>', 'Fri, 23 Oct · 14:00 WIB', '• 🟠 EUR · CPI', '• 🟡 GBP · PMI', 'Pairs: EURUSD, EURGBP'].join('\n'),
     );
     out[0]!.mark(log);
     assert.equal(planOthers(c, log, at - 25 * M, PAIRS).length, 0);
@@ -107,7 +117,7 @@ describe('planOthers', () => {
 
   it('a late first sight shows the real time left', () => {
     const [o] = planOthers(cal([item(NOW + 12 * M, 'CAD', 'Retail Sales', 'medium')]), fresh(), NOW, PAIRS);
-    assert.match(o!.text, /News · 12 menit lagi/);
+    assert.match(o!.text, /News · in 12 minutes/);
   });
 });
 
@@ -128,12 +138,12 @@ describe('planDigest', () => {
     assert.equal(
       d!.text,
       [
-        '📅 <b>Daily Outlook · Jum, 23 Okt</b>',
-        'Semua berita 05:00 WIB s.d. lusa 05:00 WIB',
+        '📅 <b>Daily Outlook · Fri, 23 Oct</b>',
+        'All news from 05:00 WIB today to 05:00 WIB in two days',
         '',
         '19:30 · 🔴 USD · Non-Farm Employment Change',
         '19:30 · 🟠 EUR · CPI',
-        '<i>Sab, 24 Okt</i>',
+        '<i>Sat, 24 Oct</i>',
         '01:00 · 🔴 NZD · GDP q/q',
         '05:00 · 🔴 JPY · Next day',
       ].join('\n'),
@@ -150,9 +160,9 @@ describe('planDigest', () => {
 
   it('sends on weekends too', () => {
     const sat = planDigest(cal([]), fresh(), Date.parse('2026-10-23T22:05:00Z')); // Sat 05:05 WIB
-    assert.match(sat!.text, /Sab, 24 Okt[\s\S]*Tidak ada berita\./);
+    assert.match(sat!.text, /Sat, 24 Oct[\s\S]*No news\./);
     const sun = planDigest(cal([]), fresh(), Date.parse('2026-10-24T22:05:00Z'));
-    assert.match(sun!.text, /Min, 25 Okt[\s\S]*Tidak ada berita\./);
+    assert.match(sun!.text, /Sun, 25 Oct[\s\S]*No news\./);
   });
 });
 
@@ -161,18 +171,18 @@ describe('planHealth', () => {
     const log = fresh();
     const stale = cal([], { fetchedAt: new Date(NOW - 13 * H).toISOString(), error: 'HTTP 503' });
     const w = planHealth(stale, log, NOW);
-    assert.match(w!.text, /terakhir berhasil 13 jam lalu \(HTTP 503\)/);
+    assert.match(w!.text, /last fetched 13 hours ago \(HTTP 503\)/);
     w!.mark(log);
     assert.equal(planHealth(stale, log, NOW + H), null);
     const ok = planHealth(cal([]), log, NOW + 2 * H);
-    assert.match(ok!.text, /kembali normal/);
+    assert.match(ok!.text, /back to normal/);
     ok!.mark(log);
     assert.equal(planHealth(cal([]), log, NOW + 3 * H), null);
   });
 
   it('warns at once when the feed never worked', () => {
     const w = planHealth(cal([], { fetchedAt: null, error: 'rate limit' }), fresh(), NOW);
-    assert.match(w!.text, /belum pernah berhasil diambil \(rate limit\)/);
+    assert.match(w!.text, /never fetched \(rate limit\)/);
   });
 });
 
