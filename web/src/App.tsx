@@ -192,24 +192,24 @@ function Main({ onLogout }: { onLogout: () => void }) {
     }
   };
 
-  // auto: on for pairs with red news ahead (accounts with auto enabled); a click turns
-  // the feature off for the session, another click turns it on for every pair.
+  // three modes picked from the toolbar: on (all pairs), auto (pairs with red news ahead,
+  // accounts with auto enabled) and off; the choice lasts for the browser session.
   const affected = feed?.affected ?? [];
   const newsPairs = new Set(symbols.filter((s) => affected.some((c) => s.name.includes(c))).map((s) => s.name));
   const autoActive = aggressive === 'auto' && affected.length > 0 && !!account?.aggressiveAuto;
   const aggrActive = aggressive === 'on' || autoActive;
   const mult = account ? `${account.aggressiveMultiplier}x` : '';
-  const aggrLabel =
-    aggressive === 'on'
-      ? t(`Aggressive ${mult} semua pair`, `Aggressive ${mult} all pairs`)
-      : autoActive
-        ? `Aggressive ${mult} auto (${affected.join(', ')})`
-        : aggressive === 'off'
-          ? t('Aggressive mati', 'Aggressive off')
-          : 'Aggressive';
-  const aggrTitle = aggrActive
-    ? t('Klik untuk mematikan Aggressive selama sesi ini', 'Click to turn Aggressive off for this session')
-    : t('Klik untuk menyalakan Aggressive di semua pair', 'Click to turn Aggressive on for all pairs');
+  const aggrLabel = `Aggressive${aggrActive ? ` ${mult}` : ''}${autoActive ? ` (${affected.join(', ')})` : ''}`;
+  const aggrTitle = t('Pilih mode Aggressive untuk sesi ini', 'Pick the Aggressive mode for this session');
+  const aggrOptions: [AggressiveMode, string, string][] = [
+    ['on', t('Semua Pair', 'All Pairs'), t('Aggressive di semua pair', 'Aggressive on every pair')],
+    [
+      'auto',
+      t('Semua Berita Impact', 'All Impacted News'),
+      t('Aggressive otomatis hanya untuk pair yang mata uangnya ada berita merah', 'Automatic Aggressive only for pairs whose currency has red news'),
+    ],
+    ['off', 'Off', t('Aggressive mati untuk sesi ini', 'Aggressive off for this session')],
+  ];
   const newsNote =
     aggressive === 'off'
       ? t('Aggressive dimatikan untuk sesi ini.', 'Aggressive is off for this session.')
@@ -245,15 +245,21 @@ function Main({ onLogout }: { onLogout: () => void }) {
           )}
         </div>
         <div className="tool-actions">
-          <button
-            type="button"
-            className={aggrActive ? 'aggr-on' : aggressive === 'off' ? 'aggr-off' : ''}
-            aria-pressed={aggrActive}
-            title={aggrTitle}
-            onClick={() => setAggressive(aggrActive ? 'off' : 'on')}
-          >
-            {aggrLabel}
-          </button>
+          <div className="seg aggr-seg" role="group" aria-label="Aggressive" title={aggrTitle}>
+            <span className={aggrActive ? 'aggr-label aggr' : 'aggr-label'}>{aggrLabel}</span>
+            {aggrOptions.map(([mode, label, hint]) => (
+              <button
+                key={mode}
+                type="button"
+                className={aggressive === mode && mode !== 'off' ? 'aggr-on' : ''}
+                aria-pressed={aggressive === mode}
+                title={hint}
+                onClick={() => setAggressive(mode)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <span className="tool-sep" aria-hidden="true" />
           <button type="button" onClick={() => setModal('news')}>
             {t('Berita', 'News')}

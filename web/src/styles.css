@@ -1595,3 +1595,27 @@ tr.off td:not(:first-child) {
 .sig-news {
   color: var(--sltp);
 }
+
+/* Aggressive mode picker in the toolbar: All Pairs / All Impacted News / Off */
+.aggr-seg {
+  align-items: center;
+  flex: none;
+}
+.aggr-seg .aggr-label {
+  padding: 0 8px 0 10px;
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.aggr-seg .aggr-label.aggr {
+  color: var(--aggr);
+  font-weight: 600;
+}
+.aggr-seg button {
+  white-space: nowrap;
+}
+.aggr-seg button.aggr-on[aria-pressed='true'] {
+  background: rgba(255, 159, 28, 0.25);
+  color: #ffc878;
+  font-weight: 600;
+}
