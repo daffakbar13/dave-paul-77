@@ -1633,6 +1633,12 @@ tr.off td:not(:first-child) {
 .sig-news {
   color: var(--sltp);
 }
+.sig-sl {
+  color: var(--sltp);
+}
+.sig-tp {
+  color: var(--candle);
+}
 
 /* Aggressive mode picker in the toolbar: All Pairs / All Impacted News / Off */
 .aggr-seg {

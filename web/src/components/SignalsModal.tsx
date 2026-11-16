@@ -156,8 +156,8 @@ export function SignalsModal({ account, news, onClose }: Props) {
                     </td>
                     <td>{typeLabel(s)}</td>
                     <td className="num">{fmtPrice(s.entry, d)}</td>
-                    <td className="num">{fmtPrice(s.sl, d)}</td>
-                    <td className="num">{fmtPrice(s.tp, d)}</td>
+                    <td className="num sig-sl">{fmtPrice(s.sl, d)}</td>
+                    <td className="num sig-tp">{fmtPrice(s.tp, d)}</td>
                     <td className="num">{s.slPips}</td>
                     <td className="num">{s.tpPips}</td>
                     <td className="num">{fmtRr(s.rr)}</td>
@@ -212,12 +212,12 @@ function SignalDetail({ s, news, done, onToggle }: { s: SignalRow; news: string;
         </div>
         <div>
           <dt>SL</dt>
-          <dd>{fmtPrice(s.sl, d)}</dd>
+          <dd className="sig-sl">{fmtPrice(s.sl, d)}</dd>
           <small>{s.slPips} pips</small>
         </div>
         <div>
           <dt>TP</dt>
-          <dd>{fmtPrice(s.tp, d)}</dd>
+          <dd className="sig-tp">{fmtPrice(s.tp, d)}</dd>
           <small>{s.tpPips} pips</small>
         </div>
         <div>
