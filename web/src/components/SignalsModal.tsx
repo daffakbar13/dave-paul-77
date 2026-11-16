@@ -127,16 +127,22 @@ export function SignalsModal({ account, news, onClose }: Props) {
             <thead>
               <tr>
                 <th>Pair</th>
-                <th>{t('Tipe', 'Type')}</th>
+                <th className="m-hide">{t('Tipe', 'Type')}</th>
                 <th className="num">Entry</th>
                 <th className="num">SL</th>
                 <th className="num">TP</th>
-                <th className="num">SL pips</th>
-                <th className="num">TP pips</th>
-                <th className="num">RR</th>
-                <th className="num">VP</th>
-                <th>{t('Aturan TF', 'TF rules')}</th>
-                <th>{t('Dibuat', 'Created')}</th>
+                <th className="num m-hide">SL pips</th>
+                <th className="num m-hide">TP pips</th>
+                <th className="num m-hide">RR</th>
+                <th className="num m-hide">VP</th>
+                <th>
+                  <span className="m-hide">{t('Aturan TF', 'TF rules')}</span>
+                  <span className="m-only">TF</span>
+                </th>
+                <th>
+                  <span className="m-hide">{t('Dibuat', 'Created')}</span>
+                  <span className="m-only">✓</span>
+                </th>
               </tr>
             </thead>
             <tbody ref={bodyRef}>
@@ -153,16 +159,21 @@ export function SignalsModal({ account, news, onClose }: Props) {
                           Red news
                         </span>
                       )}
+                      {/* on a phone the type column is hidden, so the type sits under the pair */}
+                      <small className={`m-only sig-type-m ${s.side === 'buy' ? 'sig-buy' : 'sig-sell'}`}>{typeLabel(s)}</small>
                     </td>
-                    <td>{typeLabel(s)}</td>
+                    <td className="m-hide">{typeLabel(s)}</td>
                     <td className="num">{fmtPrice(s.entry, d)}</td>
                     <td className="num sig-sl">{fmtPrice(s.sl, d)}</td>
                     <td className="num sig-tp">{fmtPrice(s.tp, d)}</td>
-                    <td className="num">{s.slPips}</td>
-                    <td className="num">{s.tpPips}</td>
-                    <td className="num">{fmtRr(s.rr)}</td>
-                    <td className="num">{s.vp ?? '–'}</td>
-                    <td className={s.problems.length ? 'sig-bad' : 'sig-ok'}>{s.problems.length ? s.problems.join(' · ') : 'OK'}</td>
+                    <td className="num m-hide">{s.slPips}</td>
+                    <td className="num m-hide">{s.tpPips}</td>
+                    <td className="num m-hide">{fmtRr(s.rr)}</td>
+                    <td className="num m-hide">{s.vp ?? '–'}</td>
+                    <td className={s.problems.length ? 'sig-bad' : 'sig-ok'} title={s.problems.join('\n') || undefined}>
+                      <span className="m-hide">{s.problems.length ? s.problems.join(' · ') : 'OK'}</span>
+                      <span className="m-only">{s.problems.length ? '✗' : '✓'}</span>
+                    </td>
                     <td>
                       <input
                         type="checkbox"
@@ -187,10 +198,53 @@ export function SignalsModal({ account, news, onClose }: Props) {
   );
 }
 
+// Clipboard API needs a secure context (https or localhost); a LAN address on the phone
+// does not have one, so fall back to a hidden textarea and execCommand there.
+async function copyText(text: string) {
+  if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  (document.querySelector('dialog[open]') ?? document.body).appendChild(ta);
+  ta.select();
+  ta.setSelectionRange(0, text.length);
+  const ok = document.execCommand('copy');
+  ta.remove();
+  if (!ok) throw new Error('copy failed');
+}
+
 // The selected signal in large type, to read off while typing it into the phone.
 function SignalDetail({ s, news, done, onToggle }: { s: SignalRow; news: string; done: boolean; onToggle: () => void }) {
   const t = useT();
   const d = digitsOf(s.symbol);
+  const [copied, setCopied] = useState<string | null>(null);
+  useEffect(() => setCopied(null), [s.id]);
+  useEffect(() => {
+    if (!copied) return;
+    const id = setTimeout(() => setCopied(null), 1500);
+    return () => clearTimeout(id);
+  }, [copied]);
+  // tap a price to copy it, to paste into the TF app
+  const price = (label: string, v: number, cls = '') => {
+    const text = fmtPrice(v, d);
+    return (
+      <>
+        <dt>{copied === label ? t('✓ Tersalin', '✓ Copied') : label}</dt>
+        <dd>
+          <button
+            type="button"
+            className={`sig-copy ${cls}`}
+            title={t('Klik untuk copy', 'Click to copy')}
+            onClick={() => void copyText(text).then(() => setCopied(label), () => setCopied(null))}
+          >
+            {text}
+          </button>
+        </dd>
+      </>
+    );
+  };
   return (
     <section className={`sig-detail${done ? ' sig-done' : ''}`} aria-live="polite">
       <div className="sig-head">
@@ -207,17 +261,14 @@ function SignalDetail({ s, news, done, onToggle }: { s: SignalRow; news: string;
       </div>
       <dl className="sig-prices tabular">
         <div>
-          <dt>Entry</dt>
-          <dd>{fmtPrice(s.entry, d)}</dd>
+          {price('Entry', s.entry)}
         </div>
         <div>
-          <dt>SL</dt>
-          <dd className="sig-sl">{fmtPrice(s.sl, d)}</dd>
+          {price('SL', s.sl, 'sig-sl')}
           <small>{s.slPips} pips</small>
         </div>
         <div>
-          <dt>TP</dt>
-          <dd className="sig-tp">{fmtPrice(s.tp, d)}</dd>
+          {price('TP', s.tp, 'sig-tp')}
           <small>{s.tpPips} pips</small>
         </div>
         <div>
@@ -225,6 +276,11 @@ function SignalDetail({ s, news, done, onToggle }: { s: SignalRow; news: string;
           <dd>
             {fmtRr(s.rr)} · {s.vp ?? '–'}
           </dd>
+          {s.vp !== null && s.riskVp !== null && (
+            <small>
+              <span className="sig-sl">{s.riskVp}</span> : <span className="sig-tp">{s.vp}</span> VP
+            </small>
+          )}
         </div>
       </dl>
       {s.problems.length > 0 && <p className="sig-bad">{s.problems.join(' · ')}</p>}

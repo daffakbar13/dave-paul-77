@@ -48,6 +48,7 @@ export type SignalRow = {
   tpPips: number;
   rr: number;
   vp: number | null; // Valued Pips if TP is hit
+  riskVp: number | null; // Valued Pips if SL is hit
   problems: string[];
 };
 
@@ -72,7 +73,14 @@ export function tfCheck(symbol: string, entry: number, sl: number, tp: number) {
     if (tpPips > group.maxPips) problems.push(tr(`TP ${tpPips} > maks ${group.maxPips} pips`, `TP ${tpPips} > max ${group.maxPips} pips`));
   }
   if (rr > MAX_RR + 1e-9) problems.push(tr(`RR 1:${rr.toFixed(1)} melebihi 1:${MAX_RR}`, `RR 1:${rr.toFixed(1)} exceeds 1:${MAX_RR}`));
-  return { slPips, tpPips, rr, vp: value === null ? null : round1(tpPips * value), problems };
+  return {
+    slPips,
+    tpPips,
+    rr,
+    vp: value === null ? null : round1(tpPips * value),
+    riskVp: value === null ? null : round1(slPips * value),
+    problems,
+  };
 }
 
 // One buy stop and one sell stop per pair, pairs A-Z, buy before sell. A side with a
