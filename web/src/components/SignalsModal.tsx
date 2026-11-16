@@ -7,8 +7,7 @@ import { Modal } from './Modal.tsx';
 
 type Props = {
   account: Account | null;
-  newsPairs: Set<string>; // pairs with red news ahead in the news window
-  news: News[];
+  news: News[]; // red news in the server's news window
   onClose: () => void;
 };
 
@@ -17,12 +16,17 @@ type Props = {
 // level that moves comes back unmarked.
 const doneKey = (s: SignalRow) => `${s.symbol}|${s.side}|${s.entry}|${s.sl}|${s.tp}`;
 
+// The next 05:00 WIB (22:00 UTC): the TF day the signals belong to ends there, as do the marks.
+const DAY = 24 * 3_600_000;
+const RESET_UTC = 22 * 3_600_000;
+const nextReset = (now: number) => Math.floor((now - RESET_UTC) / DAY) * DAY + RESET_UTC + DAY;
+
 const typeLabel = (s: SignalRow) => `${s.type}${s.running ? tr(' (berjalan)', ' (running)') : ''}`;
 
 // Nearest buy stop and sell stop per pair among the orders the EA holds (sent by the last
 // Execute, plus open positions), to copy by hand into the TF mobile app.
 // Up/Down moves the selection, Space marks the selected signal as created.
-export function SignalsModal({ account, newsPairs, news, onClose }: Props) {
+export function SignalsModal({ account, news, onClose }: Props) {
   const t = useT();
   const [signals, setSignals] = useState<SignalRow[] | null>(null);
   const [selected, setSelected] = useState(0);
@@ -92,9 +96,15 @@ export function SignalsModal({ account, newsPairs, news, onClose }: Props) {
     bodyRef.current?.children[selected]?.scrollIntoView({ block: 'nearest' });
   }, [selected, signals]);
 
-  // red news per pair, for the badge tooltip
+  // red news per pair still ahead and before the next 05:00 WIB: the badge and its tooltip.
+  // News after that belongs to the next TF day, so it does not flag today's signals.
   const newsFor = useMemo(() => {
-    const red = news.filter((n) => n.impact === 'high');
+    const now = Date.now();
+    const end = nextReset(now);
+    const red = news.filter((n) => {
+      const at = Date.parse(n.at);
+      return n.impact === 'high' && at >= now && at < end;
+    });
     return (symbol: string) => red.filter((n) => symbol.includes(n.currency)).map((n) => `${n.currency} ${fmtNewsTime(n.at)}: ${n.title}`).join('\n');
   }, [news]);
 
@@ -107,7 +117,7 @@ export function SignalsModal({ account, newsPairs, news, onClose }: Props) {
       {error && <p className="error">{error}</p>}
       {!account && <p className="muted pad">{t('Tambahkan akun MT5 di Pengaturan dulu.', 'Add an MT5 account in Settings first.')}</p>}
       <div className="sig-split">
-      {current && <SignalDetail s={current} news={newsPairs.has(current.symbol) ? newsFor(current.symbol) : ''} done={!!done.has(doneKey(current))} onToggle={() => toggleDone(current)} />}
+      {current && <SignalDetail s={current} news={newsFor(current.symbol)} done={!!done.has(doneKey(current))} onToggle={() => toggleDone(current)} />}
       {signals && !signals.length && (
         <p className="muted pad">{t('Belum ada order yang dipasang EA di akun ini. Jalankan Execute dulu.', 'The EA holds no orders on this account yet. Run Execute first.')}</p>
       )}
@@ -138,7 +148,7 @@ export function SignalsModal({ account, newsPairs, news, onClose }: Props) {
                   <tr key={s.id} className={cls} aria-selected={i === selected} onClick={() => setSelected(i)}>
                     <td>
                       {s.symbol}
-                      {newsPairs.has(s.symbol) && (
+                      {newsFor(s.symbol) && (
                         <span className="tag news-badge" title={newsFor(s.symbol)}>
                           Red news
                         </span>
