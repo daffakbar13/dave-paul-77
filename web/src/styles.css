@@ -929,9 +929,8 @@ table.orders {
   .side-nav button {
     flex: none;
   }
-  .sig-split > .sig-detail {
-    order: 0;
-    position: static;
+  .sig-detail {
+    grid-template-columns: minmax(0, 1fr);
   }
   .cmd-list {
     max-height: none;
@@ -1569,20 +1568,15 @@ tr.off td:not(:first-child) {
 /* table on the left, the selected signal in large type on the right */
 .sig-split {
   display: grid;
-  grid-template-columns: minmax(0, 2.3fr) minmax(260px, 1fr);
-  gap: 16px;
-  align-items: start;
-}
-.sig-split > .sig-detail {
-  order: 2;
-  position: sticky;
-  top: 0;
-}
-.sig-split > .pad {
-  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
 }
 .sig-detail {
-  padding: 18px;
+  display: grid;
+  grid-template-columns: minmax(220px, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 6px 28px;
+  padding: 14px 18px;
   border: 1px solid rgba(108, 182, 255, 0.45);
   border-radius: 16px;
   background: var(--panel-2);
@@ -1616,7 +1610,7 @@ tr.off td:not(:first-child) {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 8px;
-  margin: 10px 0 0;
+  margin: 0;
 }
 .sig-prices dt {
   font-size: 11px;
@@ -1632,7 +1626,8 @@ tr.off td:not(:first-child) {
   color: var(--muted);
 }
 .sig-detail p {
-  margin: 8px 0 0;
+  grid-column: 1 / -1;
+  margin: 2px 0 0;
   font-size: 12px;
 }
 .sig-news {
