@@ -3,7 +3,7 @@ import { DEFAULT_COSTS, type CostSettings } from './analysis/backtest.ts';
 import { DEFAULT_SR, lockLines } from './analysis/sr.ts';
 import type { Deal, TradePlan, TradeState } from './analysis/journal.ts';
 import type { OpenPosition } from './analysis/positions.ts';
-import type { Candidate, Line, Side, SrParams, SymbolSpec } from './analysis/types.ts';
+import type { Candidate, Line, Side, SrParams, SymbolSpec, Timeframe } from './analysis/types.ts';
 
 // One document, _id 'main'. `version` changes on every save so stored analyses know
 // they were computed with old parameters.
@@ -41,9 +41,12 @@ export type SymbolDoc = {
   manualLines?: number[]; // the user's own S/R lines; absent = automatic lines
   manualLinesAt?: Date;
   manualLinesSource?: 'import' | 'mt4' | 'web';
-  minSlPips?: number; // absent = default per pair (lines.ts)
+  minSlPips?: number; // absent = default per pair and timeframe (lines.ts)
+  timeframe?: Timeframe; // candle period of the analysis and backtest; absent = default per pair (lines.ts)
 };
 
+// D1 candles live in `candles`, H4 candles in `candles_h4`: the same shape, never mixed
+// (a pair switched between timeframes keeps both histories).
 export type CandleDoc = { _id?: ObjectId; symbol: string; t: Date; o: number; h: number; l: number; c: number };
 
 export type QuoteDoc = { _id: string; bid: number; ask: number; at: Date }; // _id = symbol
@@ -53,11 +56,12 @@ export type AnalysisDoc = {
   analyzedAt: Date;
   settingsVersion: number;
   lastCandleAt: Date;
+  timeframe?: Timeframe; // absent on analyses from before H4 (= D1)
   atr: number;
   price: number;
   lines: Line[];
   candidates: Candidate[];
-  cancelled: string[]; // candidate ids; kept while the last candle is the same
+  cancelled: string[]; // candidate ids; kept while the last candle is the same (one D1 day, one H4 bar)
 };
 
 export type AccountDoc = {
@@ -188,6 +192,7 @@ export type Collections = {
   settings: Collection<Settings>;
   symbols: Collection<SymbolDoc>;
   candles: Collection<CandleDoc>;
+  candlesH4: Collection<CandleDoc>;
   quotes: Collection<QuoteDoc>;
   analyses: Collection<AnalysisDoc>;
   accounts: Collection<AccountDoc>;
@@ -205,6 +210,7 @@ export function collections(db: Db): Collections {
     settings: db.collection<Settings>('settings'),
     symbols: db.collection<SymbolDoc>('symbols'),
     candles: db.collection<CandleDoc>('candles'),
+    candlesH4: db.collection<CandleDoc>('candles_h4'),
     quotes: db.collection<QuoteDoc>('quotes'),
     analyses: db.collection<AnalysisDoc>('analyses'),
     accounts: db.collection<AccountDoc>('accounts'),
@@ -221,6 +227,7 @@ export function collections(db: Db): Collections {
 export async function ensureIndexes(c: Collections): Promise<void> {
   await c.symbols.createIndex({ name: 1 }, { unique: true });
   await c.candles.createIndex({ symbol: 1, t: 1 }, { unique: true });
+  await c.candlesH4.createIndex({ symbol: 1, t: 1 }, { unique: true });
   await c.accounts.createIndex({ number: 1 }, { unique: true });
   await c.accounts.createIndex({ keyHash: 1 }, { unique: true });
   await c.commands.createIndex({ accountId: 1, status: 1 });
@@ -233,6 +240,11 @@ export async function ensureIndexes(c: Collections): Promise<void> {
   await c.backtests.createIndex({ createdAt: -1 });
   await c.tfMarks.createIndex({ day: 1 });
   await c.tfMarks.createIndex({ purgeAt: 1 }, { expireAfterSeconds: 0 });
+}
+
+// The collection that holds a timeframe's candles.
+export function candlesOf(c: Collections, tf: Timeframe = 'D1'): Collection<CandleDoc> {
+  return tf === 'H4' ? c.candlesH4 : c.candles;
 }
 
 export async function getSettings(c: Collections): Promise<Settings> {

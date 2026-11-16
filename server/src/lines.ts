@@ -1,7 +1,7 @@
 // The user's own S/R lines: imported from MT4 chart templates (.tpl) or sent by the MT4
 // EA from the horizontal lines on the charts. They are a reference for tuning the engine
 // (lineFit); orders use them only when settings.sr.lineSource is 'manual'.
-import type { SymbolInputs } from './analysis/types.ts';
+import type { SymbolInputs, Timeframe } from './analysis/types.ts';
 import { getSettings, type Collections, type SymbolDoc } from './db.ts';
 import { refreshAnalysis } from './service.ts';
 
@@ -13,13 +13,35 @@ const MIN_SL_PIPS: Record<string, number> = {
   XAUUSD: 30,
 };
 
-export function defaultMinSlPips(symbol: string): number {
-  return MIN_SL_PIPS[symbol.toUpperCase()] ?? 15;
+// On H4 the D1 minimum is too wide: XAUUSD H4 SLs are about 21 pips, and a 30-pip floor
+// took its backtest from +0.09R to +0.01R a trade, so the H4 default is no floor.
+const MIN_SL_PIPS_H4: Record<string, number> = { XAUUSD: 0 };
+
+export function defaultMinSlPips(symbol: string, tf: Timeframe = defaultTimeframe(symbol)): number {
+  const s = symbol.toUpperCase();
+  if (tf === 'H4' && MIN_SL_PIPS_H4[s] !== undefined) return MIN_SL_PIPS_H4[s];
+  return MIN_SL_PIPS[s] ?? 15;
+}
+
+// Pairs analysed on H4 unless the user picks otherwise in Settings > Pairs.
+const H4_PAIRS = new Set(['XAUUSD']);
+
+export function defaultTimeframe(symbol: string): Timeframe {
+  return H4_PAIRS.has(symbol.toUpperCase()) ? 'H4' : 'D1';
+}
+
+export function timeframeOf(sym: Pick<SymbolDoc, 'name' | 'timeframe'> | null, name = sym?.name ?? ''): Timeframe {
+  return sym?.timeframe ?? defaultTimeframe(name);
+}
+
+// The minimum SL in pips the pair uses now: its own value, else the default of its timeframe.
+export function minSlPipsOf(sym: Pick<SymbolDoc, 'name' | 'timeframe' | 'minSlPips'>): number {
+  return sym.minSlPips ?? defaultMinSlPips(sym.name, timeframeOf(sym));
 }
 
 export function symbolInputs(sym: SymbolDoc | null): SymbolInputs {
   if (!sym) return {};
-  return { manualLines: sym.manualLines, minSlPips: sym.minSlPips ?? defaultMinSlPips(sym.name) };
+  return { manualLines: sym.manualLines, minSlPips: minSlPipsOf(sym) };
 }
 
 export type TplLines = { symbol: string; period: number; lines: number[] };

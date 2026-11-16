@@ -12,7 +12,8 @@ const querySchema = z.object({ symbols: z.string().optional() });
 
 // The backtest runs in the browser (a Web Worker): replaying 22 years of 14 pairs is
 // about 15 s of CPU, too much for this host's slice of a CPU. The server only hands over
-// the stored D1 candles and the saved S/R settings, compactly (arrays) and gzipped.
+// the stored candles (each pair on its own timeframe: D1, XAUUSD H4) and the saved S/R
+// settings, compactly (arrays) and gzipped.
 export function backtestRoutes(db: Collections): Router {
   const router = Router();
 
@@ -30,6 +31,7 @@ export function backtestRoutes(db: Collections): Router {
       symbols: [...data].map(([name, d]) => ({
         name,
         digits: d.digits,
+        timeframe: d.timeframe ?? 'D1',
         inputs: d.inputs ?? {},
         candles: d.candles.map((c) => [c.t, c.o, c.h, c.l, c.c]),
       })),

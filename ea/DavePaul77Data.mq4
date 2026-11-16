@@ -1,31 +1,34 @@
 //+------------------------------------------------------------------+
 //| DavePaul77Data.mq4                                               |
-//| Sends closed D1 candles and bid/ask of the active pairs to the   |
+//| Sends closed candles and bid/ask of the active pairs to the      |
 //| DavePaul77 backend. Timer driven (not tick), never trades.       |
+//| Each pair's timeframe comes from the server (Settings > Pairs):  |
+//| D1 for most, H4 for XAUUSD. A pair switched to another timeframe |
+//| starts over on it (history window, then backfill).               |
 //|                                                                  |
 //| Setup: Tools > Options > Expert Advisors > Allow WebRequest for  |
 //| the server URL. Attach to ONE chart (any symbol/timeframe).      |
 //| ServerUrl and DataKey left empty are read from                   |
 //| MQL4/Files/DavePaul77.ini (ServerUrl=..., DataKey=...), so the   |
 //| key never has to be typed in and stays out of the source.        |
-//| After the first run, older D1 history (BackfillBars) is sent once|
-//| per pair in chunks, for the backtest. The terminal only has what |
-//| it has downloaded: Tools > Options > Charts > Max bars in history|
-//| and bars in chart set high, then F2 (History Center) > the pair  |
-//| > D1 > Download, before attaching the EA.                        |
+//| After the first run, older history (BackfillBars days) is sent   |
+//| once per pair in chunks, for the backtest. The terminal only has |
+//| what it has downloaded: Tools > Options > Charts > Max bars in   |
+//| history and bars in chart set high, then F2 (History Center) >   |
+//| the pair > D1 (H4 for XAUUSD) > Download, before attaching the EA.|
 //| Horizontal lines drawn on the open charts of a pair are sent as  |
 //| the user's own S/R lines (only when they change).                |
 //+------------------------------------------------------------------+
 #property copyright "DavePaul77"
-#property version   "1.11"
+#property version   "1.20"
 #property strict
 
 input string ServerUrl       = "";      // URL server (kosong = dari DavePaul77.ini)
 input string DataKey         = "";      // Data key (kosong = dari DavePaul77.ini)
 input string SymbolSuffix    = "";      // Akhiran simbol broker, mis. "m" untuk EURUSDm
 input string FallbackSymbols = "AUDJPY,AUDUSD,CADJPY,CHFJPY,EURGBP,EURJPY,EURNZD,EURUSD,GBPJPY,GBPUSD,NZDJPY,NZDUSD,USDCAD,USDCHF,USDJPY,XAUUSD"; // used when the server list cannot be read
-input int    HistoryBars     = 520;     // closed D1 candles sent on the first run (about 2 years)
-input int    BackfillBars    = 5800;    // older D1 candles sent once after the first run (5800 = about 22 years, as far back as the terminal has)
+input int    HistoryBars     = 520;     // closed candles sent on the first run (D1: about 2 years; H4: the same count, the analysis lookback)
+input int    BackfillBars    = 5800;    // older history sent once after the first run, in D1 candles (5800 = about 22 years; H4 sends 6x as many bars)
 input int    BackfillChunk   = 1000;    // candles per request while backfilling
 input bool   RedoBackfill    = false;   // send the old history again even if it was done before
 input int    QuoteSeconds    = 60;      // bid/ask interval
@@ -36,7 +39,8 @@ input bool   SendChartLines  = true;    // kirim garis horizontal di chart sebag
 input int    LinesSeconds    = 60;      // jeda cek perubahan garis
 
 string   g_symbols[];   // app names (without suffix)
-datetime g_sent[];      // open time of the last closed D1 candle the server accepted
+int      g_tf[];        // timeframe per pair in minutes (PERIOD_D1 / PERIOD_H4), from the server
+datetime g_sent[];      // open time of the last closed candle the server accepted
 datetime g_retryAt[];   // per symbol back-off
 string   g_linesSig[];  // last horizontal lines accepted by the server, per symbol
 int      g_bfNext[];    // backfill: shift of the oldest candle still to send (0 = not started)
@@ -196,9 +200,12 @@ void RefreshList()
    ArrayCopy(oldSig, g_linesSig);
    int oldNext[];
    bool oldDone[];
+   int oldTf[];
    ArrayCopy(oldNext, g_bfNext);
    ArrayCopy(oldDone, g_bfDone);
+   ArrayCopy(oldTf, g_tf);
    ArrayResize(g_symbols, count);
+   ArrayResize(g_tf, count);
    ArrayResize(g_bfNext, count);
    ArrayResize(g_bfDone, count);
    ArrayResize(g_sent, count);
@@ -207,16 +214,21 @@ void RefreshList()
    for(int i = 0; i < count; i++)
      {
       g_symbols[i] = names[i];
+      g_tf[i] = listed ? ServerTf(response, names[i]) : PERIOD_D1;
       g_sent[i] = 0;
       g_retryAt[i] = 0;
       g_linesSig[i] = "";
       g_bfNext[i] = 0;
-      g_bfDone[i] = !RedoBackfill && GlobalVariableCheck("DP77_BF_" + names[i]);
+      g_bfDone[i] = !RedoBackfill && GlobalVariableCheck(BfKey(names[i], g_tf[i]));
       for(int j = 0; j < ArraySize(oldSymbols); j++)
          if(oldSymbols[j] == names[i])
            {
-            g_sent[i] = oldSent[j];
             g_linesSig[i] = oldSig[j];
+            if(!listed)
+               g_tf[i] = oldTf[j]; // server unreachable: keep the timeframe it gave before
+            if(oldTf[j] != g_tf[i])
+               continue; // switched timeframe: start over on the new one
+            g_sent[i] = oldSent[j];
             g_bfNext[i] = oldNext[j];
             g_bfDone[i] = oldDone[j];
            }
@@ -228,6 +240,29 @@ void RefreshList()
      }
    Print("DavePaul77: ", count, " pair aktif");
   }
+
+// Timeframe of a pair from the "tf" object of /mt4/symbols, in minutes (PERIOD_D1 when
+// absent: a server before H4 support). "tf" comes before "last" in the response.
+int ServerTf(const string response, const string name)
+  {
+   int from = StringFind(response, "\"tf\"");
+   if(from < 0)
+      return(PERIOD_D1);
+   int stop = StringFind(response, "}", from);
+   string key = "\"" + name + "\":";
+   int at = StringFind(response, key, from);
+   if(at < 0 || (stop >= 0 && at > stop))
+      return(PERIOD_D1);
+   int tf = (int)StringToInteger(StringSubstr(response, at + StringLen(key), 6));
+   return(tf == PERIOD_H4 ? PERIOD_H4 : PERIOD_D1);
+  }
+
+string TfName(const int tf) { return(tf == PERIOD_H4 ? "H4" : "D1"); }
+
+// Backfill progress lives in terminal global variables; D1 keeps its old names so an
+// upgraded EA does not send D1 history again, H4 gets its own.
+string BfKey(const string app, const int tf) { return("DP77_BF_" + app + (tf == PERIOD_D1 ? "" : "_" + TfName(tf))); }
+string BfTimeKey(const string app, const int tf) { return("DP77_BFT_" + app + (tf == PERIOD_D1 ? "" : "_" + TfName(tf))); }
 
 // Open time of the newest candle the server stores for a pair, from the "last" object of
 // /mt4/symbols (0 when the pair has none yet, so the whole HistoryBars window is sent).
@@ -244,7 +279,7 @@ datetime ServerLast(const string response, const string name)
   }
 
 //+------------------------------------------------------------------+
-//| Closed D1 candles                                                |
+//| Closed candles on the pair's timeframe                           |
 //+------------------------------------------------------------------+
 string Num(const double v, const int digits) { return(DoubleToString(v, digits)); }
 
@@ -252,9 +287,10 @@ void SendCandles(const int i)
   {
    string app = g_symbols[i];
    string broker = app + SymbolSuffix;
+   int tf = g_tf[i];
    ResetLastError();
-   int bars = iBars(broker, PERIOD_D1);
-   datetime lastClosed = iTime(broker, PERIOD_D1, 1);
+   int bars = iBars(broker, tf);
+   datetime lastClosed = iTime(broker, tf, 1);
    int err = GetLastError();
    if(bars < 3 || lastClosed == 0 || err == 4066) // ERR_HISTORY_WILL_UPDATED: still downloading
      {
@@ -262,7 +298,7 @@ void SendCandles(const int i)
       return;
      }
    if(lastClosed <= g_sent[i])
-      return; // nothing new today
+      return; // no new closed candle
 
    // nothing on the server yet: the whole history window; otherwise only candles after the
    // last one it has (from /mt4/symbols after a restart, or the last send)
@@ -270,7 +306,7 @@ void SendCandles(const int i)
    if(g_sent[i] > 0)
      {
       last = 0;
-      while(last + 1 < bars && iTime(broker, PERIOD_D1, last + 1) > g_sent[i] && last < HistoryBars)
+      while(last + 1 < bars && iTime(broker, tf, last + 1) > g_sent[i] && last < HistoryBars)
          last++;
      }
    if(last < 1)
@@ -282,36 +318,40 @@ void SendCandles(const int i)
      {
       if(StringLen(items) > 0)
          items += ",";
-      items += "{\"t\":" + IntegerToString((long)iTime(broker, PERIOD_D1, shift))
-               + ",\"o\":" + Num(iOpen(broker, PERIOD_D1, shift), digits)
-               + ",\"h\":" + Num(iHigh(broker, PERIOD_D1, shift), digits)
-               + ",\"l\":" + Num(iLow(broker, PERIOD_D1, shift), digits)
-               + ",\"c\":" + Num(iClose(broker, PERIOD_D1, shift), digits) + "}";
+      items += "{\"t\":" + IntegerToString((long)iTime(broker, tf, shift))
+               + ",\"o\":" + Num(iOpen(broker, tf, shift), digits)
+               + ",\"h\":" + Num(iHigh(broker, tf, shift), digits)
+               + ",\"l\":" + Num(iLow(broker, tf, shift), digits)
+               + ",\"c\":" + Num(iClose(broker, tf, shift), digits) + "}";
      }
    string body = "{\"symbol\":\"" + app + "\",\"digits\":" + IntegerToString(digits)
+                 + ",\"tf\":" + IntegerToString(tf)
                  + ",\"now\":" + IntegerToString((long)TimeCurrent())
                  + ",\"candles\":[" + items + "]}";
    string response;
    if(Http("POST", "/api/ea/mt4/candles", body, response) == 200)
      {
       g_sent[i] = lastClosed;
-      Print("DavePaul77: ", app, " ", last, " candle D1 terkirim ", response);
+      Print("DavePaul77: ", app, " ", last, " candle ", TfName(tf), " terkirim ", response);
      }
    else
       g_retryAt[i] = TimeLocal() + RetrySeconds;
   }
 
 //+------------------------------------------------------------------+
-//| Older history: shifts HistoryBars+1 .. BackfillBars, oldest first, |
-//| one chunk per timer tick. Progress is kept in a terminal global   |
-//| variable (DP77_BFT_<pair>), so a restart resumes where it stopped. |
+//| Older history: shifts HistoryBars+1 .. BackfillBars (in bars of   |
+//| the pair's timeframe), oldest first, one chunk per timer tick.    |
+//| Progress is kept in a terminal global variable (DP77_BFT_<pair>,  |
+//| _H4 suffix on H4), so a restart resumes where it stopped.         |
 //+------------------------------------------------------------------+
 void Backfill(const int i)
   {
    string app = g_symbols[i];
    string broker = app + SymbolSuffix;
+   int tf = g_tf[i];
+   int maxBars = BackfillBars * (PERIOD_D1 / tf); // H4: 6 bars a day
    ResetLastError();
-   int bars = iBars(broker, PERIOD_D1);
+   int bars = iBars(broker, tf);
    int err = GetLastError();
    if(bars < 3 || err == 4066)
      {
@@ -321,22 +361,22 @@ void Backfill(const int i)
    int chunk = MathMax(MathMin(BackfillChunk, 5000), 50);
    if(g_bfNext[i] == 0)
      {
-      g_bfNext[i] = MathMin(bars - 1, BackfillBars);
+      g_bfNext[i] = MathMin(bars - 1, maxBars);
       // a restart resumes after the newest candle already accepted, not from the oldest
-      string progress = "DP77_BFT_" + app;
+      string progress = BfTimeKey(app, tf);
       if(!RedoBackfill && GlobalVariableCheck(progress))
         {
-         int sh = iBarShift(broker, PERIOD_D1, (datetime)GlobalVariableGet(progress), true);
+         int sh = iBarShift(broker, tf, (datetime)GlobalVariableGet(progress), true);
          if(sh > 1 && sh - 1 < g_bfNext[i])
             g_bfNext[i] = sh - 1;
         }
-      Print("DavePaul77: ", app, " riwayat D1 di terminal ", bars, " candle (sekitar ", DoubleToString(bars / 260.0, 1), " tahun); backfill sampai ", g_bfNext[i]);
+      Print("DavePaul77: ", app, " riwayat ", TfName(tf), " di terminal ", bars, " candle (sekitar ", DoubleToString(bars / (260.0 * PERIOD_D1 / tf), 1), " tahun); backfill sampai ", g_bfNext[i]);
      }
    if(g_bfNext[i] <= HistoryBars)
      {
       g_bfDone[i] = true;
-      GlobalVariableSet("DP77_BF_" + app, 1);
-      Print("DavePaul77: ", app, " backfill selesai");
+      GlobalVariableSet(BfKey(app, tf), 1);
+      Print("DavePaul77: ", app, " backfill ", TfName(tf), " selesai");
       return;
      }
    int from = g_bfNext[i];                              // oldest shift of this chunk
@@ -346,16 +386,16 @@ void Backfill(const int i)
    int n = 0;
    for(int shift = from; shift >= to; shift--)
      {
-      datetime t = iTime(broker, PERIOD_D1, shift);
+      datetime t = iTime(broker, tf, shift);
       if(t == 0)
          continue;
       if(StringLen(items) > 0)
          items += ",";
       items += "{\"t\":" + IntegerToString((long)t)
-               + ",\"o\":" + Num(iOpen(broker, PERIOD_D1, shift), digits)
-               + ",\"h\":" + Num(iHigh(broker, PERIOD_D1, shift), digits)
-               + ",\"l\":" + Num(iLow(broker, PERIOD_D1, shift), digits)
-               + ",\"c\":" + Num(iClose(broker, PERIOD_D1, shift), digits) + "}";
+               + ",\"o\":" + Num(iOpen(broker, tf, shift), digits)
+               + ",\"h\":" + Num(iHigh(broker, tf, shift), digits)
+               + ",\"l\":" + Num(iLow(broker, tf, shift), digits)
+               + ",\"c\":" + Num(iClose(broker, tf, shift), digits) + "}";
       n++;
      }
    if(n == 0)
@@ -364,12 +404,13 @@ void Backfill(const int i)
       return;
      }
    string body = "{\"symbol\":\"" + app + "\",\"digits\":" + IntegerToString(digits)
+                 + ",\"tf\":" + IntegerToString(tf)
                  + ",\"now\":" + IntegerToString((long)TimeCurrent())
                  + ",\"backfill\":true,\"candles\":[" + items + "]}";
    string response;
    if(Http("POST", "/api/ea/mt4/candles", body, response) == 200)
      {
-      GlobalVariableSet("DP77_BFT_" + app, (double)iTime(broker, PERIOD_D1, to));
+      GlobalVariableSet(BfTimeKey(app, tf), (double)iTime(broker, tf, to));
       g_bfNext[i] = to - 1;
       Print("DavePaul77: ", app, " backfill ", n, " candle terkirim, sisa ", MathMax(g_bfNext[i] - HistoryBars, 0), " ", response);
      }

@@ -5,7 +5,8 @@ import { newAccountKey } from '../auth.ts';
 import { getSettings, type AccountDoc, type AnalysisDoc, type CommandDoc, type Collections, type Settings } from '../db.ts';
 import { HttpError, notFound, parse, parseId } from '../http.ts';
 import { journalFor } from '../journal.ts';
-import { defaultMinSlPips, parseTpl, setManualLines } from '../lines.ts';
+import { TIMEFRAMES } from '../analysis/types.ts';
+import { minSlPipsOf, parseTpl, setManualLines, timeframeOf } from '../lines.ts';
 import { aggressiveContext, isAffected, newsStatus, refreshNews, upcomingAll, upcomingRed, type NewsProvider } from '../news.ts';
 import { accountInfo, freshQuote, getAnalysis, loadCandles, ordersForAccount, refreshAnalysis, rowsFor } from '../service.ts';
 import { tr } from '../i18n.ts';
@@ -128,7 +129,8 @@ export function webRoutes(db: Collections, news: NewsProvider | null): Router {
           manualLines: s.manualLines?.length ?? 0,
           manualLinesAt: s.manualLinesAt ?? null,
           manualLinesSource: s.manualLinesSource ?? null,
-          minSlPips: s.minSlPips ?? defaultMinSlPips(s.name),
+          minSlPips: minSlPipsOf(s),
+          timeframe: timeframeOf(s),
         };
       }),
       colors: settings.colors,
@@ -144,6 +146,7 @@ export function webRoutes(db: Collections, news: NewsProvider | null): Router {
         active: z.boolean(),
         digits: z.number().int().min(0).max(8).optional(),
         minSlPips: z.number().min(0).max(1000).optional(),
+        timeframe: z.enum(TIMEFRAMES).optional(),
       })).max(60),
       req.body,
     );
@@ -158,13 +161,15 @@ export function webRoutes(db: Collections, news: NewsProvider | null): Router {
             order,
             ...(s.digits !== undefined ? { digits: s.digits } : {}),
             ...(s.minSlPips !== undefined ? { minSlPips: s.minSlPips } : {}),
+            ...(s.timeframe !== undefined ? { timeframe: s.timeframe } : {}),
           },
           $setOnInsert: { digits: s.digits ?? defaultDigits(s.name) },
         },
         { upsert: true },
       );
-      const minSlChanged = s.minSlPips !== undefined && s.minSlPips !== (before?.minSlPips ?? defaultMinSlPips(s.name));
-      if (minSlChanged) await refreshAnalysis(db, s.name, settings);
+      const after = { name: s.name, minSlPips: s.minSlPips ?? before?.minSlPips, timeframe: s.timeframe ?? before?.timeframe };
+      const changed = (before ? minSlPipsOf(before) : null) !== minSlPipsOf(after) || timeframeOf(before) !== timeframeOf(after);
+      if (before && changed) await refreshAnalysis(db, s.name, settings);
     }
     res.json({ ok: true });
   });
@@ -215,11 +220,13 @@ export function webRoutes(db: Collections, news: NewsProvider | null): Router {
     if (!analysis) throw notFound(tr('Belum ada data candle untuk simbol ini', 'No candle data for this symbol yet'));
     const account = q.accountId ? await findAccount(db, q.accountId) : null;
     const quote = freshQuote(await db.quotes.findOne({ _id: symbol }), settings);
-    const candles = await loadCandles(db, symbol, settings.sr.lookback);
+    const timeframe = analysis.timeframe ?? 'D1';
+    const candles = await loadCandles(db, symbol, settings.sr.lookback, timeframe);
     const sym = await db.symbols.findOne({ name: symbol });
     res.json({
       symbol,
       digits: sym?.digits ?? 5,
+      timeframe,
       analyzedAt: analysis.analyzedAt,
       lastCandleAt: analysis.lastCandleAt,
       atr: analysis.atr,

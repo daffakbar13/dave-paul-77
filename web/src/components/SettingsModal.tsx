@@ -102,7 +102,7 @@ export function SettingsModal({ onClose, onChanged }: Props) {
 
   const savePairs = (list: SymbolItem[]) =>
     run(async () => {
-      await api.saveSymbols(list.map((s) => ({ name: s.name, active: s.active, minSlPips: s.minSlPips })));
+      await api.saveSymbols(list.map((s) => ({ name: s.name, active: s.active, minSlPips: s.minSlPips, timeframe: s.timeframe })));
       setSymbols((await api.symbols()).symbols);
     }, t('Daftar pair disimpan.', 'Pair list saved.'));
 
@@ -216,7 +216,7 @@ export function SettingsModal({ onClose, onChanged }: Props) {
 
       {tab === 'sr' && (
         <div className="form">
-          <p className="muted">{t('Semua aturan dihitung di D1 dengan candle yang sudah close. Simpan akan menghitung ulang semua pair.', 'All rules are computed on D1 using closed candles. Saving re-analyses all pairs.')}</p>
+          <p className="muted">{t('Semua aturan dihitung di timeframe pair (D1, XAUUSD H4; lihat tab Pair) dengan candle yang sudah close. Simpan akan menghitung ulang semua pair.', 'All rules are computed on each pair\'s timeframe (D1, XAUUSD H4; see the Pairs tab) using closed candles. Saving re-analyses all pairs.')}</p>
           <h3>Breakout JohnPaul77</h3>
           <p className="muted">{t('g = jarak garis ke garis berikutnya searah order. Entry dan TP dari 3.648 order Anda di September terhadap garis Anda sendiri.', 'g = distance from the line to the next line in the order direction. Entry and TP come from your 3,648 orders in September against your own lines.')}</p>
           <div className="grid">
@@ -224,7 +224,7 @@ export function SettingsModal({ onClose, onChanged }: Props) {
               <span>{t('Sumber SL', 'SL source')}</span>
               <select value={settings.sr.slSource} onChange={(e) => setSr({ slSource: e.target.value as SrParams['slSource'] })}>
                 <option value="ladder">{t('Tangga: garis − slGap·g (sesuai history Anda)', 'Ladder: line − slGap·g (matches your history)')}</option>
-                <option value="candle">{t('Candle kuat D1 terdekat di sisi SL garis, dibatasi', 'Nearest strong D1 candle on the SL side of the line, capped')}</option>
+                <option value="candle">{t('Candle kuat terdekat di sisi SL garis, dibatasi', 'Nearest strong candle on the SL side of the line, capped')}</option>
               </select>
               <small className="muted">{t('Candle: SL di low/high candle kuat terdekat ± buffer; jika lebih lebar dari batas risk, jatuh ke SL tangga (ditandai).', 'Candle: SL at the low/high of the nearest strong candle ± buffer; if wider than the risk cap, it falls back to the ladder SL (marked).')}</small>
             </label>
@@ -253,8 +253,8 @@ export function SettingsModal({ onClose, onChanged }: Props) {
         <div className="form">
           <p className="muted">
             {t(
-              'Urutan = urutan tab di bawah chart. Garis S/R manual dikirim otomatis oleh EA MT4 dari garis horizontal di chart pair itu, atau diimport dari template chart (.tpl). Garis Anda adalah referensi untuk menyetel mesin; order memakai garis mesin.',
-              'Order = order of the tabs under the chart. Manual S/R lines are sent automatically by the MT4 EA from the horizontal lines on that pair\'s chart, or imported from a chart template (.tpl). Your lines are a reference for tuning the engine; orders use the engine lines.',
+              'Urutan = urutan tab di bawah chart. TF = candle untuk analisa, order dan backtest pair itu (D1, atau H4: order berganti tiap candle H4 tutup; EA MT4 mengirim candle sesuai TF). Garis S/R manual dikirim otomatis oleh EA MT4 dari garis horizontal di chart pair itu, atau diimport dari template chart (.tpl). Garis Anda adalah referensi untuk menyetel mesin; order memakai garis mesin.',
+              'Order = order of the tabs under the chart. TF = the candles used for that pair\'s analysis, orders and backtest (D1, or H4: orders change at every closed H4 candle; the MT4 EA sends candles on that TF). Manual S/R lines are sent automatically by the MT4 EA from the horizontal lines on that pair\'s chart, or imported from a chart template (.tpl). Your lines are a reference for tuning the engine; orders use the engine lines.',
             )}
           </p>
           <label className="field import-tpl">
@@ -279,6 +279,18 @@ export function SettingsModal({ onClose, onChanged }: Props) {
                   {' · '}
                   {s.lastCandleAt ? `candle ${ago(s.lastCandleAt)}` : t('belum ada candle', 'no candles yet')}
                 </span>
+                <label className="min-sl">
+                  <span className="muted">TF</span>
+                  <select
+                    value={s.timeframe}
+                    aria-label={t(`Timeframe candle ${s.name}`, `Candle timeframe of ${s.name}`)}
+                    title={t('Candle untuk analisa, order dan backtest pair ini', 'Candles used for this pair\'s analysis, orders and backtest')}
+                    onChange={(e) => setSymbols(symbols.map((x) => (x.name === s.name ? { ...x, timeframe: e.target.value as SymbolItem['timeframe'] } : x)))}
+                  >
+                    <option value="D1">D1</option>
+                    <option value="H4">H4</option>
+                  </select>
+                </label>
                 <label className="min-sl">
                   <span className="muted">{t('SL min', 'Min SL')}</span>
                   <input
@@ -316,7 +328,7 @@ export function SettingsModal({ onClose, onChanged }: Props) {
                 const name = newPair.trim();
                 if (!symbols.some((s) => s.name === name)) setSymbols([
                     ...symbols,
-                    { name, active: true, order: symbols.length, digits: 5, candidates: 0, lastCandleAt: null, manualLines: 0, manualLinesAt: null, manualLinesSource: null, minSlPips: 15 },
+                    { name, active: true, order: symbols.length, digits: 5, candidates: 0, lastCandleAt: null, manualLines: 0, manualLinesAt: null, manualLinesSource: null, minSlPips: 15, timeframe: 'D1' },
                   ]);
                 setNewPair('');
               }}
@@ -336,8 +348,8 @@ export function SettingsModal({ onClose, onChanged }: Props) {
         <div className="form">
           <p className="muted">
             {t(
-              'Hanya untuk backtest. Candle D1 adalah harga bid, jadi hasil mentah (gross) belum membayar spread. Net = tiap trade dikurangi spread + komisi + slippage dalam pips, dan dalam R sebesar biaya / jarak SL trade itu. Default = spread "mulai dari" akun Maxrich Premium (terendah yang dikutip broker, jadi rata-rata nyata sedikit lebih lebar) dan komisi USD 10 per lot; ganti dengan angka akun Anda bila tahu. Tidak mengubah order live.',
-              'For backtest only. D1 candles are bid prices, so the raw (gross) result has not paid the spread. Net = each trade minus spread + commission + slippage in pips, and in R as cost / that trade\'s SL distance. Default = the "from" spread of the Maxrich Premium account (the lowest the broker quotes, so the real average is slightly wider) and a USD 10 commission per lot; replace with your own account\'s numbers if you know them. Does not change live orders.',
+              'Hanya untuk backtest. Candle adalah harga bid, jadi hasil mentah (gross) belum membayar spread. Net = tiap trade dikurangi spread + komisi + slippage dalam pips, dan dalam R sebesar biaya / jarak SL trade itu. Default = spread "mulai dari" akun Maxrich Premium (terendah yang dikutip broker, jadi rata-rata nyata sedikit lebih lebar) dan komisi USD 10 per lot; ganti dengan angka akun Anda bila tahu. Tidak mengubah order live.',
+              'For backtest only. Candles are bid prices, so the raw (gross) result has not paid the spread. Net = each trade minus spread + commission + slippage in pips, and in R as cost / that trade\'s SL distance. Default = the "from" spread of the Maxrich Premium account (the lowest the broker quotes, so the real average is slightly wider) and a USD 10 commission per lot; replace with your own account\'s numbers if you know them. Does not change live orders.',
             )}
           </p>
           <div className="grid">

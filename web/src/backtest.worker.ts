@@ -2,9 +2,10 @@
 // (GET /api/backtest/candles); nothing is sent back to it.
 import { runBacktest, type BacktestRun, type CostSettings } from './engine/backtest.ts';
 import type { PatternStrategy } from './engine/patterns.ts';
-import type { SrParams, SymbolData, SymbolInputs } from './engine/types.ts';
+import type { SrParams, SymbolData, SymbolInputs, Timeframe } from './engine/types.ts';
 
-export type WorkerSymbol = { name: string; digits: number; inputs: SymbolInputs; candles: number[][] };
+// timeframe absent on candles cached before H4 (= D1)
+export type WorkerSymbol = { name: string; digits: number; timeframe?: Timeframe; inputs: SymbolInputs; candles: number[][] };
 export type WorkerIn = { symbols: WorkerSymbol[]; sr: SrParams; balance: number; riskPct: number; costs?: CostSettings; from?: number; to?: number; warmup?: number; strategy?: PatternStrategy };
 export type WorkerOut = { type: 'progress'; done: number; total: number } | { type: 'done'; run: BacktestRun } | { type: 'error'; message: string };
 
@@ -15,7 +16,7 @@ self.onmessage = async (e: MessageEvent<WorkerIn>) => {
     const data = new Map<string, SymbolData>(
       m.symbols.map((s) => [
         s.name,
-        { digits: s.digits, inputs: s.inputs, candles: s.candles.map(([t, o, h, l, c]) => ({ t: t!, o: o!, h: h!, l: l!, c: c! })) },
+        { digits: s.digits, inputs: s.inputs, timeframe: s.timeframe ?? 'D1', candles: s.candles.map(([t, o, h, l, c]) => ({ t: t!, o: o!, h: h!, l: l!, c: c! })) },
       ]),
     );
     const run = await runBacktest({

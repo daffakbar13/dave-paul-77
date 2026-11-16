@@ -1,15 +1,16 @@
-// Sample data for stage 1 (before the MT4 EA sends real candles): synthetic D1 candles
-// with repeating swings so S/R lines appear, quotes, and two demo accounts with symbol
+// Sample data for stage 1 (before the MT4 EA sends real candles): synthetic candles (D1,
+// XAUUSD H4 like the live app) with repeating swings so S/R lines appear, quotes, and two demo accounts with symbol
 // specs as the MT5 EA would report them for a USD account.
 import { ObjectId } from 'mongodb';
-import type { SymbolSpec } from './analysis/types.ts';
+import { TF_MS, type SymbolSpec, type Timeframe } from './analysis/types.ts';
 import { sha256 } from './auth.ts';
-import { DEFAULT_SETTINGS, type AccountDoc, type CandleDoc, type Collections } from './db.ts';
+import { candlesOf, DEFAULT_SETTINGS, type AccountDoc, type CandleDoc, type Collections } from './db.ts';
+import { defaultTimeframe } from './lines.ts';
 import { defaultDigits } from './routes/web.ts';
 
 const DAY = 86_400_000;
 
-// Initial tabs from the MT4 terminal; XAUUSD exists but starts inactive.
+// Initial tabs from the MT4 terminal; XAUUSD runs on H4 (defaultTimeframe).
 export const SAMPLE_SYMBOLS: { name: string; base: number; active: boolean }[] = [
   { name: 'AUDJPY', base: 98.5, active: true },
   { name: 'AUDUSD', base: 0.66, active: true },
@@ -26,7 +27,7 @@ export const SAMPLE_SYMBOLS: { name: string; base: number; active: boolean }[] =
   { name: 'USDCHF', base: 0.8, active: true },
   { name: 'USDJPY', base: 150.2, active: true },
   { name: 'GBPUSD', base: 1.27, active: true },
-  { name: 'XAUUSD', base: 2400, active: false },
+  { name: 'XAUUSD', base: 2400, active: true },
 ];
 
 const BASE = new Map(SAMPLE_SYMBOLS.map((s) => [s.name, s.base]));
@@ -49,18 +50,20 @@ function hash(s: string): number {
 
 const round = (v: number, d: number) => Math.round(v * 10 ** d) / 10 ** d;
 
-// Weekday D1 candles ending yesterday (UTC). Price oscillates around `base` so swing
-// highs/lows repeat near the same levels; about one candle in eight is a strong one.
-export function sampleCandles(symbol: string, base: number, count: number, now = Date.now()): Omit<CandleDoc, '_id'>[] {
+// Weekday candles ending with the last closed one (UTC): D1 ends yesterday, H4 the last
+// whole 4-hour bar. Price oscillates around `base` so swing highs/lows repeat near the same
+// levels; about one candle in eight is a strong one. H4 moves are scaled down (√6).
+export function sampleCandles(symbol: string, base: number, count: number, now = Date.now(), tf: Timeframe = 'D1'): Omit<CandleDoc, '_id'>[] {
+  const step = TF_MS[tf];
   const rand = mulberry32(hash(symbol));
   const digits = defaultDigits(symbol);
-  const vol = base * (symbol.startsWith('XAU') ? 0.012 : 0.008);
+  const vol = (base * (symbol.startsWith('XAU') ? 0.012 : 0.008)) / Math.sqrt(DAY / step);
   const days: number[] = [];
-  let t = Math.floor(now / DAY) * DAY - DAY;
+  let t = Math.floor(now / step) * step - step;
   while (days.length < count) {
     const wd = new Date(t).getUTCDay();
     if (wd !== 0 && wd !== 6) days.unshift(t);
-    t -= DAY;
+    t -= step;
   }
   const p1 = rand() * Math.PI * 2;
   const p2 = rand() * Math.PI * 2;
@@ -111,6 +114,7 @@ export async function seedSample(db: Collections): Promise<void> {
   await Promise.all([
     db.symbols.deleteMany({}),
     db.candles.deleteMany({}),
+    db.candlesH4.deleteMany({}),
     db.quotes.deleteMany({}),
     db.analyses.deleteMany({}),
     db.accounts.deleteMany({}),
@@ -125,8 +129,9 @@ export async function seedSample(db: Collections): Promise<void> {
   );
   const now = new Date();
   for (const s of SAMPLE_SYMBOLS) {
-    const candles = sampleCandles(s.name, s.base, 520);
-    await db.candles.insertMany(candles);
+    const tf = defaultTimeframe(s.name);
+    const candles = sampleCandles(s.name, s.base, 520, Date.now(), tf);
+    await candlesOf(db, tf).insertMany(candles);
     const last = candles[candles.length - 1]!;
     const digits = defaultDigits(s.name);
     const spread = 10 ** -digits * (s.name === 'XAUUSD' ? 25 : 12);

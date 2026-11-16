@@ -332,6 +332,15 @@ describe('runBacktest', () => {
     assert.ok(new Set(run.trades.map((t) => t.symbol)).size === 2);
     assert.ok(run.trades.every((t) => t.result !== 'Open'), 'trades still open at the end are left out');
   });
+  it('replays an H4 pair candle by candle and says so in the coverage', async () => {
+    const H4 = DAY / 6;
+    const cs = series(600, 5, 2400).map((c, i) => ({ ...c, t: T0 + i * H4, o: c.o * 1000, h: c.h * 1000, l: c.l * 1000, c: c.c * 1000 }));
+    const run = await runBacktest({ data: new Map([['XAUUSD', { candles: cs, digits: 2, timeframe: 'H4' as const }]]), params, balance: 1000, riskPct: 1, warmup: 120 });
+    assert.equal(run.coverage[0]!.timeframe, 'H4');
+    assert.equal(run.coverage[0]!.gaps.length, 0, 'four hours between candles is no gap');
+    assert.ok(run.raw.length > 0);
+    assert.ok(run.raw.every((t) => (t.entryAt - T0) % H4 === 0), 'trades start on H4 bars');
+  });
 });
 
 describe('withCosts', () => {

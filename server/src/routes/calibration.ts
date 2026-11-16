@@ -2,9 +2,9 @@ import { Router } from 'express';
 import { ObjectId } from 'mongodb';
 import { z } from 'zod';
 import { compareAll, lineFitAll, sweep, type ManualOrder, type SymbolData } from '../analysis/calibrate.ts';
-import { getSettings, type Collections, type ManualOrderDoc } from '../db.ts';
+import { candlesOf, getSettings, type Collections, type ManualOrderDoc } from '../db.ts';
 import { notFound, parse, parseId } from '../http.ts';
-import { symbolInputs } from '../lines.ts';
+import { symbolInputs, timeframeOf } from '../lines.ts';
 import { defaultDigits } from './web.ts';
 import { tr } from '../i18n.ts';
 
@@ -31,16 +31,19 @@ const toManual = (d: ManualOrderDoc): ManualOrder => ({
   asOf: d.asOf.getTime(),
 });
 
-// All stored candles of the given symbols (the engine slices per day).
+// All stored candles of the given symbols on each pair's timeframe (the engine slices per
+// candle).
 export async function loadData(db: Collections, symbols: string[]): Promise<Map<string, SymbolData>> {
   const map = new Map<string, SymbolData>();
   for (const symbol of new Set(symbols)) {
-    const docs = await db.candles.find({ symbol }).sort({ t: 1 }).toArray();
-    if (!docs.length) continue;
     const sym = await db.symbols.findOne({ name: symbol });
+    const timeframe = timeframeOf(sym, symbol);
+    const docs = await candlesOf(db, timeframe).find({ symbol }).sort({ t: 1 }).toArray();
+    if (!docs.length) continue;
     map.set(symbol, {
       digits: sym?.digits ?? defaultDigits(symbol),
       inputs: symbolInputs(sym),
+      timeframe,
       candles: docs.map((c) => ({ t: c.t.getTime(), o: c.o, h: c.h, l: c.l, c: c.c })),
     });
   }

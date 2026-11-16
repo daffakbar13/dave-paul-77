@@ -1,8 +1,9 @@
-// Day-by-day replay of the order engine over stored D1 candles.
+// Candle-by-candle replay of the order engine over stored candles (D1, or H4 for a pair
+// analysed on H4; a "day" below is one candle of the pair's timeframe).
 //
-// Every trading day the engine analyses only the candles that closed before that day, which
-// gives the same buy/sell stop orders the live app would have placed that morning. Those
-// orders live for that day only ("Execute every day"). A fill opens a trade that then runs
+// Every candle the engine analyses only the candles that closed before it, which gives the
+// same buy/sell stop orders the live app would have placed at its open. Those orders live
+// for that candle only ("Execute every day", every 4 hours on H4). A fill opens a trade that then runs
 // until its SL or TP is touched; a pair holds at most one position per side (buy / sell).
 // Money is added afterwards (`compound`): every trade is sized in lots like the live app
 // (riskPct of the balance on the day it fills, rounded down to the lot step), and the
@@ -10,7 +11,7 @@
 import type { BtTrade } from './backtestStats.ts';
 import { detectPatterns, linesByDay, PATTERN_STRATEGIES, patternOrders, patternParamsFor, type DayLines, type PatternEvent, type PatternOrders, type PatternParams, type PatternStrategy } from './patterns.ts';
 import { analyze, pipSize, roundTo } from './sr.ts';
-import type { Candidate, Candle, Side, SrParams, SymbolData } from './types.ts';
+import type { Candidate, Candle, Side, SrParams, SymbolData, Timeframe } from './types.ts';
 
 const MIN_RISK_PIPS = 1e-6;
 
@@ -401,6 +402,7 @@ export function toRaw(trades: BtTrade[]): RawTrade[] {
 
 export type Coverage = {
   symbol: string;
+  timeframe?: Timeframe; // absent on results saved before H4 (= D1)
   candles: number;
   from: number | null; // first candle
   testFrom: number | null; // first day an order was possible
@@ -424,7 +426,7 @@ export function tierOf(years: number): Coverage['tier'] {
 // or a holiday (the longest normal break, Christmas to New Year, is about 5 days).
 export const GAP_DAYS = 7;
 
-export function coverageOf(symbol: string, cs: Candle[], opts: ReplayOptions): Coverage {
+export function coverageOf(symbol: string, cs: Candle[], opts: ReplayOptions, timeframe: Timeframe = 'D1'): Coverage {
   const startIdx = Math.max(opts.warmup, 10);
   const days = cs.filter((c, i) => i >= startIdx && (opts.from === undefined || c.t >= opts.from) && (opts.to === undefined || c.t <= opts.to));
   const DAY_MS = 86_400_000;
@@ -440,6 +442,7 @@ export function coverageOf(symbol: string, cs: Candle[], opts: ReplayOptions): C
   const years = Math.max(span - gapDays, 0) / 365.25;
   return {
     symbol,
+    timeframe,
     candles: cs.length,
     from: cs[0]?.t ?? null,
     testFrom: days[0]?.t ?? null,
@@ -490,7 +493,7 @@ export async function runBacktest(input: BacktestInput): Promise<BacktestRun> {
   const pause = input.pause ?? makePause();
   for (const name of names) {
     const d = input.data.get(name)!;
-    coverage.push(coverageOf(name, d.candles, opts));
+    coverage.push(coverageOf(name, d.candles, opts, d.timeframe ?? 'D1'));
     const strategy = input.strategy ?? 'breakout';
     const trades = strategy === 'breakout'
       ? await replaySymbol(name, d, input.params, opts, pause)

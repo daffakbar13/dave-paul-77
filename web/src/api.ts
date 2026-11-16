@@ -1,6 +1,7 @@
 // Thin client for the Render backend. Shapes mirror server/src (routes/web.ts, analysis/orders.ts).
 import type { CompactTrade, Fingerprint } from './backtestStore.ts';
 import type { CostSettings, Coverage } from './engine/backtest.ts';
+import type { Timeframe } from './engine/types.ts';
 import { getLang } from './i18n.ts';
 
 export type Side = 'buy' | 'sell';
@@ -55,6 +56,7 @@ export type AccountInfo = {
 export type Analysis = {
   symbol: string;
   digits: number;
+  timeframe: Timeframe;
   analyzedAt: string;
   lastCandleAt: string;
   atr: number;
@@ -82,6 +84,7 @@ export type SymbolItem = {
   manualLinesAt: string | null;
   manualLinesSource: 'import' | 'mt4' | 'web' | null;
   minSlPips: number;
+  timeframe: Timeframe;
 };
 export type Colors = { sr: string; entry: string; sltp: string };
 
@@ -354,7 +357,7 @@ const q = (params: Record<string, string | boolean | undefined>) => {
 export const api = {
   login: (password: string) => request<{ token: string; expiresAt: string }>('POST', '/auth/login', { password }),
   symbols: () => request<{ symbols: SymbolItem[]; colors: Colors; mt4: Mt4Status }>('GET', '/symbols'),
-  saveSymbols: (list: { name: string; active: boolean; minSlPips?: number }[]) => request<{ ok: true }>('PUT', '/symbols', list),
+  saveSymbols: (list: { name: string; active: boolean; minSlPips?: number; timeframe?: Timeframe }[]) => request<{ ok: true }>('PUT', '/symbols', list),
   setLines: (symbol: string, lines: number[]) => request<{ symbol: string; lines: number }>('PUT', `/symbols/${encodeURIComponent(symbol)}/lines`, { lines }),
   importTpl: (files: { name: string; content: string }[]) =>
     request<{ results: { file: string; symbol?: string; lines?: number; error?: string }[] }>('POST', '/lines/import-tpl', { files }),
@@ -374,9 +377,9 @@ export const api = {
   tfMarks: () => request<{ day: string; keys: string[] }>('GET', '/tf/marks'),
   setTfMark: (key: string, done: boolean) => request<{ day: string; key: string; done: boolean }>('PUT', '/tf/marks', { key, done }),
   journal: (accountId: string, from: string, to: string) => request<Journal>('GET', `/journal${q({ accountId, from, to })}`),
-  // stored D1 candles (compact arrays) and the saved S/R settings, for the in-browser backtest
+  // stored candles (compact arrays, each pair on its timeframe) and the saved S/R settings, for the in-browser backtest
   backtestCandles: (symbols?: string[]) =>
-    request<{ sr: SrParams; symbols: { name: string; digits: number; inputs: { manualLines?: number[]; minSlPips?: number }; candles: number[][] }[] }>(
+    request<{ sr: SrParams; symbols: { name: string; digits: number; timeframe: Timeframe; inputs: { manualLines?: number[]; minSlPips?: number }; candles: number[][] }[] }>(
       'GET',
       `/backtest/candles${q({ symbols: symbols?.join(',') })}`,
     ),

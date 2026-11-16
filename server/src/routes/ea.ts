@@ -3,20 +3,21 @@ import { ObjectId } from 'mongodb';
 import { z } from 'zod';
 import { keyAccount, requireAccountKey, requireDataKey } from '../auth.ts';
 import type { Config } from '../config.ts';
-import { getSettings, type Collections } from '../db.ts';
+import { TF_MINUTES, TF_MS, type Timeframe } from '../analysis/types.ts';
+import { candlesOf, getSettings, type Collections } from '../db.ts';
 import { HttpError, notFound, parse, parseId } from '../http.ts';
 import { recordDeals, recordPlacements } from '../journal.ts';
-import { setManualLines } from '../lines.ts';
+import { setManualLines, timeframeOf } from '../lines.ts';
 import { refreshAnalysis } from '../service.ts';
 import { defaultDigits } from './web.ts';
 import { tr } from '../i18n.ts';
 
-const DAY = 86_400_000;
 const symbolName = z.string().trim().toUpperCase().regex(/^[A-Z0-9._-]{3,20}$/);
 const price = z.number().positive().finite();
 
 // Times from MQL are seconds in broker server time (D1 opens at broker midnight). A candle
-// is only accepted once its day is over by the broker clock the EA sends as `now`.
+// is only accepted once its period (a day, 4 hours) is over by the broker clock the EA
+// sends as `now`.
 const candleSchema = z.object({ t: z.number().int().positive(), o: price, h: price, l: price, c: price })
   .refine((c) => c.h >= Math.max(c.o, c.c, c.l) && c.l <= Math.min(c.o, c.c), 'OHLC tidak konsisten');
 
@@ -24,7 +25,10 @@ const candlesSchema = z.object({
   symbol: symbolName,
   digits: z.number().int().min(0).max(8).optional(),
   now: z.number().int().positive().optional(), // TimeCurrent(); without it UTC is assumed
-  // 22 years of D1 is about 5,700 candles; the EA sends older history in smaller chunks
+  // period in minutes (MQL's PERIOD_D1 = 1440, PERIOD_H4 = 240); absent = D1 (EA before 1.20)
+  tf: z.union([z.literal(1440), z.literal(240)]).optional(),
+  // 22 years of D1 is about 5,700 candles (H4: about 34,000); the EA sends older history in
+  // chunks of 1,000
   candles: z.array(candleSchema).min(1).max(10_000),
   // old history: stored without recomputing the live analysis, which only uses recent candles
   backfill: z.boolean().optional(),
@@ -119,27 +123,34 @@ export function eaRoutes(db: Collections, config: Config): Router {
   }
 
   // --- MT4 data EA -----------------------------------------------------------
-  // Active pairs from the web settings, so the tab list is managed in one place. `last` is
-  // the open time (broker seconds) of the newest stored candle per pair, so a restarted EA
-  // sends only the candles after it instead of its whole history window.
+  // Active pairs from the web settings, so the tab list is managed in one place. `tf` is
+  // each pair's candle period in minutes (1440 = D1, 240 = H4). `last` is the open time
+  // (broker seconds) of the newest stored candle per pair on that period, so a restarted EA
+  // sends only the candles after it instead of its whole history window. `tf` comes before
+  // `last` and lists every pair: the EA finds a pair's value by searching from the key.
   router.get('/mt4/symbols', dataKey, async (_req, res) => {
     const symbols = await db.symbols.find({ active: true }).sort({ order: 1 }).toArray();
-    const latest = await Promise.all(symbols.map((s) =>
-      db.candles.find({ symbol: s.name }, { projection: { t: 1 } }).sort({ t: -1 }).limit(1).next()));
+    const tfs = symbols.map((s) => timeframeOf(s));
+    const latest = await Promise.all(symbols.map((s, i) =>
+      candlesOf(db, tfs[i]).find({ symbol: s.name }, { projection: { t: 1 } }).sort({ t: -1 }).limit(1).next()));
+    const tf: Record<string, number> = {};
     const last: Record<string, number> = {};
     symbols.forEach((s, i) => {
+      tf[s.name] = TF_MINUTES[tfs[i]!];
       const t = latest[i]?.t;
       if (t) last[s.name] = Math.floor(t.getTime() / 1000);
     });
-    res.json({ symbols: symbols.map((s) => s.name), last });
+    res.json({ symbols: symbols.map((s) => s.name), tf, last });
   });
 
   router.post('/mt4/candles', dataKey, async (req, res) => {
     const input = parse(candlesSchema, req.body);
+    const tf: Timeframe = input.tf === 240 ? 'H4' : 'D1';
     const now = input.now ? input.now * 1000 : Date.now();
-    const closed = input.candles.filter((c) => c.t * 1000 + DAY <= now);
+    const closed = input.candles.filter((c) => c.t * 1000 + TF_MS[tf] <= now);
     if (closed.length) {
-      await db.candles.bulkWrite(
+      // each period has its own collection, so D1 and H4 candles never mix
+      await candlesOf(db, tf).bulkWrite(
         closed.map((c) => ({
           updateOne: {
             filter: { symbol: input.symbol, t: new Date(c.t * 1000) },
@@ -160,9 +171,12 @@ export function eaRoutes(db: Collections, config: Config): Router {
     } else if (input.digits !== undefined && exists.digits !== input.digits) {
       await db.symbols.updateOne({ _id: exists._id }, { $set: { digits } });
     }
-    if (closed.length && !input.backfill) await refreshAnalysis(db, input.symbol, await getSettings(db));
+    // candles of the period the pair is not analysed on (an old EA, a switch in progress)
+    // are kept but do not touch the live analysis
+    const pairTf = timeframeOf(exists ?? null, input.symbol);
+    if (closed.length && !input.backfill && tf === pairTf) await refreshAnalysis(db, input.symbol, await getSettings(db));
     await seen(input.now);
-    res.json({ stored: closed.length, ignoredOpen: input.candles.length - closed.length });
+    res.json({ stored: closed.length, ignoredOpen: input.candles.length - closed.length, tf });
   });
 
   // Horizontal lines from the MT4 charts of one pair (the user's own S/R). An empty list

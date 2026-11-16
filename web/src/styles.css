@@ -862,7 +862,7 @@ table.orders {
 }
 .pairs li {
   display: grid;
-  grid-template-columns: minmax(90px, 1fr) minmax(0, 3fr) auto auto auto auto;
+  grid-template-columns: minmax(90px, 1fr) minmax(0, 3fr) auto auto auto auto auto;
   gap: 8px;
   align-items: center;
   padding: 4px 0;
@@ -1135,6 +1135,9 @@ button.aggr-off {
   gap: 4px;
   align-items: center;
   font-size: 12px;
+}
+.min-sl select {
+  padding: 2px 4px;
 }
 .min-sl input {
   width: 56px;

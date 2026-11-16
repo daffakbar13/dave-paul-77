@@ -4,6 +4,7 @@ import {
   createChart,
   CrosshairMode,
   LineStyle,
+  type TickMarkType,
   type IChartApi,
   type IPriceLine,
   type ISeriesApi,
@@ -13,12 +14,12 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { BtTrade } from '../engine/backtestStats.ts';
 import { analyze } from '../engine/sr.ts';
-import type { Candle, SrParams, SymbolInputs } from '../engine/types.ts';
-import { fmtDate, fmtMoney, fmtPrice } from '../format.ts';
+import type { Candle, SrParams, SymbolInputs, Timeframe } from '../engine/types.ts';
+import { fmtCandle, fmtMoney, fmtPrice, tickLabel } from '../format.ts';
 import { locale, useT } from '../i18n.ts';
 import { BUY, exitPrice, SELL, TradeHistory } from './tradeHistory.ts';
 
-type Props = { symbol: string; digits: number; candles: number[][]; inputs: SymbolInputs; sr: SrParams; trades: BtTrade[] };
+type Props = { symbol: string; digits: number; timeframe: Timeframe; candles: number[][]; inputs: SymbolInputs; sr: SrParams; trades: BtTrade[] };
 
 // same MT4 look as the main chart
 const CANDLE = '#00FF00';
@@ -43,10 +44,10 @@ function barIndex(candles: number[][], ms: number): number {
   return lo;
 }
 
-// D1 candles of one pair with every simulated trade drawn like MT5's trade history: entry
+// Candles (D1 or H4) of one pair with every simulated trade drawn like MT5's trade history: entry
 // and exit arrows joined by a dotted line, blue for buys, red for sells. Hover an arrow
 // for the details; click it (or a row of the table) to pick the trade.
-export function BacktestChart({ symbol, digits, candles, inputs, sr, trades }: Props) {
+export function BacktestChart({ symbol, digits, timeframe, candles, inputs, sr, trades }: Props) {
   const t = useT();
   const box = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -79,9 +80,9 @@ export function BacktestChart({ symbol, digits, candles, inputs, sr, trades }: P
       layout: { background: { type: ColorType.Solid, color: '#000000' }, textColor: '#9AA3AD', fontFamily: 'system-ui, -apple-system, sans-serif', fontSize: 12 },
       grid: { vertLines: { color: '#3A3F46', style: LineStyle.Dashed }, horzLines: { visible: false } },
       rightPriceScale: { borderColor: '#2A2F36' },
-      timeScale: { borderColor: '#2A2F36', rightOffset: 4, tickMarkFormatter: (t: Time) => fmtDate(timeMs(t)) },
+      timeScale: { borderColor: '#2A2F36', rightOffset: 4, tickMarkFormatter: (t: Time, type: TickMarkType) => tickLabel(timeMs(t), type, timeframe) },
       crosshair: { mode: CrosshairMode.Normal },
-      localization: { timeFormatter: (t: Time) => fmtDate(timeMs(t)) },
+      localization: { timeFormatter: (t: Time) => fmtCandle(timeMs(t), timeframe) },
     });
     const series = chart.addSeries(CandlestickSeries, {
       upColor: 'rgba(0, 0, 0, 0)',
@@ -120,7 +121,7 @@ export function BacktestChart({ symbol, digits, candles, inputs, sr, trades }: P
       seriesRef.current = null;
       historyRef.current = null;
     };
-  }, [candles, digits]);
+  }, [candles, digits, timeframe]);
 
   useEffect(() => {
     historyRef.current?.set(trades, focusKey, keyOf);
@@ -176,7 +177,7 @@ export function BacktestChart({ symbol, digits, candles, inputs, sr, trades }: P
     <>
       <div className="modal-tools">
         <span className="muted">
-          {symbol} D1 · {t(`${trades.length} trade`, `${trades.length} ${trades.length === 1 ? 'trade' : 'trades'}`)}. <span style={{ color: BUY }}>⬆ buy</span> / <span style={{ color: SELL }}>⬇ sell</span>
+          {symbol} {timeframe} · {t(`${trades.length} trade`, `${trades.length} ${trades.length === 1 ? 'trade' : 'trades'}`)}. <span style={{ color: BUY }}>⬆ buy</span> / <span style={{ color: SELL }}>⬇ sell</span>
           {t(': entry ke exit, garis putus-putus seperti riwayat trade MT5. Arahkan ke panah untuk detail, klik untuk menandai.', ': entry to exit, dotted line like the MT5 trade history. Hover an arrow for details, click to pick it.')}
         </span>
         <label className="inline">
@@ -185,9 +186,9 @@ export function BacktestChart({ symbol, digits, candles, inputs, sr, trades }: P
         {showSr && srAnalysis && candles[srDay] && (
           <span className="muted">
             <span style={{ color: SR }}>━</span>{' '}
-            {t(`${srAnalysis.lines.length} garis S/R engine, pagi ${fmtDate(candles[srDay]![0]!)}`, `${srAnalysis.lines.length} engine S/R lines, morning of ${fmtDate(candles[srDay]![0]!)}`)}
+            {t(`${srAnalysis.lines.length} garis S/R engine, saat buka candle ${fmtCandle(candles[srDay]![0]!, timeframe)}`, `${srAnalysis.lines.length} engine S/R lines, at the open of ${fmtCandle(candles[srDay]![0]!, timeframe)}`)}
             {focus
-              ? t(' (hari entry trade terpilih', ' (entry day of the picked trade') + (tradeLine === null ? ')' : t('; garis tebal = dasar order-nya)', '; thick line = basis of its order)'))
+              ? t(' (candle entry trade terpilih', ' (entry candle of the picked trade') + (tradeLine === null ? ')' : t('; garis tebal = dasar order-nya)', '; thick line = basis of its order)'))
               : t(' (candle terakhir yang terlihat)', ' (last visible candle)')}
           </span>
         )}
@@ -196,9 +197,9 @@ export function BacktestChart({ symbol, digits, candles, inputs, sr, trades }: P
         <div ref={box} className="bt-chart" role="img" aria-label={t(`Grafik ${symbol} dengan trade backtest`, `${symbol} chart with backtest trades`)} />
         {h && hover && (
           <div className="bt-tip tabular" style={{ left: hover.x > (box.current?.clientWidth ?? 0) - 240 ? hover.x - 230 : hover.x + 14, top: hover.y + 14 }}>
-            <b style={{ color: h.side === 'buy' ? BUY : SELL }}>{h.side === 'buy' ? 'Buy' : 'Sell'}</b> {fmtPrice(h.entry, h.digits)} · {fmtDate(h.entryAt)}
+            <b style={{ color: h.side === 'buy' ? BUY : SELL }}>{h.side === 'buy' ? 'Buy' : 'Sell'}</b> {fmtPrice(h.entry, h.digits)} · {fmtCandle(h.entryAt, timeframe)}
             <br />
-            <span className={h.result === 'TP' ? 'ok' : 'error'}>{h.result}</span> {fmtPrice(hExit, h.digits)} · {h.exitAt === null ? '' : fmtDate(h.exitAt)}
+            <span className={h.result === 'TP' ? 'ok' : 'error'}>{h.result}</span> {fmtPrice(hExit, h.digits)} · {h.exitAt === null ? '' : fmtCandle(h.exitAt, timeframe)}
             <br />
             {h.pips.toLocaleString(locale(), { maximumFractionDigits: 1 })} pips · {fmtMoney(h.profit)}
             {h.ambiguous ? t(' · urutan intraday ambigu', ' · ambiguous intraday order') : ''}
@@ -227,8 +228,8 @@ export function BacktestChart({ symbol, digits, candles, inputs, sr, trades }: P
                   setFocusKey(next);
                   if (next) centreOn(t);
                 }}>
-                <td>{fmtDate(t.entryAt)}</td>
-                <td>{fmtDate(t.exitAt!)}</td>
+                <td>{fmtCandle(t.entryAt, timeframe)}</td>
+                <td>{fmtCandle(t.exitAt!, timeframe)}</td>
                 <td>{t.side === 'buy' ? 'Buy' : 'Sell'}</td>
                 <td className="num">{fmtPrice(t.entry, t.digits)}</td>
                 <td className="num">{fmtPrice(t.tp, t.digits)}</td>

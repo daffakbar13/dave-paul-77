@@ -1,3 +1,4 @@
+import { TickMarkType } from 'lightweight-charts';
 import { locale, tr } from './i18n.ts';
 
 // Formatters per language, built on first use.
@@ -13,6 +14,23 @@ const timeFmt = () => fmt('time', { hour: '2-digit', minute: '2-digit', hourCycl
 
 // "10 Mar 2026" (D1 candles are dated in UTC)
 export const fmtDate = (ms: number) => dateFmt().format(new Date(ms)).replace('.', '');
+
+// A candle's open time: the date for D1, date and hour for H4 ("10 Mar 2026 08:00"), on the
+// broker clock like the dates.
+export const fmtCandle = (ms: number, tf: 'D1' | 'H4' = 'D1') => {
+  if (tf === 'D1') return fmtDate(ms);
+  const d = new Date(ms);
+  return `${fmtDate(ms)} ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+};
+
+// Chart axis labels: dates, plus the hour on H4 where the axis marks a time inside a day.
+export function tickLabel(ms: number, type: TickMarkType, tf: 'D1' | 'H4'): string {
+  if (tf === 'H4' && type >= TickMarkType.Time) {
+    const d = new Date(ms);
+    return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+  }
+  return fmtDate(ms);
+}
 
 export const fmtWib = (iso: string) => `${timeFmt().format(new Date(iso)).replace('.', ':')} WIB`;
 

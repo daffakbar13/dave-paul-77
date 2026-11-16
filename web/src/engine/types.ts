@@ -1,7 +1,14 @@
-// Shared shapes for the D1 support/resistance engine. Prices are plain numbers in the
+// Shared shapes for the support/resistance engine. Prices are plain numbers in the
 // symbol's quote currency; times are milliseconds since epoch (UTC, candle open time).
 
 export type Candle = { t: number; o: number; h: number; l: number; c: number };
+
+// Candle period of a pair: D1 for most, H4 for XAUUSD (its D1 SL is too wide for a small
+// account). The engine works on whatever candles it gets, one candle = one order period.
+export type Timeframe = 'D1' | 'H4';
+export const TIMEFRAMES: readonly Timeframe[] = ['D1', 'H4'];
+export const TF_MS: Record<Timeframe, number> = { D1: 86_400_000, H4: 14_400_000 };
+export const TF_MINUTES: Record<Timeframe, number> = { D1: 1440, H4: 240 };
 
 export type Side = 'buy' | 'sell';
 
@@ -24,7 +31,7 @@ export type SrParams = {
   // 'auto' (default): the engine draws the lines; the user's lines are only a reference
   // to compare against. 'manual': the user's lines replace the engine's where present.
   lineSource: 'auto' | 'manual';
-  lookback: number; // closed D1 candles used (about 2 years)
+  lookback: number; // closed candles used (D1: about 2 years; H4: the same count)
   fractal: number; // candles on each side of a swing
   atrPeriod: number;
   clusterAtr: number; // swings closer than this x ATR join one line
@@ -84,4 +91,4 @@ export type Analysis = {
 };
 
 // One pair's history for the engine and the backtest.
-export type SymbolData = { candles: Candle[]; digits: number; inputs?: SymbolInputs };
+export type SymbolData = { candles: Candle[]; digits: number; inputs?: SymbolInputs; timeframe?: Timeframe }; // timeframe absent = D1

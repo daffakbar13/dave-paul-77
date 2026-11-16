@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { defaultMinSlPips, parseTpl } from './lines.ts';
+import { defaultMinSlPips, defaultTimeframe, minSlPipsOf, parseTpl, timeframeOf } from './lines.ts';
 
 const TPL = [
   '<chart>', 'id=1', 'symbol=EURUSD', 'period=1440', '<window>', '<indicator>', 'name=main',
@@ -25,7 +25,26 @@ describe('defaultMinSlPips', () => {
   it('follows the previous tool and falls back to 15', () => {
     assert.equal(defaultMinSlPips('nzdusd'), 10);
     assert.equal(defaultMinSlPips('GBPJPY'), 20);
-    assert.equal(defaultMinSlPips('XAUUSD'), 30);
+    assert.equal(defaultMinSlPips('XAUUSD', 'D1'), 30);
     assert.equal(defaultMinSlPips('EURCAD'), 15);
+  });
+
+  it('has no floor for XAUUSD on H4, its default timeframe', () => {
+    assert.equal(defaultMinSlPips('XAUUSD'), 0);
+    assert.equal(defaultMinSlPips('XAUUSD', 'H4'), 0);
+    assert.equal(defaultMinSlPips('EURUSD', 'H4'), 15);
+    assert.equal(minSlPipsOf({ name: 'XAUUSD', timeframe: 'D1' }), 30);
+    assert.equal(minSlPipsOf({ name: 'XAUUSD', minSlPips: 12 }), 12);
+  });
+});
+
+describe('timeframe per pair', () => {
+  it('is H4 for XAUUSD and D1 for the rest unless the pair says otherwise', () => {
+    assert.equal(defaultTimeframe('xauusd'), 'H4');
+    assert.equal(defaultTimeframe('EURUSD'), 'D1');
+    assert.equal(timeframeOf({ name: 'XAUUSD' }), 'H4');
+    assert.equal(timeframeOf({ name: 'XAUUSD', timeframe: 'D1' }), 'D1');
+    assert.equal(timeframeOf({ name: 'EURUSD', timeframe: 'H4' }), 'H4');
+    assert.equal(timeframeOf(null, 'XAUUSD'), 'H4');
   });
 });

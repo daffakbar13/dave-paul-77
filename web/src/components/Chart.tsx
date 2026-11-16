@@ -4,6 +4,7 @@ import {
   createChart,
   CrosshairMode,
   LineStyle,
+  TickMarkType,
   type CandlestickData,
   type IChartApi,
   type IPriceLine,
@@ -13,7 +14,7 @@ import {
 } from 'lightweight-charts';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Analysis, Candle, Colors, OrderRow } from '../api.ts';
-import { fmtDate, fmtLot, fmtPrice, fmtRr } from '../format.ts';
+import { fmtCandle, fmtLot, fmtPrice, fmtRr, tickLabel } from '../format.ts';
 import { engineText, useT } from '../i18n.ts';
 
 type Props = {
@@ -50,6 +51,8 @@ export function Chart({ analysis, colors, focusId, onlyFocused, onFocus, onCance
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const linesRef = useRef<IPriceLine[]>([]);
+  const tfRef = useRef(analysis.timeframe ?? 'D1'); // read by the chart's formatters
+  tfRef.current = analysis.timeframe ?? 'D1';
   const [labels, setLabels] = useState<Label[]>([]);
   const [hover, setHover] = useState<Candle | null>(null);
   // hover only highlights; a click pins the focus and also shows the SL/TP labels
@@ -67,10 +70,10 @@ export function Chart({ analysis, colors, focusId, onlyFocused, onFocus, onCance
       timeScale: {
         borderColor: '#2A2F36',
         rightOffset: 8,
-        tickMarkFormatter: (t: Time) => fmtDate(timeMs(t)),
+        tickMarkFormatter: (t: Time, type: TickMarkType) => tickLabel(timeMs(t), type, tfRef.current),
       },
       crosshair: { mode: CrosshairMode.Normal },
-      localization: { timeFormatter: (t: Time) => fmtDate(timeMs(t)) },
+      localization: { timeFormatter: (t: Time) => fmtCandle(timeMs(t), tfRef.current) },
     });
     const series = chart.addSeries(CandlestickSeries, {
       upColor: CANDLE_BODY_UP,
@@ -178,7 +181,7 @@ export function Chart({ analysis, colors, focusId, onlyFocused, onFocus, onCance
     <div className="chart-wrap">
       <div ref={box} className="chart" />
       <div className="chart-head tabular">
-        {analysis.symbol}, Daily
+        {analysis.symbol}, {analysis.timeframe === 'H4' ? 'H4' : 'Daily'}
         {shown && (
           <span>
             {' '}{fmtPrice(shown.o, digits)} {fmtPrice(shown.h, digits)} {fmtPrice(shown.l, digits)} {fmtPrice(shown.c, digits)}

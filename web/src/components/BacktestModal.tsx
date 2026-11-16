@@ -29,7 +29,7 @@ import { Modal } from './Modal.tsx';
 
 type Props = { onClose: () => void };
 // grossR: expectancy before costs; costR: what the costs take per trade (gross - net)
-type PairRow = PairStats & { tier: Coverage['tier']; years: number; gapDays: number; active: boolean; grossR: number | null; costR: number | null };
+type PairRow = PairStats & { timeframe: 'D1' | 'H4'; tier: Coverage['tier']; years: number; gapDays: number; active: boolean; grossR: number | null; costR: number | null };
 type Basis = 'net' | 'gross';
 type Tab = 'overall' | 'month' | 'growth' | 'chart' | 'pairs';
 const TABS: Tab[] = ['overall', 'month', 'growth', 'chart', 'pairs'];
@@ -168,7 +168,7 @@ function OverallView({ o, initial, grossR, sizing }: { o: Overall; initial: numb
         <Tile label={t('Total Trade', 'Total Trades')} value={`${o.trades}x`} sub={`${o.wins} TP · ${o.losses} SL`} cls="tile-blue" />
         <Tile label="Probability" value={o.probability === null ? '–' : pct(o.probability * 100)} cls="tile-green" />
         <Tile label="Avg. Risk : Reward" value={o.riskReward === null ? '–' : `${num(o.riskReward, 2)}:1`} cls="tile-orange" />
-        <Tile label="Avg. Holding Period" value={holding(o.avgHoldDays)} sub={t('resolusi harian (candle D1)', 'daily resolution (D1 candles)')} cls="tile-yellow" />
+        <Tile label="Avg. Holding Period" value={holding(o.avgHoldDays)} sub={t('resolusi per candle (D1; XAUUSD H4)', 'per-candle resolution (D1; XAUUSD H4)')} cls="tile-yellow" />
       </div>
       <div className="streaks">
         <StreakBox title="Consecutive Profit" tone="win" data={o.consecutiveProfit} />
@@ -472,6 +472,7 @@ function PairsView({ pairs, worst, net, onPick, onToggle, onSet }: { pairs: Pair
                 </td>
                 <td>
                   <b>{p.symbol}</b>
+                  {p.timeframe !== 'D1' && <span className="muted"> {p.timeframe}</span>}
                 </td>
                 <td>
                   <span className={`grade grade-${p.grade}`}>{gradeLabel(p.grade)}</span>
@@ -745,7 +746,7 @@ export function BacktestModal({ onClose }: Props) {
       const st = pairStats(c.symbol, (active ? kept : full).get(c.symbol) ?? [], initial);
       const grossR = grossOf((t) => t.symbol === c.symbol);
       const costR = grossR === null || st.expectancyR === null ? null : st.expectancyR - grossR;
-      return { ...st, tier: c.tier, years: c.years, gapDays: c.gapDays, active, grossR: grossR === null ? null : Math.round(grossR * 1000) / 1000, costR };
+      return { ...st, timeframe: c.timeframe ?? 'D1', tier: c.tier, years: c.years, gapDays: c.gapDays, active, grossR: grossR === null ? null : Math.round(grossR * 1000) / 1000, costR };
     });
     // the weakest by the full run, so the suggestion does not move as pairs are switched off
     const worst = result.coverage
@@ -1011,7 +1012,7 @@ export function BacktestModal({ onClose }: Props) {
             <p className="banner-warn">
               {t(`Data teruji hanya ${fmtYears(minYears)}`, `Tested data covers only ${fmtYears(minYears)}`)}
               {shortPairs.length === cov.length ? t(' di semua pair', ' in all pairs') : t(` di ${shortPairs.map((c) => c.symbol).join(', ')}`, ` in ${shortPairs.map((c) => c.symbol).join(', ')}`)}
-              {t('. Minimum 2 tahun; 5 / 10 / 20 tahun lebih meyakinkan. Tambah riwayat candle D1 (backfill) dulu sebelum mengandalkan angka ini.', '. Minimum 2 years; 5 / 10 / 20 years is more convincing. Add D1 candle history (backfill) before relying on these numbers.')}
+              {t('. Minimum 2 tahun; 5 / 10 / 20 tahun lebih meyakinkan. Tambah riwayat candle (backfill EA) dulu sebelum mengandalkan angka ini.', '. Minimum 2 years; 5 / 10 / 20 years is more convincing. Add candle history (EA backfill) before relying on these numbers.')}
             </p>
           )}
           {gapPairs.length > 0 && (
@@ -1076,7 +1077,7 @@ export function BacktestModal({ onClose }: Props) {
                   ))}
               </div>
             ) : chartData ? (
-              <BacktestChart key={symbol} symbol={symbol} digits={chartData.digits} candles={chartData.candles} inputs={chartData.inputs} sr={result.sr} trades={view.trades} />
+              <BacktestChart key={symbol} symbol={symbol} digits={chartData.digits} timeframe={chartData.timeframe ?? 'D1'} candles={chartData.candles} inputs={chartData.inputs} sr={result.sr} trades={view.trades} />
             ) : (
               <p className="muted" role="status">
                 {chartState.failed === symbol ? t('Candle tidak bisa diambil.', 'Candles could not be fetched.') : t('Mengambil candle…', 'Fetching candles…')}
@@ -1103,8 +1104,8 @@ export function BacktestModal({ onClose }: Props) {
 
           <p className="muted foot-note">
             {t(
-              `Candle D1: untuk trade yang entry dan exit-nya satu hari, urutan harga dibaca open-low-high-close (candle naik) atau open-high-low-close (candle turun). ${view.overall.ambiguous} dari ${view.overall.trades} trade (${view.overall.trades ? pct((view.overall.ambiguous / view.overall.trades) * 100, 1) : '–'}) hasilnya berubah bila urutannya terbalik. Jika SL dan TP kena di candle yang sama setelah posisi terbuka, SL dihitung dulu.`,
-              `D1 candles: for trades whose entry and exit fall on the same day, the price order is read as open-low-high-close (up candle) or open-high-low-close (down candle). ${view.overall.ambiguous} of ${view.overall.trades} trades (${view.overall.trades ? pct((view.overall.ambiguous / view.overall.trades) * 100, 1) : '–'}) change result if the order is reversed. If SL and TP are both hit in the same candle after the position opens, SL is counted first.`,
+              `Candle D1 (H4 untuk pair ber-TF H4): untuk trade yang entry dan exit-nya di candle yang sama, urutan harga dibaca open-low-high-close (candle naik) atau open-high-low-close (candle turun). ${view.overall.ambiguous} dari ${view.overall.trades} trade (${view.overall.trades ? pct((view.overall.ambiguous / view.overall.trades) * 100, 1) : '–'}) hasilnya berubah bila urutannya terbalik. Jika SL dan TP kena di candle yang sama setelah posisi terbuka, SL dihitung dulu.`,
+              `D1 candles (H4 for pairs on H4): for trades whose entry and exit fall in the same candle, the price order is read as open-low-high-close (up candle) or open-high-low-close (down candle). ${view.overall.ambiguous} of ${view.overall.trades} trades (${view.overall.trades ? pct((view.overall.ambiguous / view.overall.trades) * 100, 1) : '–'}) change result if the order is reversed. If SL and TP are both hit in the same candle after the position opens, SL is counted first.`,
             )}{' '}
             {net ? (
               <>

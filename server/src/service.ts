@@ -1,15 +1,15 @@
 import { evaluate, summarize, type OrderRow, type RiskSummary } from './analysis/orders.ts';
 import { markRunning } from './analysis/positions.ts';
 import { analyze } from './analysis/sr.ts';
-import type { Candle } from './analysis/types.ts';
-import { symbolInputs } from './lines.ts';
+import type { Candle, Timeframe } from './analysis/types.ts';
+import { symbolInputs, timeframeOf } from './lines.ts';
 import { isAffected, type Aggressive } from './news.ts';
-import { getSettings, type AccountDoc, type AnalysisDoc, type Collections, type QuoteDoc, type Settings } from './db.ts';
+import { candlesOf, getSettings, type AccountDoc, type AnalysisDoc, type Collections, type QuoteDoc, type Settings } from './db.ts';
 
 const MINUTE = 60_000;
 
-export async function loadCandles(db: Collections, symbol: string, limit: number): Promise<Candle[]> {
-  const docs = await db.candles.find({ symbol }).sort({ t: -1 }).limit(limit).toArray();
+export async function loadCandles(db: Collections, symbol: string, limit: number, tf: Timeframe = 'D1'): Promise<Candle[]> {
+  const docs = await candlesOf(db, tf).find({ symbol }).sort({ t: -1 }).limit(limit).toArray();
   return docs.reverse().map((d) => ({ t: d.t.getTime(), o: d.o, h: d.h, l: d.l, c: d.c }));
 }
 
@@ -18,25 +18,31 @@ export function freshQuote(q: QuoteDoc | null, settings: Settings): QuoteDoc | n
   return Date.now() - q.at.getTime() <= settings.quoteMaxAgeMinutes * MINUTE ? q : null;
 }
 
-// Recomputes one symbol and keeps the cancelled ids when the last candle did not change
-// (a settings or quote refresh). A new D1 candle starts a fresh day: cancels reset.
+// Recomputes one symbol on its timeframe's candles and keeps the cancelled ids when the
+// last candle did not change (a settings or quote refresh). A new candle starts a fresh
+// order period (a D1 day, an H4 bar): cancels reset.
 export async function refreshAnalysis(db: Collections, symbol: string, settings: Settings): Promise<AnalysisDoc | null> {
   const sym = await db.symbols.findOne({ name: symbol });
   if (!sym) return null;
-  const candles = await loadCandles(db, symbol, settings.sr.lookback);
-  if (!candles.length) return null;
+  const timeframe = timeframeOf(sym);
+  const candles = await loadCandles(db, symbol, settings.sr.lookback, timeframe);
+  if (!candles.length) {
+    // no candles on this timeframe (yet): an old analysis on the other one must not stay
+    await db.analyses.deleteOne({ _id: symbol, timeframe: { $ne: timeframe } });
+    return null;
+  }
   const quote = freshQuote(await db.quotes.findOne({ _id: symbol }), settings);
   const result = analyze(symbol, candles, settings.sr, sym.digits, quote ? (quote.bid + quote.ask) / 2 : undefined, symbolInputs(sym));
   const previous = await db.analyses.findOne({ _id: symbol });
   const ids = new Set(result.candidates.map((c) => c.id));
-  const cancelled = previous && previous.lastCandleAt.getTime() === result.lastCandleAt
-    ? previous.cancelled.filter((id) => ids.has(id))
-    : [];
+  const same = previous && previous.lastCandleAt.getTime() === result.lastCandleAt && (previous.timeframe ?? 'D1') === timeframe;
+  const cancelled = same ? previous.cancelled.filter((id) => ids.has(id)) : [];
   const doc: AnalysisDoc = {
     _id: symbol,
     analyzedAt: new Date(),
     settingsVersion: settings.version,
     lastCandleAt: new Date(result.lastCandleAt),
+    timeframe,
     atr: result.atr,
     price: result.price,
     lines: result.lines,
@@ -47,12 +53,13 @@ export async function refreshAnalysis(db: Collections, symbol: string, settings:
   return doc;
 }
 
-// Stored analysis, recomputed when settings changed, a newer candle arrived, or it is
-// older than 5 minutes (the reference price moves with the quote).
+// Stored analysis, recomputed when settings or the pair's timeframe changed, a newer candle
+// arrived, or it is older than 5 minutes (the reference price moves with the quote).
 export async function getAnalysis(db: Collections, symbol: string, settings: Settings): Promise<AnalysisDoc | null> {
   const doc = await db.analyses.findOne({ _id: symbol });
-  if (doc && doc.settingsVersion === settings.version && Date.now() - doc.analyzedAt.getTime() < 5 * MINUTE) {
-    const latest = await db.candles.find({ symbol }, { projection: { t: 1 } }).sort({ t: -1 }).limit(1).next();
+  const tf = timeframeOf(await db.symbols.findOne({ name: symbol }, { projection: { name: 1, timeframe: 1 } }), symbol);
+  if (doc && doc.settingsVersion === settings.version && (doc.timeframe ?? 'D1') === tf && Date.now() - doc.analyzedAt.getTime() < 5 * MINUTE) {
+    const latest = await candlesOf(db, tf).find({ symbol }, { projection: { t: 1 } }).sort({ t: -1 }).limit(1).next();
     if (latest && latest.t.getTime() === doc.lastCandleAt.getTime()) return doc;
   }
   return refreshAnalysis(db, symbol, settings);

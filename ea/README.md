@@ -2,7 +2,7 @@
 
 ## DavePaul77Data.mq4 (MT4, data)
 
-Mengirim candle D1 yang sudah close dan bid/ask pair aktif ke backend. Digerakkan timer (cek tiap 5 detik), tidak
+Mengirim candle yang sudah close (D1, atau H4 untuk pair yang TF-nya H4 di Pengaturan > Pair; default XAUUSD) dan bid/ask pair aktif ke backend. Digerakkan timer (cek tiap 5 detik), tidak
 pernah membuka order.
 
 **Pasang**
@@ -19,8 +19,8 @@ pernah membuka order.
 | `DataKey` | kosongkan untuk memakai `DavePaul77.ini`; atau nilai `EA_DATA_KEY` |
 | `SymbolSuffix` | akhiran nama simbol broker di MT4 ini, mis. `m` untuk `EURUSDm`; kosong jika tidak ada |
 | `FallbackSymbols` | dipakai hanya jika daftar pair dari server tidak terbaca |
-| `HistoryBars` | jumlah candle D1 yang dikirim saat pertama jalan (520 = sekitar 2 tahun) |
-| `BackfillBars` | candle D1 yang lebih lama, dikirim sekali setelah kiriman pertama (5800 = sekitar 22 tahun, sejauh yang dimiliki terminal) |
+| `HistoryBars` | jumlah candle yang dikirim saat pertama jalan (D1: 520 = sekitar 2 tahun; H4: 520 candle juga, sama dengan lookback analisa) |
+| `BackfillBars` | riwayat lebih lama dalam hitungan candle D1, dikirim sekali setelah kiriman pertama (5800 = sekitar 22 tahun, sejauh yang dimiliki terminal; pair H4 mengirim 6x jumlah bar) |
 | `BackfillChunk` | candle per request saat backfill (1000) |
 | `RedoBackfill` | kirim ulang riwayat lama walau sudah pernah selesai |
 | `QuoteSeconds` | jeda kirim bid/ask |
@@ -51,13 +51,14 @@ terakhir); chart tanpa garis mengembalikan pair itu ke garis otomatis.
 **Cara kerja**
 
 - Daftar pair diambil dari Pengaturan > Pair di web (`GET /api/ea/mt4/symbols`) tiap 5 menit, jadi tab dan EA selalu sama.
-- Saat pertama jalan, tiap pair mengirim 520 candle D1 tertutup. Setelah itu hanya candle baru setiap pergantian hari broker.
+- Saat pertama jalan, tiap pair mengirim 520 candle tertutup di TF-nya. Setelah itu hanya candle baru: D1 setiap pergantian hari broker, H4 setiap 4 jam.
+- **TF per pair (v1.20):** diambil dari server tiap `ListMinutes`. Pair yang TF-nya diganti mulai lagi di TF baru (520 candle, lalu backfill); candle D1 dan H4 disimpan terpisah di server, jadi tidak tercampur. Untuk XAUUSD unduh dulu riwayat H4 di F2 (History Center) > XAUUSD > H4.
 - **Backfill untuk backtest:** setelah kiriman pertama, EA mengirim candle yang lebih lama (sampai `BackfillBars`) per 1000 candle,
-  paling lama dulu, satu pair per 5 detik. Selesai per pair dicatat di variabel global terminal `DP77_BF_<PAIR>`,
+  paling lama dulu, satu pair per 5 detik. Selesai per pair dicatat di variabel global terminal `DP77_BF_<PAIR>` (`DP77_BF_<PAIR>_H4` untuk H4),
   jadi restart EA tidak mengirim ulang; kemajuannya juga disimpan (`DP77_BFT_<PAIR>` = candle terbaru yang sudah diterima server) sehingga restart melanjutkan dari situ (`RedoBackfill` memaksa dari awal). Server hanya menyimpan (upsert); analisa live tidak dihitung ulang.
   Terminal hanya punya riwayat yang sudah diunduh: Tools > Options > Charts, naikkan *Max bars in history* dan *in chart*
   (mis. 1.000.000), lalu F2 (History Center) > pair > Daily > Download, ulangi tiap pair, baru pasang EA.
-  Log Experts menulis berapa tahun yang ada ("riwayat D1 di terminal N candle"). Bila broker hanya punya 10 tahun,
+  Log Experts menulis berapa tahun yang ada ("riwayat D1/H4 di terminal N candle"). Bila broker hanya punya 10 tahun,
   pakai CSV (lihat README utama, "Riwayat dari CSV").
   Histori yang belum terunduh (error 4066) dicoba lagi tiap 60 detik.
 - Waktu candle memakai jam server broker. EA ikut mengirim `TimeCurrent()`, jadi server tahu candle sudah close

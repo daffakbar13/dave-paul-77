@@ -2,7 +2,8 @@
 // with sample data and runs the API. Data is lost when the process stops.
 // --empty skips the sample data (testing with the real MT4 EA, e.g. through ngrok).
 // --data <file> replaces the sample candles and lines with a JSON dump of real ones:
-// { SYMBOL: { digits, manualLines, candles: [{ t, o, h, l, c }] } } (t in ms).
+// { SYMBOL: { digits, manualLines, timeframe?, candles: [{ t, o, h, l, c }] } } (t in ms;
+// timeframe 'D1' or 'H4', absent = the pair's default, so XAUUSD candles are taken as H4).
 // The calendar uses fixed sample news, since every restart starts with an empty cache
 // and would call the real feed again (that got us rate-limited); --live-news uses .env.
 // Values from .env are used when present; otherwise web password `admin`,
@@ -19,8 +20,9 @@ process.env.EA_DATA_KEY ||= 'dev-data-key';
 process.env.CORS_ORIGIN ||= 'http://localhost:5173';
 if (!process.argv.includes('--live-news')) process.env.NEWS_SOURCE = 'sample';
 
-const { connect } = await import('../src/db.ts');
+const { candlesOf, connect } = await import('../src/db.ts');
 const { seedSample } = await import('../src/sample.ts');
+const { defaultTimeframe } = await import('../src/lines.ts');
 const { client, db } = await connect(process.env.MONGODB_URI, 'dave_paul_77');
 if (process.argv.includes('--empty')) {
   console.log('In-memory MongoDB started empty: waiting for the MT4 EA.');
@@ -30,12 +32,18 @@ if (process.argv.includes('--empty')) {
 }
 const dataFile = process.argv[process.argv.indexOf('--data') + 1];
 if (process.argv.includes('--data') && dataFile) {
-  type Dump = Record<string, { digits: number; manualLines: number[]; candles: { t: number; o: number; h: number; l: number; c: number }[] }>;
+  type Dump = Record<string, { digits: number; manualLines?: number[]; timeframe?: 'D1' | 'H4'; candles: { t: number; o: number; h: number; l: number; c: number }[] }>;
   const dump: Dump = JSON.parse(readFileSync(dataFile, 'utf8'));
   for (const [symbol, d] of Object.entries(dump)) {
-    await db.symbols.updateOne({ name: symbol }, { $set: { digits: d.digits, manualLines: d.manualLines, active: true } });
-    await db.candles.deleteMany({ symbol });
-    await db.candles.insertMany(d.candles.map((c) => ({ symbol, t: new Date(c.t), o: c.o, h: c.h, l: c.l, c: c.c })));
+    const timeframe = d.timeframe ?? defaultTimeframe(symbol);
+    await db.symbols.updateOne(
+      { name: symbol },
+      { $set: { digits: d.digits, active: true, timeframe, ...(d.manualLines ? { manualLines: d.manualLines } : {}) }, $setOnInsert: { order: 99 } },
+      { upsert: true },
+    );
+    const candles = candlesOf(db, timeframe);
+    await candles.deleteMany({ symbol });
+    await candles.insertMany(d.candles.map((c) => ({ symbol, t: new Date(c.t), o: c.o, h: c.h, l: c.l, c: c.c })));
     const last = d.candles[d.candles.length - 1];
     if (last) await db.quotes.updateOne({ _id: symbol }, { $set: { bid: last.c, ask: last.c, at: new Date() } }, { upsert: true });
   }
