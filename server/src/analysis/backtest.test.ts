@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { commissionPipsOf, compound, coverageOf, DEFAULT_COSTS, defaultSpreadPips, FALLBACK_SPREAD_PIPS, fillDay, replaySymbol, runBacktest, tierOf, withCosts, withoutPairs, type RawTrade } from './backtest.ts';
+import { commissionPipsOf, compound, LOT, lotFor, pipValueAt, usdRateOf, coverageOf, DEFAULT_COSTS, defaultSpreadPips, FALLBACK_SPREAD_PIPS, fillDay, replaySymbol, runBacktest, tierOf, withCosts, withoutPairs, type RawTrade } from './backtest.ts';
 import { DEFAULT_SR, pipSize, roundTo } from './sr.ts';
 import type { Candle } from './types.ts';
 
@@ -175,7 +175,8 @@ describe('fillDay', () => {
 });
 
 describe('compound', () => {
-  it('sizes each trade on the balance of earlier closes and compounds', () => {
+  // EURUSD: 10 pips SL x USD 10 a pip = USD 100 lost per lot
+  it('sizes each trade in lots on the balance of earlier closes and compounds', () => {
     const t = compound(
       [
         raw({ entryAt: T0, exitAt: T0 + DAY, r: 2 }),
@@ -186,12 +187,15 @@ describe('compound', () => {
       1,
     );
     assert.equal(t[0]!.balanceBefore, 1000);
+    assert.equal(t[0]!.lot, 0.1);
     assert.equal(t[0]!.riskMoney, 10);
     assert.equal(t[0]!.profit, 20);
+    // 1% of 1020 = 10.2 -> 0.102 lot, rounded down to 0.1: the risk stays under the target
     assert.equal(t[1]!.balanceBefore, 1020);
-    assert.equal(t[1]!.profit, -10.2);
-    assert.equal(t[2]!.balanceBefore, 1009.8);
-    assert.equal(t[2]!.riskMoney, 10.1);
+    assert.equal(t[1]!.lot, 0.1);
+    assert.equal(t[1]!.profit, -10);
+    assert.equal(t[2]!.balanceBefore, 1010);
+    assert.equal(t[2]!.riskMoney, 10);
   });
 
   it('a trade closing on the fill day of another is not counted yet', () => {
@@ -209,9 +213,54 @@ describe('compound', () => {
     assert.equal(t[0]!.profit, 0);
   });
 
-  it('never risks a negative balance', () => {
-    const t = compound([raw({ r: -1, result: 'SL' }), raw({ entryAt: T0 + 5 * DAY, exitAt: T0 + 6 * DAY, entry: 1.2 })], 0, 1);
-    assert.equal(t[1]!.riskMoney, 0);
+  it('leaves out a trade whose risk does not reach the minimum lot', () => {
+    // 0.4% of 1000 = USD 4; a 50-pip SL loses USD 5 on 0.01 lot
+    const t = compound([raw({ slPips: 50, r: 1 }), raw({ entryAt: T0 + 5 * DAY, exitAt: T0 + 6 * DAY, entry: 1.2, slPips: 30, r: 1 })], 1000, 0.4);
+    assert.equal(t.length, 1);
+    assert.equal(t[0]!.slPips, 30);
+    assert.equal(t[0]!.lot, 0.01);
+    assert.equal(t[0]!.riskMoney, 3);
+  });
+
+  it('never sizes a trade on an empty balance', () => {
+    assert.equal(compound([raw({ r: -1, result: 'SL' })], 0, 1).length, 0);
+  });
+
+  it('uses the pip value of the fill day when the trade has one', () => {
+    const [t] = compound([raw({ symbol: 'USDJPY', digits: 3, pipUsd: 10 })], 1000, 1);
+    assert.equal(t!.lot, 0.1);
+    assert.equal(t!.riskMoney, 10);
+  });
+
+  it('caps the lot at the maximum', () => {
+    assert.equal(lotFor(1e12, 100), LOT.max);
+    assert.equal(lotFor(0.3, 10), 0.03);
+    assert.equal(lotFor(0.09, 10), 0);
+  });
+});
+
+describe('usdRateOf / pipValueAt', () => {
+  const c = (t: number, close: number): Candle => ({ t, o: close, h: close, l: close, c: close });
+  const data = new Map([
+    ['USDJPY', { candles: [c(T0, 80), c(T0 + DAY, 100)], digits: 3 }],
+    ['GBPUSD', { candles: [c(T0, 1.5)], digits: 5 }],
+  ]);
+  const rate = usdRateOf(data);
+
+  it('takes the close before the day, inverted for USDxxx', () => {
+    assert.equal(rate('JPY', T0 + DAY), 1 / 80);
+    assert.equal(rate('JPY', T0 + 2 * DAY), 1 / 100);
+    assert.equal(rate('GBP', T0 + DAY), 1.5);
+    assert.equal(rate('USD', T0), 1);
+    assert.equal(rate('JPY', T0), null); // no candle before the first one
+    assert.equal(rate('CHF', T0 + DAY), null);
+  });
+
+  it('values a pip on 1 lot from that rate, the fixed one when unknown', () => {
+    assert.equal(roundTo(pipValueAt('EURJPY', 3, T0 + DAY, rate), 4), 12.5); // 1000 JPY at 80
+    assert.equal(roundTo(pipValueAt('EURGBP', 5, T0 + DAY, rate), 4), 15);
+    assert.equal(roundTo(pipValueAt('EURJPY', 3, T0, rate), 4), roundTo(1000 / 150, 4));
+    assert.equal(pipValueAt('XAUUSD', 2, T0 + DAY, rate), 10);
   });
 });
 

@@ -50,18 +50,19 @@ export function sameSr(a: SrParams, b: SrParams): boolean {
 }
 
 // --- compact form for the server -----------------------------------------------------
-// [symbol, side, entryAt, exitAt, entry, tp, sl, result, tpPips, slPips, pips, r, ambiguous, digits]
+// [symbol, side, entryAt, exitAt, entry, tp, sl, result, tpPips, slPips, pips, r, ambiguous, digits, pipUsd]
+// pipUsd (USD per pip on 1 lot on the fill day) is absent on results saved before Nov 2026
 export type CompactTrade = (string | number | boolean | null)[];
 
 const CODE = { TP: 'T', SL: 'S', Open: 'O' } as const;
 const RESULT_BACK = { T: 'TP', S: 'SL', O: 'Open' } as const;
 
 export const pack = (t: RawTrade): CompactTrade => [
-  t.symbol, t.side === 'buy' ? 'b' : 's', t.entryAt, t.exitAt, t.entry, t.tp, t.sl, CODE[t.result], t.tpPips, t.slPips, t.pips, t.r, t.ambiguous, t.digits,
+  t.symbol, t.side === 'buy' ? 'b' : 's', t.entryAt, t.exitAt, t.entry, t.tp, t.sl, CODE[t.result], t.tpPips, t.slPips, t.pips, t.r, t.ambiguous, t.digits, t.pipUsd ?? null,
 ];
 
 export function unpack(a: CompactTrade): RawTrade {
-  const [symbol, side, entryAt, exitAt, entry, tp, sl, result, tpPips, slPips, pips, r, ambiguous, digits] = a;
+  const [symbol, side, entryAt, exitAt, entry, tp, sl, result, tpPips, slPips, pips, r, ambiguous, digits, pipUsd] = a;
   return {
     symbol: symbol as string,
     side: side === 'b' ? 'buy' : 'sell',
@@ -77,5 +78,6 @@ export function unpack(a: CompactTrade): RawTrade {
     r: r as number,
     ambiguous: ambiguous as boolean,
     digits: digits as number,
+    ...(typeof pipUsd === 'number' ? { pipUsd } : {}),
   };
 }

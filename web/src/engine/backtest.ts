@@ -4,8 +4,9 @@
 // gives the same buy/sell stop orders the live app would have placed that morning. Those
 // orders live for that day only ("Execute every day"). A fill opens a trade that then runs
 // until its SL or TP is touched; a pair holds at most one position per side (buy / sell).
-// Money is added afterwards (`compound`): every trade risks riskPct of the balance on the
-// day it fills, and the balance only counts trades that closed on an earlier day.
+// Money is added afterwards (`compound`): every trade is sized in lots like the live app
+// (riskPct of the balance on the day it fills, rounded down to the lot step), and the
+// balance only counts trades that closed on an earlier day.
 import type { BtTrade } from './backtestStats.ts';
 import { detectPatterns, linesByDay, PATTERN_STRATEGIES, patternOrders, patternParamsFor, type DayLines, type PatternEvent, type PatternOrders, type PatternParams, type PatternStrategy } from './patterns.ts';
 import { analyze, pipSize, roundTo } from './sr.ts';
@@ -14,7 +15,7 @@ import type { Candidate, Candle, Side, SrParams, SymbolData } from './types.ts';
 const MIN_RISK_PIPS = 1e-6;
 
 // A trade before money is applied.
-export type RawTrade = Omit<BtTrade, 'riskMoney' | 'profit' | 'balanceBefore' | 'r' | 'pips'> & { pips: number; r: number };
+export type RawTrade = Omit<BtTrade, 'riskMoney' | 'profit' | 'balanceBefore' | 'r' | 'pips' | 'lot'> & { pips: number; r: number };
 
 export type ReplayOptions = {
   warmup: number; // closed candles an analysis needs before the first test day
@@ -224,7 +225,26 @@ export async function patternsOf(symbol: string, data: SymbolData, p: SrParams, 
   return { days, events, orders: patternOrders(symbol, cs, days, events, p, pp, data.digits) };
 }
 
-// Applies the money: balance and risk per trade, compounding on closed trades.
+// The volume rules the trades are sized with: the usual forex account (0.01 minimum and
+// step). The real limits come from the broker's symbol spec, which the backtest does not have.
+export const LOT = { min: 0.01, step: 0.01, max: 100 } as const;
+
+// Lots for a money risk, rounded DOWN to the step so the risk never exceeds the target
+// (the same rule as sizeLot in orders.ts); 0 when not even one step fits.
+export function lotFor(riskMoney: number, lossPerLot: number): number {
+  if (!(lossPerLot > 0) || !(riskMoney > 0)) return 0;
+  // the epsilon keeps 0.3 / 0.01 = 29.999999 from losing a step
+  const steps = Math.floor(riskMoney / lossPerLot / LOT.step + 1e-9);
+  return roundTo(Math.min(steps * LOT.step, LOT.max), 2);
+}
+
+// USD lost on one lot when the trade's planned SL is hit.
+export const lossPerLotOf = (t: RawTrade): number => t.slPips * (t.pipUsd ?? pipValuePerLot(t.symbol, t.digits));
+
+// Applies the money, compounding on closed trades. Each trade gets riskPct of the balance,
+// turned into lots and rounded down; the money it really risks is lot x loss per lot, so
+// it is usually a little under riskPct. A trade whose risk does not reach LOT.min is left
+// out: the live app does not place an order below the broker's minimum lot.
 export function compound(raw: RawTrade[], balance: number, riskPct: number): BtTrade[] {
   const sorted = [...raw].sort((a, b) => a.entryAt - b.entryAt || a.symbol.localeCompare(b.symbol) || a.entry - b.entry);
   const out: BtTrade[] = [];
@@ -239,9 +259,12 @@ export function compound(raw: RawTrade[], balance: number, riskPct: number): BtT
         pending.splice(k, 1);
       }
     }
-    const riskMoney = roundTo((Math.max(bal, 0) * riskPct) / 100, 2);
+    const lossPerLot = lossPerLotOf(r);
+    const lot = lotFor((Math.max(bal, 0) * riskPct) / 100, lossPerLot);
+    if (lot < LOT.min) continue;
+    const riskMoney = roundTo(lot * lossPerLot, 2);
     const closed = r.result !== 'Open';
-    const t: BtTrade = { ...r, riskMoney, profit: closed ? roundTo(riskMoney * r.r, 2) : 0, balanceBefore: roundTo(bal, 2) };
+    const t: BtTrade = { ...r, lot, riskMoney, profit: closed ? roundTo(riskMoney * r.r, 2) : 0, balanceBefore: roundTo(bal, 2) };
     out.push(t);
     if (closed) pending.push(t);
   }
@@ -296,7 +319,8 @@ export function spreadPipsOf(symbol: string, digits: number, costs: CostSettings
 }
 
 // Rough USD value of one unit of the quote currency (a pip's money depends on it). Fixed
-// round rates are enough: the commission is a small part of the cost.
+// round rates are enough for the commission, a small part of the cost; lot sizing uses the
+// fill day's rate (pipValueAt) and falls back to these only when that is unknown.
 const QUOTE_TO_USD: Record<string, number> = { USD: 1, JPY: 1 / 150, CAD: 0.72, CHF: 1.25, GBP: 1.3, AUD: 0.65, NZD: 0.6, EUR: 1.1 };
 
 // USD one pip is worth on one lot: 100,000 units of a forex pair, 100 oz of gold.
@@ -304,6 +328,49 @@ export function pipValuePerLot(symbol: string, digits: number): number {
   const s = symbol.toUpperCase();
   if (s.startsWith('XAUUSD')) return 100 * pipSize(digits);
   return 100_000 * pipSize(digits) * (QUOTE_TO_USD[s.slice(3, 6)] ?? 1);
+}
+
+// USD value of one unit of a currency on a day: the close of the last candle before that
+// day of its USD pair in the run (EURUSD direct, USDJPY inverted). null when the run has
+// no such pair or no candle before the day.
+export type UsdRate = (currency: string, day: number) => number | null;
+
+export function usdRateOf(data: Map<string, SymbolData>): UsdRate {
+  const pairs = new Map<string, { cs: Candle[]; invert: boolean }>();
+  for (const [name, d] of data) {
+    const s = name.toUpperCase().replace(/[^A-Z]/g, '');
+    if (s.length < 6) continue;
+    const base = s.slice(0, 3);
+    const quote = s.slice(3, 6);
+    if (quote === 'USD' && base !== 'XAU') pairs.set(base, { cs: d.candles, invert: false });
+    else if (base === 'USD') pairs.set(quote, { cs: d.candles, invert: true });
+  }
+  return (currency, day) => {
+    if (currency === 'USD') return 1;
+    const p = pairs.get(currency);
+    if (!p) return null;
+    let lo = 0;
+    let hi = p.cs.length - 1;
+    let k = -1;
+    while (lo <= hi) {
+      const m = (lo + hi) >> 1;
+      if (p.cs[m]!.t < day) {
+        k = m;
+        lo = m + 1;
+      } else hi = m - 1;
+    }
+    const c = k < 0 ? 0 : p.cs[k]!.c;
+    if (!(c > 0)) return null;
+    return p.invert ? 1 / c : c;
+  };
+}
+
+// USD one pip is worth on one lot on a given day; the fixed rates when that day's is unknown.
+export function pipValueAt(symbol: string, digits: number, day: number, rate: UsdRate): number {
+  const s = symbol.toUpperCase();
+  if (s.startsWith('XAUUSD')) return pipValuePerLot(symbol, digits);
+  const r = rate(s.slice(3, 6), day);
+  return r === null ? pipValuePerLot(symbol, digits) : 100_000 * pipSize(digits) * r;
 }
 
 // The commission of a round trip, in pips of the pair.
@@ -329,7 +396,7 @@ export function withCosts(raw: RawTrade[], costs: CostSettings): RawTrade[] {
 
 // Drops the money again, so another balance or risk % can be applied without a replay.
 export function toRaw(trades: BtTrade[]): RawTrade[] {
-  return trades.map(({ riskMoney: _risk, profit: _profit, balanceBefore: _before, ...t }) => t);
+  return trades.map(({ riskMoney: _risk, profit: _profit, balanceBefore: _before, lot: _lot, ...t }) => t);
 }
 
 export type Coverage = {
@@ -401,7 +468,9 @@ export type BacktestInput = {
   pause?: () => Promise<void>; // default: give the event loop a turn every ~10 ms; a worker passes a no-op
 };
 
-export type BacktestRun = { trades: BtTrade[]; coverage: Coverage[]; warmup: number };
+// trades: sized with the run's balance and risk; raw: every closed trade before money,
+// including those that balance could not size (another balance may)
+export type BacktestRun = { trades: BtTrade[]; raw: RawTrade[]; coverage: Coverage[]; warmup: number };
 
 // Symbols run one after another; the event loop gets a turn every few milliseconds.
 // Trades still open on the last candle are left out: they have no result yet. While the
@@ -430,5 +499,8 @@ export async function runBacktest(input: BacktestInput): Promise<BacktestRun> {
     input.onProgress?.(++done, names.length);
     await pause();
   }
-  return { trades: compound(raw, input.balance, input.riskPct), coverage, warmup };
+  // the pip's USD value on the fill day, from the run's own USD pairs
+  const rate = usdRateOf(input.data);
+  for (const t of raw) t.pipUsd = roundTo(pipValueAt(t.symbol, t.digits, t.entryAt, rate), 4);
+  return { trades: compound(raw, input.balance, input.riskPct), raw, coverage, warmup };
 }

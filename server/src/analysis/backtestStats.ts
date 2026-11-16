@@ -21,7 +21,9 @@ export type BtTrade = {
   slPips: number; // planned distance entry -> SL (the risk the trade is sized on)
   pips: number; // realised, signed; 0 while open
   r: number; // realised, signed; 0 while open
-  riskMoney: number; // balance at the fill day x risk %
+  lot: number; // balance x risk % turned into lots, rounded down to the lot step
+  riskMoney: number; // what that lot loses at the planned SL (usually a little under balance x risk %)
+  pipUsd?: number; // USD a pip is worth on 1 lot on the fill day; absent on results saved before Nov 2026
   profit: number; // realised, signed
   balanceBefore: number;
   ambiguous: boolean; // the D1 candle could not show whether SL or TP came first; SL was taken
@@ -354,7 +356,7 @@ const SEP = ';';
 const cell = (v: string | number) => String(v).replace(/[;\r\n]/g, ' ');
 
 export const CSV_HEAD = ['Pair', 'Action', 'Tanggal Entry', 'Tanggal Exit', 'Entry', 'TP', 'SL', 'Keterangan'];
-export const CSV_DETAIL_HEAD = [...CSV_HEAD, 'Pips', 'R', 'Risiko', 'Profit', 'Balance Awal Hari', 'Ambigu'];
+export const CSV_DETAIL_HEAD = [...CSV_HEAD, 'Pips', 'R', 'Lot', 'Risiko', 'Risiko %', 'Profit', 'Balance Awal Hari', 'Ambigu'];
 
 // Trades ordered by entry day, then pair. `detail` adds the money columns.
 export function tradesCsv(trades: BtTrade[], detail = false): string {
@@ -376,7 +378,9 @@ export function tradesCsv(trades: BtTrade[], detail = false): string {
       base.push(
         closed ? String(r1(t.pips)) : '',
         closed ? String(roundTo(t.r, 2)) : '',
+        String(t.lot),
         String(r2(t.riskMoney)),
+        t.balanceBefore > 0 ? String(roundTo((t.riskMoney / t.balanceBefore) * 100, 3)) : '',
         closed ? String(r2(t.profit)) : '',
         String(r2(t.balanceBefore)),
         t.ambiguous ? 'ya' : '',

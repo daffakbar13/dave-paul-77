@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { api, type SavedBacktest } from '../api.ts';
 import type { WorkerIn, WorkerOut, WorkerSymbol } from '../backtest.worker.ts';
 import { fingerprintOf, loadCandles, loadLastResult, loadUi, pack, sameSr, saveCandles, saveLastResult, saveUi, unpack, type BtResult } from '../backtestStore.ts';
-import { compound, costPipsOf, DEFAULT_COSTS, toRaw, withCosts, type CostSettings, type Coverage, type RawTrade } from '../engine/backtest.ts';
+import { compound, costPipsOf, DEFAULT_COSTS, LOT, withCosts, type CostSettings, type Coverage, type RawTrade } from '../engine/backtest.ts';
 import { PATTERN_STRATEGIES, type PatternStrategy } from '../engine/patterns.ts';
 import {
   equityCurve,
@@ -146,7 +146,11 @@ function Episode({ ep, show }: { ep: DrawdownEpisode | null; show: 'pct' | 'amou
   );
 }
 
-function OverallView({ o, initial, grossR }: { o: Overall; initial: number; grossR: number | null | undefined }) {
+// How the trades were sized: risk % really taken after rounding the lot down, and the
+// trades the balance could not size at the minimum lot.
+type Sizing = { avgRiskPct: number | null; skipped: number; atMax: number };
+
+function OverallView({ o, initial, grossR, sizing }: { o: Overall; initial: number; grossR: number | null | undefined; sizing: Sizing }) {
   const t = useT();
   return (
     <>
@@ -182,6 +186,15 @@ function OverallView({ o, initial, grossR }: { o: Overall; initial: number; gros
         <Tile label="Max drawdown (%)" value={pct(o.maxDrawdownPct)} sub={<Episode ep={o.maxDrawdownByPct} show="amount" />} cls={o.maxDrawdownPct ? 'error' : ''} />
         <Tile label={t('Posisi bersamaan maks', 'Max concurrent positions')} value={String(o.peakOpen)} sub={t(`≈ ${o.peakOpen}× risiko per trade`, `≈ ${o.peakOpen}× risk per trade`)} />
         <Tile label={t('Bergantung urutan intraday', 'Depends on intraday order')} value={String(o.ambiguous)} sub={o.trades ? pct((o.ambiguous / o.trades) * 100, 1) : undefined} />
+        <Tile
+          label={t('Risiko nyata / trade', 'Actual risk / trade')}
+          value={pct(sizing.avgRiskPct)}
+          sub={t(
+            `rata-rata setelah lot dibulatkan ke bawah${sizing.atMax ? ' (tanpa trade di lot maks)' : ''} · ${sizing.skipped} trade dilewati (lot < ${num(LOT.min, 2)})${sizing.atMax ? ` · ${sizing.atMax} di lot maks ${LOT.max}` : ''}`,
+            `average after rounding the lot down${sizing.atMax ? ' (trades at the max lot left out)' : ''} · ${sizing.skipped} trades skipped (lot < ${num(LOT.min, 2)})${sizing.atMax ? ` · ${sizing.atMax} at max lot ${LOT.max}` : ''}`,
+          )}
+          cls={sizing.skipped ? 'error' : ''}
+        />
         <Tile label={t('Balance awal', 'Initial balance')} value={fmtMoney(initial)} sub={t(`akhir ${fmtMoney(initial + o.profit)}`, `final ${fmtMoney(initial + o.profit)}`)} />
       </div>
     </>
@@ -626,7 +639,7 @@ export function BacktestModal({ onClose }: Props) {
         if (m.type === 'progress') setProgress({ done: m.done, total: m.total });
         else if (m.type === 'done') {
           const names = new Set(m.run.coverage.map((c) => c.symbol));
-          setResult({ raw: toRaw(m.run.trades), coverage: m.run.coverage, warmup: m.run.warmup, sr, maxCostR: costFilter, from: runFrom, to: runTo, fingerprint: fingerprintOf(symbols), ...(pattern ? { strategy: pattern } : {}) });
+          setResult({ raw: m.run.raw, coverage: m.run.coverage, warmup: m.run.warmup, sr, maxCostR: costFilter, from: runFrom, to: runTo, fingerprint: fingerprintOf(symbols), ...(pattern ? { strategy: pattern } : {}) });
           setMoney({ balance: b, riskPct: r });
           // a pair that is not in this run cannot stay excluded or selected
           setExcluded((prev) => new Set([...prev].filter((s) => names.has(s))));
@@ -713,6 +726,13 @@ export function BacktestModal({ onClose }: Props) {
     const live = excluded.size ? compound(raw.filter((t) => !excluded.has(t.symbol)), initial, money.riskPct) : all;
     const grossOf = (keep: (t: RawTrade) => boolean) => meanR(result.raw.filter(keep));
     const trades = symbol === 'ALL' ? live : live.filter((t) => t.symbol === symbol);
+    // at the max lot the risk % only shrinks as the balance grows; it would drown the rounding
+    const sized = trades.filter((t) => t.balanceBefore > 0 && t.lot < LOT.max);
+    const sizing: Sizing = {
+      avgRiskPct: sized.length ? sized.reduce((a, t) => a + (t.riskMoney / t.balanceBefore) * 100, 0) / sized.length : null,
+      skipped: raw.filter((t) => !excluded.has(t.symbol) && (symbol === 'ALL' || t.symbol === symbol)).length - trades.length,
+      atMax: trades.filter((t) => t.lot >= LOT.max).length,
+    };
     const group = (ts: BtTrade[]) => {
       const m = new Map<string, BtTrade[]>();
       for (const t of ts) m.set(t.symbol, [...(m.get(t.symbol) ?? []), t]);
@@ -737,6 +757,7 @@ export function BacktestModal({ onClose }: Props) {
     return {
       initial,
       trades,
+      sizing,
       overall: overall(trades, initial),
       // expectancy of the same trades before costs, for the Overall tab
       grossR: net ? grossOf((t) => !excluded.has(t.symbol) && (symbol === 'ALL' || t.symbol === symbol)) : undefined,
@@ -904,8 +925,8 @@ export function BacktestModal({ onClose }: Props) {
       )}
       <p className="muted">
         {t(
-          `Compounding: tiap trade berisiko ${risk || '…'}% dari balance saat fill (hanya trade yang sudah close sebelum hari itu). Semua pair aktif, satu balance. Memakai garis S/R terkunci dan pengaturan strategi yang tersimpan. Dihitung di browser Anda; server hanya mengirim candle. Balance dan risk langsung dihitung ulang; Jalankan hanya perlu bila tanggal, pengaturan strategi, atau batas biaya berubah.`,
-          `Compounding: each trade risks ${risk || '…'}% of the balance at fill (only trades that closed before that day count). All active pairs, one balance. Uses the fixed S/R lines and the saved strategy settings. Calculated in your browser; the server only sends candles. Balance and risk recalculate instantly; Run is only needed when the dates, strategy settings or cost limit change.`,
+          `Compounding: tiap trade memakai ${risk || '…'}% dari balance saat fill (hanya trade yang sudah close sebelum hari itu), diubah ke lot dan dibulatkan ke bawah per ${LOT.step} seperti aplikasi live, jadi risiko nyatanya sedikit di bawah itu; trade yang lot-nya di bawah ${LOT.min} dilewati. Nilai pip memakai kurs hari fill dari candle pair USD. Semua pair aktif, satu balance. Memakai garis S/R terkunci dan pengaturan strategi yang tersimpan. Dihitung di browser Anda; server hanya mengirim candle. Balance dan risk langsung dihitung ulang; Jalankan hanya perlu bila tanggal, pengaturan strategi, atau batas biaya berubah.`,
+          `Compounding: each trade takes ${risk || '…'}% of the balance at fill (only trades that closed before that day count), turned into lots and rounded down to ${LOT.step} like the live app, so the real risk is a little under it; trades below ${LOT.min} lot are skipped. Pip values use the fill day's rate from the USD pairs' candles. All active pairs, one balance. Uses the fixed S/R lines and the saved strategy settings. Calculated in your browser; the server only sends candles. Balance and risk recalculate instantly; Run is only needed when the dates, strategy settings or cost limit change.`,
         )}
       </p>
       <div className="modal-tools saved-bar">
@@ -1039,7 +1060,7 @@ export function BacktestModal({ onClose }: Props) {
           {symbol !== 'ALL' && <p className="muted">{t(`Hanya ${symbol}. Profit = bagian pair ini dari run bersama.`, `${symbol} only. Profit = this pair's share of the joint run.`)}</p>}
           {view.baseline && <CompareBox all={view.baseline} live={view.liveAll ?? view.overall} off={[...excluded].sort()} />}
 
-          {tab === 'overall' && <OverallView o={view.overall} initial={view.initial} grossR={view.grossR} />}
+          {tab === 'overall' && <OverallView o={view.overall} initial={view.initial} grossR={view.grossR} sizing={view.sizing} />}
           {tab === 'month' && <MonthView pips={view.monthsPips} money={view.monthsMoney} returns={view.monthsPct} counts={view.monthsTrades} scope={symbol} />}
           {tab === 'growth' && <GrowthChart curve={view.curve} scope={symbol} />}
           {tab === 'chart' &&

@@ -9,7 +9,7 @@ const day = (s: string) => Date.parse(`${s}T00:00:00Z`);
 
 const trade = (t: Partial<BtTrade>): BtTrade => ({
   symbol: 'EURUSD', side: 'buy', entryAt: day('2024-01-02'), exitAt: day('2024-01-03'), entry: 1.1, tp: 1.102, sl: 1.099,
-  result: 'TP', tpPips: 20, slPips: 10, pips: 20, r: 2, riskMoney: 60, profit: 120, balanceBefore: 6000, ambiguous: false, digits: 5, ...t,
+  result: 'TP', tpPips: 20, slPips: 10, pips: 20, r: 2, lot: 0.6, riskMoney: 60, profit: 120, balanceBefore: 6000, ambiguous: false, digits: 5, ...t,
 });
 
 describe('csv helpers', () => {
@@ -35,7 +35,9 @@ describe('csv helpers', () => {
 
   it('the detail export adds money columns', () => {
     const head = tradesCsv([trade({})], true).split('\r\n')[0]!;
-    assert.match(head, /;Pips;R;Risiko;Profit;Balance Awal Hari;Ambigu$/);
+    assert.match(head, /;Pips;R;Lot;Risiko;Risiko %;Profit;Balance Awal Hari;Ambigu$/);
+    const row = tradesCsv([trade({ lot: 0.06, riskMoney: 60, balanceBefore: 6000 })], true).split('\r\n')[1]!;
+    assert.match(row, /;20;2;0\.06;60;1;120;6000;$/);
   });
 });
 
@@ -136,8 +138,10 @@ describe('toRaw', () => {
       { ...trade({ entryAt: day('2024-01-03'), exitAt: day('2024-01-04'), r: -1, result: 'SL' as const, pips: -10 }) },
     ];
     const once = compound(toRaw(raw), 1000, 1);
-    assert.deepEqual(once.map((t) => t.profit), [20, -10.2]); // the second trade is sized on 1020
+    // 1% of 1000 = 0.1 lot; 1% of 1020 = 0.102, rounded down to 0.1 lot again
+    assert.deepEqual(once.map((t) => t.profit), [20, -10]);
     assert.equal(Object.hasOwn(toRaw(once)[0]!, 'profit'), false);
+    assert.equal(Object.hasOwn(toRaw(once)[0]!, 'lot'), false);
     assert.deepEqual(compound(toRaw(compound(toRaw(raw), 5000, 2)), 1000, 1), once);
   });
 });
