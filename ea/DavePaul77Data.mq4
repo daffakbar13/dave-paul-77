@@ -27,7 +27,7 @@ input string ServerUrl       = "";      // URL server (kosong = dari DavePaul77.
 input string DataKey         = "";      // Data key (kosong = dari DavePaul77.ini)
 input string SymbolSuffix    = "";      // Akhiran simbol broker, mis. "m" untuk EURUSDm
 input string FallbackSymbols = "AUDJPY,AUDUSD,CADJPY,CHFJPY,EURGBP,EURJPY,EURNZD,EURUSD,GBPJPY,GBPUSD,NZDJPY,NZDUSD,USDCAD,USDCHF,USDJPY,XAUUSD"; // used when the server list cannot be read
-input int    HistoryBars     = 520;     // closed candles sent on the first run (D1: about 2 years; H4: the same count, the analysis lookback)
+input int    HistoryBars     = 520;     // closed candles sent on the first run (D1: about 2 years; H4: the same count, 3 months; the backfill right after fills the 3120 H4 candles the analysis uses)
 input int    BackfillBars    = 5800;    // older history sent once after the first run, in D1 candles (5800 = about 22 years; H4 sends 6x as many bars)
 input int    BackfillChunk   = 1000;    // candles per request while backfilling
 input bool   RedoBackfill    = false;   // send the old history again even if it was done before

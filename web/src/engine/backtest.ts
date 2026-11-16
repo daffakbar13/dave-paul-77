@@ -10,7 +10,7 @@
 // balance only counts trades that closed on an earlier day.
 import type { BtTrade } from './backtestStats.ts';
 import { detectPatterns, linesByDay, PATTERN_STRATEGIES, patternOrders, patternParamsFor, type DayLines, type PatternEvent, type PatternOrders, type PatternParams, type PatternStrategy } from './patterns.ts';
-import { analyze, pipSize, roundTo } from './sr.ts';
+import { analyze, pipSize, roundTo, srFor } from './sr.ts';
 import type { Candidate, Candle, Side, SrParams, SymbolData, Timeframe } from './types.ts';
 
 const MIN_RISK_PIPS = 1e-6;
@@ -495,9 +495,10 @@ export async function runBacktest(input: BacktestInput): Promise<BacktestRun> {
     const d = input.data.get(name)!;
     coverage.push(coverageOf(name, d.candles, opts, d.timeframe ?? 'D1'));
     const strategy = input.strategy ?? 'breakout';
+    const p = srFor(input.params, d.timeframe); // H4 draws its lines from more candles
     const trades = strategy === 'breakout'
-      ? await replaySymbol(name, d, input.params, opts, pause)
-      : await replayPattern(name, d, input.params, patternParamsFor(strategy, input.pattern), opts, pause).then((r) => r[strategy]);
+      ? await replaySymbol(name, d, p, opts, pause)
+      : await replayPattern(name, d, p, patternParamsFor(strategy, input.pattern), opts, pause).then((r) => r[strategy]);
     for (const t of trades) if (t.result !== 'Open') raw.push(t);
     input.onProgress?.(++done, names.length);
     await pause();

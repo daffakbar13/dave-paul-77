@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { analyze, atr, atrSeries, bodiesBetween, clusterLines, DEFAULT_SR, engineLines, fractals, mergeClose, rangeEdge, ranges, roundTo } from './sr.ts';
+import { analyze, atr, atrSeries, bodiesBetween, clusterLines, DEFAULT_SR, engineLines, fractals, lockLines, LOOKBACK, mergeClose, rangeEdge, ranges, roundTo, srFor } from './sr.ts';
 import type { Candle, SrParams } from './types.ts';
+import { fallBelowRange } from './fixtures.ts';
 
 // The original line settings: swing lines only, no range edges, no spacing filter.
 const SWINGS: SrParams = {
@@ -289,5 +290,25 @@ describe('analyze (ladder model)', () => {
     const b = s.candidates.find((c) => c.side === 'buy' && c.line === 1.11)!;
     assert.equal(b.slFrom, 'ladder');
     assert.equal(b.sl, 1.1076);
+  });
+});
+
+describe('lookback per timeframe', () => {
+  it('keeps D1 on the locked 520 and gives H4 about 2 years of its candles', () => {
+    assert.equal(srFor(DEFAULT_SR).lookback, 520);
+    assert.equal(srFor(DEFAULT_SR, 'D1'), DEFAULT_SR);
+    assert.equal(srFor(DEFAULT_SR, 'H4').lookback, 3120);
+    assert.equal(LOOKBACK.H4 / 6, LOOKBACK.D1);
+    // the locked line settings still win over a stored lookback
+    assert.equal(lockLines({ ...DEFAULT_SR, lookback: 99 }).lookback, 520);
+  });
+
+  it('finds lines under price on H4 after a fall below the last 3 months', () => {
+    const cs = fallBelowRange();
+    const sells = (p: SrParams) => analyze('XAUUSD', cs, p, 2).candidates.filter((c) => c.side === 'sell' && c.entry !== undefined);
+    const short = analyze('XAUUSD', cs, DEFAULT_SR, 2);
+    assert.equal(short.lines.filter((l) => l.price < short.price).length, 0);
+    assert.equal(sells(DEFAULT_SR).length, 0);
+    assert.ok(sells(srFor(DEFAULT_SR, 'H4')).length > 0);
   });
 });

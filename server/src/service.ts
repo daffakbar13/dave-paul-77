@@ -1,6 +1,6 @@
 import { evaluate, summarize, type OrderRow, type RiskSummary } from './analysis/orders.ts';
 import { markRunning } from './analysis/positions.ts';
-import { analyze } from './analysis/sr.ts';
+import { analyze, srFor } from './analysis/sr.ts';
 import type { Candle, Timeframe } from './analysis/types.ts';
 import { symbolInputs, timeframeOf } from './lines.ts';
 import { isAffected, type Aggressive } from './news.ts';
@@ -25,14 +25,15 @@ export async function refreshAnalysis(db: Collections, symbol: string, settings:
   const sym = await db.symbols.findOne({ name: symbol });
   if (!sym) return null;
   const timeframe = timeframeOf(sym);
-  const candles = await loadCandles(db, symbol, settings.sr.lookback, timeframe);
+  const sr = srFor(settings.sr, timeframe); // H4: more candles for the same ~2 years
+  const candles = await loadCandles(db, symbol, sr.lookback, timeframe);
   if (!candles.length) {
     // no candles on this timeframe (yet): an old analysis on the other one must not stay
     await db.analyses.deleteOne({ _id: symbol, timeframe: { $ne: timeframe } });
     return null;
   }
   const quote = freshQuote(await db.quotes.findOne({ _id: symbol }), settings);
-  const result = analyze(symbol, candles, settings.sr, sym.digits, quote ? (quote.bid + quote.ask) / 2 : undefined, symbolInputs(sym));
+  const result = analyze(symbol, candles, sr, sym.digits, quote ? (quote.bid + quote.ask) / 2 : undefined, symbolInputs(sym));
   const previous = await db.analyses.findOne({ _id: symbol });
   const ids = new Set(result.candidates.map((c) => c.id));
   const same = previous && previous.lastCandleAt.getTime() === result.lastCandleAt && (previous.timeframe ?? 'D1') === timeframe;

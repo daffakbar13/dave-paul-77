@@ -1,4 +1,4 @@
-import type { Analysis, Candidate, Candle, Line, Side, SrParams, SymbolInputs } from './types.ts';
+import type { Analysis, Candidate, Candle, Line, Side, SrParams, SymbolInputs, Timeframe } from './types.ts';
 
 // The S/R lines are fixed here and nowhere else: settings, the web and the calibration
 // cannot change them, so every strategy reads the same lines. Values are the ones the live
@@ -24,6 +24,14 @@ export const SR_LINE_KEYS = Object.keys(SR_LINES) as SrLineKey[];
 
 // Any settings object with the fixed line values put back.
 export const lockLines = <T extends SrParams>(p: T): T => ({ ...p, ...SR_LINES });
+
+// Candles the lines are drawn from, per timeframe: about 2 years on each. SR_LINES.lookback
+// is the D1 value; H4 has 6 candles a day, and 520 of them (3 months) left gold with no line
+// under price once it fell below that range (XAUUSD 16 Nov 2026: 0 lines below, no sell stop).
+export const LOOKBACK: Record<Timeframe, number> = { D1: SR_LINES.lookback, H4: 3120 };
+
+// The settings a pair on `tf` is analysed with: the same, with that timeframe's lookback.
+export const srFor = <T extends SrParams>(p: T, tf: Timeframe = 'D1'): T => (tf === 'D1' ? p : { ...p, lookback: LOOKBACK[tf] });
 
 export const DEFAULT_SR: SrParams = {
   ...SR_LINES,

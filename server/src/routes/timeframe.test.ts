@@ -8,7 +8,9 @@ import { MongoClient, ObjectId } from 'mongodb';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { createApp } from '../app.ts';
 import type { Config } from '../config.ts';
-import { collections, ensureIndexes, type Collections } from '../db.ts';
+import { collections, ensureIndexes, getSettings, type Collections } from '../db.ts';
+import { fallBelowRange } from '../analysis/fixtures.ts';
+import { refreshAnalysis } from '../service.ts';
 import { sampleCandles } from '../sample.ts';
 
 let mongo: MongoMemoryServer;
@@ -115,5 +117,21 @@ describe('timeframe per pair', () => {
     const next = (await db.analyses.findOne({ _id: 'XAUUSD' }))!;
     assert.equal(next.lastCandleAt.getTime(), last + H4);
     assert.deepEqual(next.cancelled, []);
+  });
+});
+
+describe('H4 lookback', () => {
+  it('draws H4 lines from 3120 candles, so a fall below the last 3 months still has sell stops', async () => {
+    await db.symbols.insertOne({ _id: new ObjectId(), name: 'XAGUSD', active: true, order: 2, digits: 2, timeframe: 'H4' });
+    const cs = fallBelowRange(NOW - 3125 * H4);
+    await db.candlesH4.insertMany(cs.map((c) => ({ symbol: 'XAGUSD', t: new Date(c.t), o: c.o, h: c.h, l: c.l, c: c.c })));
+    const a = (await refreshAnalysis(db, 'XAGUSD', await getSettings(db)))!;
+    assert.equal(a.timeframe, 'H4');
+    assert.ok(a.lines.some((l) => l.price < a.price));
+    assert.ok(a.candidates.some((c) => c.side === 'sell' && c.entry !== undefined));
+    const chart = (await call('/api/analysis/XAGUSD', web)).body;
+    assert.equal(chart.candles.length, 3120);
+    // D1 stays on 520 candles
+    assert.equal((await call('/api/analysis/EURUSD', web)).body.candles.length, 300);
   });
 });

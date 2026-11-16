@@ -45,6 +45,8 @@ Panduan langkah demi langkah lewat website (Render, Vercel, Atlas, lalu arahkan 
 - **Timeframe per pair**: D1 atau H4, dipilih di Pengaturan > Pair (default D1, XAUUSD H4). EA v1.20 membaca TF tiap
   pair dan mengirim candle di TF itu. Candle D1 disimpan di koleksi `candles`, H4 di `candles_h4`, jadi tidak tercampur.
   Analisa, reset cancel (per candle), kalibrasi, backtest dan chart mengikuti TF pair; chart H4 diberi label H4 dan jam.
+  Garis S/R memakai sekitar 2 tahun di tiap TF: 520 candle D1, 3120 candle H4 (`LOOKBACK` di `server/src/analysis/sr.ts`).
+  Dengan 520 candle H4 (3 bulan) emas yang turun ke bawah range 3 bulan tidak punya garis di bawah harga, jadi tanpa sell stop.
 - **Kalibrasi** (tombol Kalibrasi di toolbar): masukkan order manual (pair, tipe, entry, SL, TP, tanggal pasang).
   Aplikasi menghitung analisa dengan candle sebelum tanggal itu dan menampilkan selisih entry/SL/TP dalam ATR.
   Cocok jika entry ≤ 0,2 ATR dan SL ≤ 0,3 ATR. **Cari parameter terbaik** mencoba 100 kombinasi

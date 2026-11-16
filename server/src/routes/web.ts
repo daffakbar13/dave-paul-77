@@ -6,6 +6,7 @@ import { getSettings, type AccountDoc, type AnalysisDoc, type CommandDoc, type C
 import { HttpError, notFound, parse, parseId } from '../http.ts';
 import { journalFor } from '../journal.ts';
 import { TIMEFRAMES } from '../analysis/types.ts';
+import { srFor } from '../analysis/sr.ts';
 import { minSlPipsOf, parseTpl, setManualLines, timeframeOf } from '../lines.ts';
 import { aggressiveContext, isAffected, newsStatus, refreshNews, upcomingAll, upcomingRed, type NewsProvider } from '../news.ts';
 import { accountInfo, freshQuote, getAnalysis, loadCandles, ordersForAccount, refreshAnalysis, rowsFor } from '../service.ts';
@@ -221,7 +222,7 @@ export function webRoutes(db: Collections, news: NewsProvider | null): Router {
     const account = q.accountId ? await findAccount(db, q.accountId) : null;
     const quote = freshQuote(await db.quotes.findOne({ _id: symbol }), settings);
     const timeframe = analysis.timeframe ?? 'D1';
-    const candles = await loadCandles(db, symbol, settings.sr.lookback, timeframe);
+    const candles = await loadCandles(db, symbol, srFor(settings.sr, timeframe).lookback, timeframe);
     const sym = await db.symbols.findOne({ name: symbol });
     res.json({
       symbol,

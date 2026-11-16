@@ -31,7 +31,7 @@ export type SrParams = {
   // 'auto' (default): the engine draws the lines; the user's lines are only a reference
   // to compare against. 'manual': the user's lines replace the engine's where present.
   lineSource: 'auto' | 'manual';
-  lookback: number; // closed candles used (D1: about 2 years; H4: the same count)
+  lookback: number; // closed candles used, D1 value (about 2 years); other timeframes: LOOKBACK in sr.ts
   fractal: number; // candles on each side of a swing
   atrPeriod: number;
   clusterAtr: number; // swings closer than this x ATR join one line

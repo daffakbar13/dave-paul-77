@@ -13,7 +13,7 @@ import {
 } from 'lightweight-charts';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { BtTrade } from '../engine/backtestStats.ts';
-import { analyze } from '../engine/sr.ts';
+import { analyze, srFor } from '../engine/sr.ts';
 import type { Candle, SrParams, SymbolInputs, Timeframe } from '../engine/types.ts';
 import { fmtCandle, fmtMoney, fmtPrice, tickLabel } from '../format.ts';
 import { locale, useT } from '../i18n.ts';
@@ -65,8 +65,12 @@ export function BacktestChart({ symbol, digits, timeframe, candles, inputs, sr, 
   // replay places that day's orders from exactly these lines.
   const srDay = focus ? barIndex(candles, focus.entryAt) : edge;
   const srAnalysis = useMemo(
-    () => (showSr && srDay > 0 ? analyze(symbol, bars.slice(Math.max(0, srDay - sr.lookback), srDay), sr, digits, undefined, inputs) : null),
-    [showSr, srDay, bars, symbol, sr, digits, inputs],
+    () => {
+      if (!showSr || srDay <= 0) return null;
+      const p = srFor(sr, timeframe); // H4 draws from more candles, like the replay
+      return analyze(symbol, bars.slice(Math.max(0, srDay - p.lookback), srDay), p, digits, undefined, inputs);
+    },
+    [showSr, srDay, bars, symbol, sr, timeframe, digits, inputs],
   );
   // the line the picked trade's order was built on
   const tradeLine = useMemo(

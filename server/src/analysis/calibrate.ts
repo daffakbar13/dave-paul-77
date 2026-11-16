@@ -1,8 +1,8 @@
 // Compares the user's manual orders with what the engine would have produced on the same
 // day, and searches the S/R parameters that reproduce them best. Differences are in ATR
 // units so pairs with different price scales can be averaged.
-import { analyze, atr, engineLines, fractals, roundTo } from './sr.ts';
-import type { Candidate, Candle, Side, SrParams, SymbolData, SymbolInputs } from './types.ts';
+import { analyze, atr, engineLines, fractals, roundTo, srFor } from './sr.ts';
+import type { Candidate, Candle, Side, SrParams, SymbolData, SymbolInputs, Timeframe } from './types.ts';
 import { tr } from '../i18n.ts';
 
 export type { SymbolData };
@@ -45,7 +45,7 @@ export function candlesAsOf(candles: Candle[], asOf: number): Candle[] {
 }
 
 // Orders of one symbol and day share one analysis; the candle slice is cut once.
-type Group = { orders: ManualOrder[]; candles: Candle[] | null; digits: number; inputs: SymbolInputs };
+type Group = { orders: ManualOrder[]; candles: Candle[] | null; digits: number; inputs: SymbolInputs; timeframe: Timeframe };
 
 function prepare(orders: ManualOrder[], data: Map<string, SymbolData>): Group[] {
   const map = new Map<string, ManualOrder[]>();
@@ -55,7 +55,7 @@ function prepare(orders: ManualOrder[], data: Map<string, SymbolData>): Group[] 
   }
   return [...map.values()].map((g) => {
     const d = data.get(g[0]!.symbol);
-    return { orders: g, candles: d ? candlesAsOf(d.candles, g[0]!.asOf) : null, digits: d?.digits ?? 5, inputs: d?.inputs ?? {} };
+    return { orders: g, candles: d ? candlesAsOf(d.candles, g[0]!.asOf) : null, digits: d?.digits ?? 5, inputs: d?.inputs ?? {}, timeframe: d?.timeframe ?? 'D1' };
   });
 }
 
@@ -71,7 +71,7 @@ function compareGroup(g: Group, p: SrParams): Comparison[] {
     return orders.map((o) => missing(o, tr('Candle sebelum tanggal ini belum cukup', 'Not enough candles before this date')));
   }
   // every line gets a candidate here; the per-side limit is a display choice, not a level rule
-  const a = analyze(first.symbol, candles, { ...p, maxLinesPerSide: 0 }, g.digits, undefined, g.inputs);
+  const a = analyze(first.symbol, candles, { ...srFor(p, g.timeframe), maxLinesPerSide: 0 }, g.digits, undefined, g.inputs);
   return orders.map((o) => {
     const nearestLine = a.lines.reduce<number | null>(
       (best, l) => (best === null || Math.abs(l.price - o.entry) < Math.abs(best - o.entry) ? l.price : best),
@@ -188,7 +188,7 @@ export function matchLines(engine: number[], reference: number[], tolerance: num
 
 export function lineFit(symbol: string, d: SymbolData, p: SrParams): LineFit | null {
   const reference = d.inputs?.manualLines ?? [];
-  const candles = d.candles.slice(-p.lookback);
+  const candles = d.candles.slice(-srFor(p, d.timeframe).lookback);
   if (!reference.length || candles.length < 10) return null;
   const a = atr(candles, p.atrPeriod);
   const tolerance = LINE_MATCH_ATR * a;
