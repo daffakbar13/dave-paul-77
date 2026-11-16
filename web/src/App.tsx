@@ -9,7 +9,7 @@ import { NewsModal } from './components/NewsModal.tsx';
 import { SignalsModal } from './components/SignalsModal.tsx';
 import { PendingModal } from './components/PendingModal.tsx';
 import { SettingsModal } from './components/SettingsModal.tsx';
-import { ago, fmtDate, fmtMoney, fmtNewsTime } from './format.ts';
+import { ago, fmtCandle, fmtDate, fmtMoney, fmtNewsTime } from './format.ts';
 import { engineText, getLang, setLang, useLang, useT } from './i18n.ts';
 
 const ACCOUNT_KEY = 'dp77-account';
@@ -323,7 +323,7 @@ function Main({ onLogout }: { onLogout: () => void }) {
             <div className="chart-tools">
               <span className="muted tabular">
                 {analysis.lines.length} {t('garis', 'lines')} {analysis.lines[0]?.source === 'manual' ? t('manual', 'manual') : t('mesin', 'engine')}{analysis.referenceLines.length > 0 && analysis.lines[0]?.source !== 'manual' ? t(` (+${analysis.referenceLines.length} referensi Anda)`, ` (+${analysis.referenceLines.length} of your references)`) : ''} · {analysis.rows.filter((r) => r.status === 'valid').length} {t('order valid', 'valid orders')} · {t('candle terakhir', 'last candle')}{' '}
-                {fmtDate(new Date(analysis.lastCandleAt).getTime())} ·{' '}
+                {fmtCandle(new Date(analysis.lastCandleAt).getTime(), analysis.timeframe)} ·{' '}
                 <span className={mt4 && Date.now() - new Date(mt4.lastSeenAt).getTime() < MT4_STALE_MINUTES * 60_000 ? '' : 'warn'}>
                   MT4 {mt4 ? t(`terakhir kirim ${ago(mt4.lastSeenAt)}`, `last sent ${ago(mt4.lastSeenAt)}`) : t('belum pernah kirim data', 'has never sent data')}
                   {mt4?.brokerOffsetMinutes !== undefined && ` (${t('server broker', 'broker server')} UTC${mt4.brokerOffsetMinutes >= 0 ? '+' : ''}${mt4.brokerOffsetMinutes / 60})`}

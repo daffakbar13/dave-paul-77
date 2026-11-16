@@ -1,6 +1,6 @@
 # DavePaul77 (dave-paul-77)
 
-Aplikasi bantu trading forex: garis support/resistance D1 otomatis, kandidat buy/sell stop dengan SL, TP dan lot,
+Aplikasi bantu trading forex: garis support/resistance otomatis (D1, atau H4 per pair; default XAUUSD H4), kandidat buy/sell stop dengan SL, TP dan lot,
 lalu eksekusi ke MT5 lewat EA setelah Confirm. Konsep: dokumen konsep versi 1, 21 Okt 2026 (tidak disertakan di repo).
 
 | Folder    | Isi                                                                 | Deploy  |
@@ -28,7 +28,7 @@ cd server && npm install && npm run dev:memory
 cd web && npm install && npm run dev
 ```
 
-Buka http://localhost:5173, password `admin`. Data contoh: 16 pair sintetis (XAUUSD nonaktif), akun
+Buka http://localhost:5173, password `admin`. Data contoh: 16 pair sintetis (XAUUSD aktif di H4, pair lain D1), akun
 Demo A (10.000 USD) dan Demo B (5.000 USD, suffix `.m`, balance "lama"). Key EA contoh ada di `server/src/sample.ts`.
 
 Dengan EA MT4 sungguhan tanpa data contoh: `npm run dev:memory -- --empty` plus ngrok (lihat `ea/README.md`).
@@ -42,6 +42,9 @@ Panduan langkah demi langkah lewat website (Render, Vercel, Atlas, lalu arahkan 
 ## Tahap 2: data MT4 dan kalibrasi
 
 - **EA MT4**: `ea/DavePaul77Data.mq4`, cara pasang di `ea/README.md`. Daftar pair diambil dari Pengaturan > Pair.
+- **Timeframe per pair**: D1 atau H4, dipilih di Pengaturan > Pair (default D1, XAUUSD H4). EA v1.20 membaca TF tiap
+  pair dan mengirim candle di TF itu. Candle D1 disimpan di koleksi `candles`, H4 di `candles_h4`, jadi tidak tercampur.
+  Analisa, reset cancel (per candle), kalibrasi, backtest dan chart mengikuti TF pair; chart H4 diberi label H4 dan jam.
 - **Kalibrasi** (tombol Kalibrasi di toolbar): masukkan order manual (pair, tipe, entry, SL, TP, tanggal pasang).
   Aplikasi menghitung analisa dengan candle sebelum tanggal itu dan menampilkan selisih entry/SL/TP dalam ATR.
   Cocok jika entry ≤ 0,2 ATR dan SL ≤ 0,3 ATR. **Cari parameter terbaik** mencoba 100 kombinasi
@@ -100,7 +103,8 @@ sendiri (template `.tpl` di folder template chart user):
   penggabungan / sentuhan). Pengaturan > Analisa S/R > *Garis untuk order* bisa dikembalikan ke garis user.
 - **Order per garis** (g = jarak ke garis berikutnya searah order): entry = garis + 0,22·g, SL = garis − 0,16·g (seberang
   garis yang sama), TP = garis berikutnya − 0,07·g; garis terakhir: TP = RR 1,5. RR sekitar 1,9 di semua jarak garis.
-- **SL minimal** per pair dalam pips (10/15/20/30, dari alat order lama), bisa diubah di Pengaturan > Pair.
+- **SL minimal** per pair dalam pips (10/15/20/30, dari alat order lama; XAUUSD di H4 default 0), bisa diubah di
+  Pengaturan > Pair.
 - **Per sisi** 6 garis terdekat dari harga; garis yang lebih dekat dari 0,3 ATR ke harga dilewati.
 - **Validasi** (replay 224 setup pair, 3.555 order): entry dalam 0,1 ATR 84,5%, SL dalam 0,1 ATR 75,8%, TP dalam 0,15 ATR
   90,1%. Model candle kuat + pantulan dari konsep awal (10,3% / 6,6% / 13,6%) sudah dihapus.
@@ -129,4 +133,5 @@ node scripts/import-candles.ts --url https://dave-paul-77.onrender.com --key <EA
 - Nama pair diambil dari nama file (enam huruf), atau `--symbol`. `--digits N` bila pair belum ada di server.
 - Pakai `--until` hari sebelum candle MT4 pertama supaya CSV tidak menimpa data broker (batas hari tiap sumber berbeda).
 - Sabtu dan Minggu dibuang (`--weekends` untuk menyimpannya). Mengimpor dua kali aman (upsert).
+- Impor CSV selalu masuk ke candle D1 (koleksi `candles`); riwayat H4 (mis. XAUUSD) diambil EA MT4 dari History Center.
 - Server menerima sampai 10.000 candle per request; skrip mengirim per 1000 tanpa menghitung ulang analisa live.
