@@ -1,80 +1,73 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api, type Account, type AggressiveMode, type News } from '../api.ts';
-import { digitsOf, fmtNewsTime, fmtPrice, fmtRr } from '../format.ts';
+import { api, type Account, type News } from '../api.ts';
+import { ago, digitsOf, fmtNewsTime, fmtPrice, fmtRr } from '../format.ts';
 import { engineText, tr, useT } from '../i18n.ts';
 import { nearestSignals, type SignalRow } from '../tf.ts';
 import { Modal } from './Modal.tsx';
 
 type Props = {
   account: Account | null;
-  aggressive: AggressiveMode;
   newsPairs: Set<string>; // pairs with red news ahead in the news window
   news: News[];
   onClose: () => void;
 };
 
-// Signals the analyst has already typed into the TF mobile app, per browser. The key
-// holds the prices, so a level that moves comes back unmarked. Marks older than a week
-// are dropped.
-const DONE_KEY = 'dp77-tf-done';
-const WEEK = 7 * 24 * 3600_000;
+// Signals the analyst has already typed into the TF mobile app. Marks live on the server
+// so every device shows the same, and reset at 05:00 WIB. The key holds the prices, so a
+// level that moves comes back unmarked.
 const doneKey = (s: SignalRow) => `${s.symbol}|${s.side}|${s.entry}|${s.sl}|${s.tp}`;
-
-function loadDone(): Record<string, number> {
-  try {
-    const v = JSON.parse(localStorage.getItem(DONE_KEY) ?? '{}') as Record<string, number>;
-    const now = Date.now();
-    return Object.fromEntries(Object.entries(v).filter(([, at]) => typeof at === 'number' && now - at < WEEK));
-  } catch {
-    return {};
-  }
-}
-
-function saveDone(v: Record<string, number>) {
-  try {
-    localStorage.setItem(DONE_KEY, JSON.stringify(v));
-  } catch {
-    // per-viewer convenience only
-  }
-}
 
 const typeLabel = (s: SignalRow) => `${s.type}${s.running ? tr(' (berjalan)', ' (running)') : ''}`;
 
-// Nearest buy stop and sell stop per pair, to copy by hand into the TF mobile app.
+// Nearest buy stop and sell stop per pair among the orders the EA holds (sent by the last
+// Execute, plus open positions), to copy by hand into the TF mobile app.
 // Up/Down moves the selection, Space marks the selected signal as created.
-export function SignalsModal({ account, aggressive, newsPairs, news, onClose }: Props) {
+export function SignalsModal({ account, newsPairs, news, onClose }: Props) {
   const t = useT();
   const [signals, setSignals] = useState<SignalRow[] | null>(null);
   const [selected, setSelected] = useState(0);
-  const [done, setDoneState] = useState(loadDone);
+  const [done, setDone] = useState<Set<string>>(new Set());
+  const [sentAt, setSentAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const bodyRef = useRef<HTMLTableSectionElement>(null);
 
   const load = useCallback(async () => {
     if (!account) return;
     try {
-      const r = await api.orders(account.id, aggressive);
+      const [r, m] = await Promise.all([api.tfSignals(account.id), api.tfMarks()]);
       setSignals(nearestSignals(r.rows));
+      setSentAt(r.sentAt);
+      setDone(new Set(m.keys));
       setError(null);
     } catch (e) {
       setError((e as Error).message);
     }
-  }, [account, aggressive]);
+  }, [account]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const toggleDone = useCallback((s: SignalRow) => {
-    setDoneState((cur) => {
-      const k = doneKey(s);
-      const next = { ...cur };
-      if (next[k]) delete next[k];
-      else next[k] = Date.now();
-      saveDone(next);
-      return next;
+  // optimistic; a failed save puts the mark back
+  const setMark = (k: string, on: boolean) =>
+    setDone((cur) => {
+      const copy = new Set(cur);
+      if (on) copy.add(k);
+      else copy.delete(k);
+      return copy;
     });
-  }, []);
+  const toggleDone = useCallback(
+    (s: SignalRow) => {
+      const k = doneKey(s);
+      const next = !done.has(k);
+      setMark(k, next);
+      api.setTfMark(k, next).catch((e: Error) => {
+        setError(e.message);
+        setMark(k, !next);
+      });
+    },
+    [done],
+  );
 
   const count = signals?.length ?? 0;
   const current = signals?.[Math.min(selected, count - 1)] ?? null;
@@ -105,16 +98,19 @@ export function SignalsModal({ account, aggressive, newsPairs, news, onClose }: 
     return (symbol: string) => red.filter((n) => symbol.includes(n.currency)).map((n) => `${n.currency} ${fmtNewsTime(n.at)}: ${n.title}`).join('\n');
   }, [news]);
 
-  const doneCount = signals?.filter((s) => done[doneKey(s)]).length ?? 0;
-  const hint = t('↑/↓ pilih baris · Spasi tandai sudah dibuat', '↑/↓ select a row · Space marks it created');
+  const doneCount = signals?.filter((s) => done.has(doneKey(s))).length ?? 0;
+  const hint = t('↑/↓ pilih baris · Spasi tandai sudah dibuat · tanda direset 05:00 WIB', '↑/↓ select a row · Space marks it created · marks reset at 05:00 WIB');
+  const sent = sentAt ? t(`Order dari Execute terakhir (${ago(sentAt)})`, `Orders from the last Execute (${ago(sentAt)})`) : '';
 
   return (
-    <Modal title={t('Sinyal TF', 'TF signals')} onClose={onClose} wide footer={signals ? <span className="muted">{t(`${doneCount} dari ${count} sudah dibuat`, `${doneCount} of ${count} created`)} · {hint}</span> : undefined}>
+    <Modal title={t('Sinyal TF', 'TF signals')} onClose={onClose} wide footer={signals ? <span className="muted">{t(`${doneCount} dari ${count} sudah dibuat`, `${doneCount} of ${count} created`)} · {sent && <>{sent} · </>}{hint}</span> : undefined}>
       {error && <p className="error">{error}</p>}
       {!account && <p className="muted pad">{t('Tambahkan akun MT5 di Pengaturan dulu.', 'Add an MT5 account in Settings first.')}</p>}
       <div className="sig-split">
-      {current && <SignalDetail s={current} news={newsPairs.has(current.symbol) ? newsFor(current.symbol) : ''} done={!!done[doneKey(current)]} onToggle={() => toggleDone(current)} />}
-      {signals && !signals.length && <p className="muted pad">{t('Belum ada buy/sell stop yang valid.', 'No valid buy/sell stops yet.')}</p>}
+      {current && <SignalDetail s={current} news={newsPairs.has(current.symbol) ? newsFor(current.symbol) : ''} done={!!done.has(doneKey(current))} onToggle={() => toggleDone(current)} />}
+      {signals && !signals.length && (
+        <p className="muted pad">{t('Belum ada order yang dipasang EA di akun ini. Jalankan Execute dulu.', 'The EA holds no orders on this account yet. Run Execute first.')}</p>
+      )}
       {signals && signals.length > 0 && (
         <div className="table-scroll">
           <table className="orders tabular signals">
@@ -136,7 +132,7 @@ export function SignalsModal({ account, aggressive, newsPairs, news, onClose }: 
             <tbody ref={bodyRef}>
               {signals.map((s, i) => {
                 const d = digitsOf(s.symbol);
-                const isDone = !!done[doneKey(s)];
+                const isDone = !!done.has(doneKey(s));
                 const cls = [i === selected ? 'sig-selected' : '', isDone ? 'sig-done' : '', s.running ? 'sig-running' : ''].join(' ');
                 return (
                   <tr key={s.id} className={cls} aria-selected={i === selected} onClick={() => setSelected(i)}>

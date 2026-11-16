@@ -9,6 +9,7 @@ import { defaultMinSlPips, parseTpl, setManualLines } from '../lines.ts';
 import { aggressiveContext, isAffected, newsStatus, refreshNews, upcomingAll, upcomingRed, type NewsProvider } from '../news.ts';
 import { accountInfo, freshQuote, getAnalysis, loadCandles, ordersForAccount, refreshAnalysis, rowsFor } from '../service.ts';
 import { tr } from '../i18n.ts';
+import { markDay, sentOrders } from '../tf.ts';
 
 const HOUR = 3_600_000;
 const symbolName = z.string().trim().toUpperCase().regex(/^[A-Z0-9._-]{3,20}$/, 'Nama simbol tidak valid');
@@ -333,6 +334,33 @@ export function webRoutes(db: Collections, news: NewsProvider | null): Router {
     await db.commands.updateMany({ status: 'pending', expiresAt: { $lt: new Date() } }, { $set: { status: 'expired' } });
     const commands = await db.commands.find(filter).sort({ createdAt: -1 }).limit(30).toArray();
     res.json({ commands: commands.map(publicCommand) });
+  });
+
+  // --- TF signals ------------------------------------------------------------
+  // The orders the EA holds for one account (pending and running), not a fresh calculation.
+  router.get('/tf/signals', async (req, res) => {
+    const q = parse(z.object({ accountId: z.string() }), req.query);
+    res.json(await sentOrders(db, await findAccount(db, q.accountId)));
+  });
+
+  // "Created" marks for the current mark day, the same on every device.
+  router.get('/tf/marks', async (_req, res) => {
+    const day = markDay();
+    const marks = await db.tfMarks.find({ day }).toArray();
+    res.json({ day, keys: marks.map((m) => m.key) });
+  });
+
+  router.put('/tf/marks', async (req, res) => {
+    const { key, done } = parse(z.object({ key: z.string().min(3).max(120), done: z.boolean() }), req.body);
+    const day = markDay();
+    const _id = `${day}|${key}`;
+    if (done) {
+      const now = new Date();
+      await db.tfMarks.updateOne({ _id }, { $setOnInsert: { day, key, at: now, purgeAt: new Date(now.getTime() + 7 * 24 * HOUR) } }, { upsert: true });
+    } else {
+      await db.tfMarks.deleteOne({ _id });
+    }
+    res.json({ day, key, done });
   });
 
   // --- trade journal ---------------------------------------------------------

@@ -367,7 +367,7 @@ function Main({ onLogout }: { onLogout: () => void }) {
       {modal === 'execute' && (
         <ExecuteModal accounts={accounts} initialAccountId={accountId} aggressive={aggressive} onClose={() => setModal(null)} onChanged={refresh} />
       )}
-      {modal === 'signals' && <SignalsModal account={account} aggressive={aggressive} newsPairs={newsPairs} news={feed?.news ?? []} onClose={() => setModal(null)} />}
+      {modal === 'signals' && <SignalsModal account={account} newsPairs={newsPairs} news={feed?.news ?? []} onClose={() => setModal(null)} />}
       {modal === 'settings' && <SettingsModal onClose={() => setModal(null)} onChanged={refresh} />}
       {modal === 'journal' && <JournalModal accounts={accounts} initialAccountId={accountId} onClose={() => setModal(null)} />}
       {modal === 'backtest' && <BacktestModal onClose={() => setModal(null)} />}

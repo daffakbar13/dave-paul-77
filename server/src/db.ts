@@ -125,6 +125,16 @@ export type TradeDoc = TradeState & {
   updatedAt: Date;
 };
 
+// "Created in the TF app" marks of the TF signals modal, shared by every device. One
+// document per signal and mark day (05:00 WIB to 05:00 WIB); old days are purged.
+export type TfMarkDoc = {
+  _id: string; // `${day}|${key}`
+  day: string; // YYYY-MM-DD, see markDay in tf.ts
+  key: string; // symbol|side|entry|sl|tp
+  at: Date;
+  purgeAt: Date; // TTL
+};
+
 export type NewsDoc = { _id: ObjectId; at: Date; currency: string; impact: 'high' | 'medium' | 'low'; title: string };
 
 // Small status documents: 'mt4' (last contact, broker clock) and 'news' (calendar fetch).
@@ -187,6 +197,7 @@ export type Collections = {
   manualOrders: Collection<ManualOrderDoc>;
   trades: Collection<TradeDoc>;
   backtests: Collection<BacktestDoc>;
+  tfMarks: Collection<TfMarkDoc>;
 };
 
 export function collections(db: Db): Collections {
@@ -203,6 +214,7 @@ export function collections(db: Db): Collections {
     manualOrders: db.collection<ManualOrderDoc>('manual_orders'),
     trades: db.collection<TradeDoc>('trades'),
     backtests: db.collection<BacktestDoc>('backtests'),
+    tfMarks: db.collection<TfMarkDoc>('tf_marks'),
   };
 }
 
@@ -219,6 +231,8 @@ export async function ensureIndexes(c: Collections): Promise<void> {
   await c.trades.createIndex({ accountId: 1, closedAt: 1 });
   await c.trades.createIndex({ accountId: 1, 'plan.placedAt': 1 });
   await c.backtests.createIndex({ createdAt: -1 });
+  await c.tfMarks.createIndex({ day: 1 });
+  await c.tfMarks.createIndex({ purgeAt: 1 }, { expireAfterSeconds: 0 });
 }
 
 export async function getSettings(c: Collections): Promise<Settings> {

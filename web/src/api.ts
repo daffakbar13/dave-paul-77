@@ -28,6 +28,15 @@ export type OrderRow = {
   position?: number; // ticket of the open position this level came from
 };
 
+// An order the EA holds for one account: pending (valid) or filled and still open (running).
+export type SentOrder = Pick<OrderRow, 'id' | 'symbol' | 'side' | 'type' | 'reason'> & {
+  entry: number;
+  sl: number;
+  tp: number;
+  status: 'valid' | 'running';
+  ticket: number;
+};
+
 export type Candle = { t: number; o: number; h: number; l: number; c: number };
 export type Line = { price: number; touches: number; ranges?: number; strength?: number; low: number; high: number; source?: 'manual' | 'auto' };
 
@@ -361,6 +370,9 @@ export const api = {
   execute: (accountIds: string[], aggressive: AggressiveMode) =>
     request<{ commands: Command[] }>('POST', '/execute', { accountIds, aggressive }),
   commands: () => request<{ commands: Command[] }>('GET', '/commands'),
+  tfSignals: (accountId: string) => request<{ rows: SentOrder[]; sentAt: string | null }>('GET', `/tf/signals${q({ accountId })}`),
+  tfMarks: () => request<{ day: string; keys: string[] }>('GET', '/tf/marks'),
+  setTfMark: (key: string, done: boolean) => request<{ day: string; key: string; done: boolean }>('PUT', '/tf/marks', { key, done }),
   journal: (accountId: string, from: string, to: string) => request<Journal>('GET', `/journal${q({ accountId, from, to })}`),
   // stored D1 candles (compact arrays) and the saved S/R settings, for the in-browser backtest
   backtestCandles: (symbols?: string[]) =>

@@ -1,4 +1,7 @@
 import type { OrderRow } from './api.ts';
+
+// What nearestSignals needs from a row: the Pending Orders rows and the orders sent to the EA both fit.
+type SignalSource = Pick<OrderRow, 'id' | 'symbol' | 'side' | 'type' | 'status' | 'reason'> & { entry: number | null; sl: number | null; tp: number | null };
 import { tr } from './i18n.ts';
 
 // Traders Family copy-signal limits (reward system PDF, in force since 2026-03-01).
@@ -76,14 +79,14 @@ export function tfCheck(symbol: string, entry: number, sl: number, tp: number) {
 // running position shows that position (the latest-filled level when several run);
 // otherwise its nearest valid stop: the lowest buy stop, the highest sell stop (both
 // sit on their side of price, so no quote is needed).
-export function nearestSignals(rows: OrderRow[]): SignalRow[] {
+export function nearestSignals(rows: SignalSource[]): SignalRow[] {
   const out: SignalRow[] = [];
   const priced = rows.filter((r) => r.entry !== null && r.sl !== null && r.tp !== null);
   const symbols = [...new Set(rows.map((r) => r.symbol))].sort((a, b) => a.localeCompare(b));
   for (const symbol of symbols) {
     for (const side of ['buy', 'sell'] as const) {
       const mine = priced.filter((r) => r.symbol === symbol && r.side === side);
-      const higherFirst = (a: OrderRow, b: OrderRow) => b.entry! - a.entry!;
+      const higherFirst = (a: SignalSource, b: SignalSource) => b.entry! - a.entry!;
       const running = mine.filter((r) => r.status === 'running').sort(side === 'buy' ? higherFirst : (a, b) => -higherFirst(a, b));
       const valid = mine.filter((r) => r.status === 'valid').sort(side === 'buy' ? (a, b) => -higherFirst(a, b) : higherFirst);
       const r = running[0] ?? valid[0];
