@@ -33,6 +33,13 @@ export const LOOKBACK: Record<Timeframe, number> = { D1: SR_LINES.lookback, H4: 
 // The settings a pair on `tf` is analysed with: the same, with that timeframe's lookback.
 export const srFor = <T extends SrParams>(p: T, tf: Timeframe = 'D1'): T => (tf === 'D1' ? p : { ...p, lookback: LOOKBACK[tf] });
 
+// When price leaves the lookback's range on one side (NZDUSD Nov 2026: below its 2-year
+// low, no line under price, no sell stop), that side takes its lines from a longer window:
+// 2, 3, ... up to 10 lookbacks (D1 about 20 years), as far as the candles given reach. The lines
+// of the normal window stay as they are. Callers that pass only `lookback` candles (the
+// backtest replay) never extend; the live analysis and the chart load EXTEND_MAX lookbacks.
+export const EXTEND_MAX = 10;
+
 export const DEFAULT_SR: SrParams = {
   ...SR_LINES,
   strongBodyPct: 0.6,
@@ -340,7 +347,7 @@ export function analyze(symbol: string, all: Candle[], p: SrParams, digits: numb
     ? [...new Set(inputs.manualLines.map((x) => roundTo(x, digits)))]
         .sort((x, y) => x - y)
         .map((x) => ({ price: x, touches: 0, low: x, high: x, source: 'manual' }))
-    : engineLines(candles, swings, a, p, digits);
+    : extendEmptySide(all, engineLines(candles, swings, a, p, digits), ref, a, p, digits);
   const ctx: Ctx = { inputs, ref, candles, lines, atr: a, p, digits, symbol };
   // All lines stay (they are TP targets); the limit only drops far lines' orders. Orders
   // whose entry is too close to price are listed as skipped and do not use up the limit.
@@ -360,6 +367,27 @@ export function analyze(symbol: string, all: Candle[], p: SrParams, digits: numb
     ...above,
   ]);
   return { atr: a, price: ref, lastCandleAt: last.t, lines, candidates };
+}
+
+// Lines for a side of price that has none, from ever longer windows of `all` (see EXTEND_MAX).
+// Clustering uses the current ATR, so the far lines are spaced like the near ones.
+function extendEmptySide(all: Candle[], lines: Line[], ref: number, a: number, p: SrParams, digits: number): Line[] {
+  let below = lines.some((l) => l.price < ref);
+  let above = lines.some((l) => l.price > ref);
+  const out = [...lines];
+  for (let n = 2; n <= EXTEND_MAX && (!below || !above) && all.length > (n - 1) * p.lookback; n++) {
+    const wide = all.slice(-n * p.lookback);
+    const more = engineLines(wide, fractals(wide, p.fractal), a, p, digits);
+    if (!below && more.some((l) => l.price < ref)) {
+      out.push(...more.filter((l) => l.price < ref));
+      below = true;
+    }
+    if (!above && more.some((l) => l.price > ref)) {
+      out.push(...more.filter((l) => l.price > ref));
+      above = true;
+    }
+  }
+  return out.length === lines.length ? lines : out.sort((x, y) => x.price - y.price);
 }
 
 // Close lines can round to one entry. Only the line nearest that

@@ -47,6 +47,10 @@ Panduan langkah demi langkah lewat website (Render, Vercel, Atlas, lalu arahkan 
   Analisa, reset cancel (per candle), kalibrasi, backtest dan chart mengikuti TF pair; chart H4 diberi label H4 dan jam.
   Garis S/R memakai sekitar 2 tahun di tiap TF: 520 candle D1, 3120 candle H4 (`LOOKBACK` di `server/src/analysis/sr.ts`).
   Dengan 520 candle H4 (3 bulan) emas yang turun ke bawah range 3 bulan tidak punya garis di bawah harga, jadi tanpa sell stop.
+  Jika satu sisi harga tetap tanpa garis (harga keluar dari range 2 tahun, mis. NZDUSD Nov 2026), sisi itu mengambil garis
+  dari jendela yang lebih panjang: 2x, 3x, ... sampai 10x lookback (D1 sekitar 20 tahun, `EXTEND_MAX`). Garis di sisi lain tidak berubah.
+- **Sinyal TF**: buy stop terdekat di atas harga dan sell stop terdekat di bawah harga per pair, dari analisa saat ini
+  (bukan order/posisi EA), jadi level yang sudah terisi di MT5 tidak muncul sebagai "running". Level yang dibatalkan tidak ikut.
 - **Kalibrasi** (tombol Kalibrasi di toolbar): masukkan order manual (pair, tipe, entry, SL, TP, tanggal pasang).
   Aplikasi menghitung analisa dengan candle sebelum tanggal itu dan menampilkan selisih entry/SL/TP dalam ATR.
   Cocok jika entry ≤ 0,2 ATR dan SL ≤ 0,3 ATR. **Cari parameter terbaik** mencoba 100 kombinasi

@@ -1,7 +1,4 @@
-import type { OrderRow } from './api.ts';
-
-// What nearestSignals needs from a row: the Pending Orders rows and the orders sent to the EA both fit.
-type SignalSource = Pick<OrderRow, 'id' | 'symbol' | 'side' | 'type' | 'status' | 'reason'> & { entry: number | null; sl: number | null; tp: number | null };
+import type { OrderRow, TfOrder } from './api.ts';
 import { tr } from './i18n.ts';
 
 // Traders Family copy-signal limits (reward system PDF, in force since 2026-03-01).
@@ -39,8 +36,6 @@ export type SignalRow = {
   symbol: string;
   side: OrderRow['side'];
   type: OrderRow['type'];
-  running: boolean;
-  reason?: string;
   entry: number;
   sl: number;
   tp: number;
@@ -83,26 +78,18 @@ export function tfCheck(symbol: string, entry: number, sl: number, tp: number) {
   };
 }
 
-// One buy stop and one sell stop per pair, pairs A-Z, buy before sell. A side with a
-// running position shows that position (the latest-filled level when several run);
-// otherwise its nearest valid stop: the lowest buy stop, the highest sell stop (both
-// sit on their side of price, so no quote is needed).
-export function nearestSignals(rows: SignalSource[]): SignalRow[] {
+// One buy stop and one sell stop per pair, pairs A-Z, buy before sell: the stop nearest
+// price on each side, i.e. the lowest buy stop and the highest sell stop (the server only
+// sends stops still on their side of price, so no quote is needed here).
+export function nearestSignals(rows: TfOrder[]): SignalRow[] {
   const out: SignalRow[] = [];
-  const priced = rows.filter((r) => r.entry !== null && r.sl !== null && r.tp !== null);
   const symbols = [...new Set(rows.map((r) => r.symbol))].sort((a, b) => a.localeCompare(b));
   for (const symbol of symbols) {
     for (const side of ['buy', 'sell'] as const) {
-      const mine = priced.filter((r) => r.symbol === symbol && r.side === side);
-      const higherFirst = (a: SignalSource, b: SignalSource) => b.entry! - a.entry!;
-      const running = mine.filter((r) => r.status === 'running').sort(side === 'buy' ? higherFirst : (a, b) => -higherFirst(a, b));
-      const valid = mine.filter((r) => r.status === 'valid').sort(side === 'buy' ? (a, b) => -higherFirst(a, b) : higherFirst);
-      const r = running[0] ?? valid[0];
+      const mine = rows.filter((r) => r.symbol === symbol && r.side === side);
+      const r = mine.sort((a, b) => (side === 'buy' ? a.entry - b.entry : b.entry - a.entry))[0];
       if (!r) continue;
-      out.push({
-        id: r.id, symbol, side, type: r.type, running: r.status === 'running', reason: r.reason,
-        entry: r.entry!, sl: r.sl!, tp: r.tp!, ...tfCheck(symbol, r.entry!, r.sl!, r.tp!),
-      });
+      out.push({ id: r.id, symbol, side, type: r.type, entry: r.entry, sl: r.sl, tp: r.tp, ...tfCheck(symbol, r.entry, r.sl, r.tp) });
     }
   }
   return out;

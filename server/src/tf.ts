@@ -1,59 +1,47 @@
-// TF signals: the orders the EA actually holds for one account, to copy by hand into the
+// TF signals: the buy and sell stops of the current analysis, to copy by hand into the
 // Traders Family mobile app, and the "created" marks the analyst ticks off per day.
-import type { AccountDoc, Collections } from './db.ts';
 import type { Side } from './analysis/types.ts';
-import { tr } from './i18n.ts';
+import { roundTo } from './analysis/sr.ts';
+import { getSettings, type AccountDoc, type Collections } from './db.ts';
+import { NO_AGGRESSIVE } from './news.ts';
+import { freshQuote, getAnalysis, rowsFor } from './service.ts';
 
-export type SentOrder = {
-  id: string; // level id, or `pos:<ticket>` for a position without a plan
+export type TfOrder = {
+  id: string; // level id
   symbol: string; // app symbol
   side: Side;
   type: 'buy stop' | 'sell stop';
   entry: number;
   sl: number;
   tp: number;
-  status: 'valid' | 'running'; // valid: pending order on the broker; running: filled, still open
-  reason?: string;
-  ticket: number;
 };
 
-// Pending orders come from the journal: a trade stays 'placed' until a deal fills it or a
-// later Execute deletes it ('cancelled'). Open positions come from the EA's last status,
-// so a fill whose deals are not reported yet already counts as running. An order deleted
-// by hand in MT5 is not reported by the EA and stays listed until the next Execute.
-export async function sentOrders(db: Collections, account: AccountDoc): Promise<{ rows: SentOrder[]; sentAt: Date | null }> {
-  const positions = account.positions ?? [];
-  const open = new Map(positions.map((p) => [p.ticket, p]));
-  const trades = await db.trades
-    .find({ accountId: account._id, $or: [{ status: 'placed' }, { ticket: { $in: [...open.keys()] } }] })
-    .toArray();
-  const byTicket = new Map(trades.map((t) => [t.ticket, t]));
-  const rows: SentOrder[] = [];
-
-  for (const t of trades) {
-    if (t.status !== 'placed' || open.has(t.ticket) || !t.plan) continue;
-    rows.push({
-      id: t.ref ?? `pos:${t.ticket}`, symbol: t.symbol, side: t.side, type: `${t.side} stop`,
-      entry: t.plan.entry, sl: t.plan.sl, tp: t.plan.tp, status: 'valid', ticket: t.ticket,
-    });
+// Every level of the active pairs that is still a pending stop on the right side of price,
+// in the account's MT5 prices. Not the EA's orders: a level whose MT5 position is running
+// (filled on a day no signal was posted) is not running in TF, and MT5-only checks (lot,
+// symbol spec) do not apply to TF. Skipped and cancelled levels stay out.
+export async function tfOrders(db: Collections, account: AccountDoc): Promise<{ rows: TfOrder[]; analyzedAt: Date | null }> {
+  const settings = await getSettings(db);
+  const symbols = await db.symbols.find({ active: true }).toArray();
+  const rows: TfOrder[] = [];
+  let analyzedAt: Date | null = null;
+  for (const s of symbols) {
+    const analysis = await getAnalysis(db, s.name, settings);
+    if (!analysis) continue;
+    if (!analyzedAt || analysis.analyzedAt < analyzedAt) analyzedAt = analysis.analyzedAt;
+    const quote = freshQuote(await db.quotes.findOne({ _id: s.name }), settings);
+    const offset = account.offsets?.[s.name] ?? 0;
+    const digits = account.specs?.[s.name]?.digits ?? s.digits;
+    // no fresh quote: the price the analysis split the lines at
+    const ask = roundTo((quote?.ask ?? analysis.price) + offset, digits);
+    const bid = roundTo((quote?.bid ?? analysis.price) + offset, digits);
+    for (const r of rowsFor(analysis, account, quote, settings, NO_AGGRESSIVE)) {
+      if (r.status === 'skipped' || r.status === 'cancelled' || r.entry === null || r.sl === null || r.tp === null) continue;
+      if (r.side === 'buy' ? r.entry <= ask : r.entry >= bid) continue; // price is already past the entry
+      rows.push({ id: r.id, symbol: r.symbol, side: r.side, type: r.type, entry: r.entry, sl: r.sl, tp: r.tp });
+    }
   }
-  for (const p of positions) {
-    const plan = byTicket.get(p.ticket)?.plan;
-    const sl = plan?.sl ?? p.sl;
-    const tp = plan?.tp ?? p.tp;
-    if (!sl || !tp) continue; // no stop or target on the broker: nothing TF would accept
-    rows.push({
-      id: byTicket.get(p.ticket)?.ref ?? `pos:${p.ticket}`, symbol: p.symbol, side: p.side, type: `${p.side} stop`,
-      entry: plan?.entry ?? p.openPrice, sl, tp, status: 'running', ticket: p.ticket,
-      reason: tr(`Posisi berjalan #${p.ticket}: ${p.volume} lot @ ${p.openPrice}`, `Open position #${p.ticket}: ${p.volume} lot @ ${p.openPrice}`),
-    });
-  }
-
-  const last = await db.commands.findOne(
-    { accountId: account._id, status: { $in: ['done', 'failed'] }, dryRun: { $ne: true } },
-    { sort: { createdAt: -1 }, projection: { finishedAt: 1, createdAt: 1 } },
-  );
-  return { rows, sentAt: last ? (last.finishedAt ?? last.createdAt) : null };
+  return { rows, analyzedAt };
 }
 
 // Marks reset every day at 05:00 WIB (22:00 UTC): the mark day is the UTC date two hours

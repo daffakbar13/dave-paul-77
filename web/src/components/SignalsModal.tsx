@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, type Account, type News } from '../api.ts';
 import { ago, digitsOf, fmtNewsTime, fmtPrice, fmtRr } from '../format.ts';
-import { engineText, tr, useT } from '../i18n.ts';
+import { useT } from '../i18n.ts';
 import { nearestSignals, type SignalRow } from '../tf.ts';
 import { Modal } from './Modal.tsx';
 
@@ -21,17 +21,17 @@ const DAY = 24 * 3_600_000;
 const RESET_UTC = 22 * 3_600_000;
 const nextReset = (now: number) => Math.floor((now - RESET_UTC) / DAY) * DAY + RESET_UTC + DAY;
 
-const typeLabel = (s: SignalRow) => `${s.type}${s.running ? tr(' (berjalan)', ' (running)') : ''}`;
+const typeLabel = (s: SignalRow) => s.type;
 
-// Nearest buy stop and sell stop per pair among the orders the EA holds (sent by the last
-// Execute, plus open positions), to copy by hand into the TF mobile app.
+// Nearest buy stop and sell stop per pair in the current analysis (pending stops still on
+// their side of price, whatever the EA holds or has filled), to copy by hand into the TF app.
 // Up/Down moves the selection, Space marks the selected signal as created.
 export function SignalsModal({ account, news, onClose }: Props) {
   const t = useT();
   const [signals, setSignals] = useState<SignalRow[] | null>(null);
   const [selected, setSelected] = useState(0);
   const [done, setDone] = useState<Set<string>>(new Set());
-  const [sentAt, setSentAt] = useState<string | null>(null);
+  const [analyzedAt, setAnalyzedAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const bodyRef = useRef<HTMLTableSectionElement>(null);
 
@@ -40,7 +40,7 @@ export function SignalsModal({ account, news, onClose }: Props) {
     try {
       const [r, m] = await Promise.all([api.tfSignals(account.id), api.tfMarks()]);
       setSignals(nearestSignals(r.rows));
-      setSentAt(r.sentAt);
+      setAnalyzedAt(r.analyzedAt);
       setDone(new Set(m.keys));
       setError(null);
     } catch (e) {
@@ -110,7 +110,7 @@ export function SignalsModal({ account, news, onClose }: Props) {
 
   const doneCount = signals?.filter((s) => done.has(doneKey(s))).length ?? 0;
   const hint = t('↑/↓ pilih baris · Spasi tandai sudah dibuat · tanda direset 05:00 WIB', '↑/↓ select a row · Space marks it created · marks reset at 05:00 WIB');
-  const sent = sentAt ? t(`Order dari Execute terakhir (${ago(sentAt)})`, `Orders from the last Execute (${ago(sentAt)})`) : '';
+  const sent = analyzedAt ? t(`Analisa ${ago(analyzedAt)}`, `Analysis ${ago(analyzedAt)}`) : '';
 
   return (
     <Modal title={t('Sinyal TF', 'TF signals')} onClose={onClose} wide footer={signals ? <span className="muted">{t(`${doneCount} dari ${count} sudah dibuat`, `${doneCount} of ${count} created`)} · {sent && <>{sent} · </>}{hint}</span> : undefined}>
@@ -119,7 +119,7 @@ export function SignalsModal({ account, news, onClose }: Props) {
       <div className="sig-split">
       {current && <SignalDetail s={current} news={newsFor(current.symbol)} done={!!done.has(doneKey(current))} onToggle={() => toggleDone(current)} />}
       {signals && !signals.length && (
-        <p className="muted pad">{t('Belum ada order yang dipasang EA di akun ini. Jalankan Execute dulu.', 'The EA holds no orders on this account yet. Run Execute first.')}</p>
+        <p className="muted pad">{t('Belum ada buy/sell stop dari analisa (belum ada data candle?).', 'The analysis has no buy or sell stop yet (no candle data?).')}</p>
       )}
       {signals && signals.length > 0 && (
         <div className="table-scroll">
@@ -149,7 +149,7 @@ export function SignalsModal({ account, news, onClose }: Props) {
               {signals.map((s, i) => {
                 const d = digitsOf(s.symbol);
                 const isDone = !!done.has(doneKey(s));
-                const cls = [i === selected ? 'sig-selected' : '', isDone ? 'sig-done' : '', s.running ? 'sig-running' : ''].join(' ');
+                const cls = [i === selected ? 'sig-selected' : '', isDone ? 'sig-done' : ''].join(' ');
                 return (
                   <tr key={s.id} className={cls} aria-selected={i === selected} onClick={() => setSelected(i)}>
                     <td>
@@ -284,7 +284,6 @@ function SignalDetail({ s, news, done, onToggle }: { s: SignalRow; news: string;
         </div>
       </dl>
       {s.problems.length > 0 && <p className="sig-bad">{s.problems.join(' · ')}</p>}
-      {s.running && s.reason && <p className="muted">{engineText(s.reason)}</p>}
       {news && <p className="sig-news">{news.split('\n').join(' · ')}</p>}
     </section>
   );

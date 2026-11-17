@@ -11,7 +11,7 @@ import { minSlPipsOf, parseTpl, setManualLines, timeframeOf } from '../lines.ts'
 import { aggressiveContext, isAffected, newsStatus, refreshNews, upcomingAll, upcomingRed, type NewsProvider } from '../news.ts';
 import { accountInfo, freshQuote, getAnalysis, loadCandles, ordersForAccount, refreshAnalysis, rowsFor } from '../service.ts';
 import { tr } from '../i18n.ts';
-import { markDay, sentOrders } from '../tf.ts';
+import { markDay, tfOrders } from '../tf.ts';
 
 const HOUR = 3_600_000;
 const symbolName = z.string().trim().toUpperCase().regex(/^[A-Z0-9._-]{3,20}$/, 'Nama simbol tidak valid');
@@ -345,10 +345,11 @@ export function webRoutes(db: Collections, news: NewsProvider | null): Router {
   });
 
   // --- TF signals ------------------------------------------------------------
-  // The orders the EA holds for one account (pending and running), not a fresh calculation.
+  // The buy and sell stops of the current analysis on the right side of price, in the
+  // account's MT5 prices; the web keeps the nearest of each per pair.
   router.get('/tf/signals', async (req, res) => {
     const q = parse(z.object({ accountId: z.string() }), req.query);
-    res.json(await sentOrders(db, await findAccount(db, q.accountId)));
+    res.json(await tfOrders(db, await findAccount(db, q.accountId)));
   });
 
   // "Created" marks for the current mark day, the same on every device.

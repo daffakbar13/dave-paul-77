@@ -29,13 +29,11 @@ export type OrderRow = {
   position?: number; // ticket of the open position this level came from
 };
 
-// An order the EA holds for one account: pending (valid) or filled and still open (running).
-export type SentOrder = Pick<OrderRow, 'id' | 'symbol' | 'side' | 'type' | 'reason'> & {
+// A buy or sell stop of the current analysis, still on its side of price (TF signals).
+export type TfOrder = Pick<OrderRow, 'id' | 'symbol' | 'side' | 'type'> & {
   entry: number;
   sl: number;
   tp: number;
-  status: 'valid' | 'running';
-  ticket: number;
 };
 
 export type Candle = { t: number; o: number; h: number; l: number; c: number };
@@ -373,7 +371,7 @@ export const api = {
   execute: (accountIds: string[], aggressive: AggressiveMode) =>
     request<{ commands: Command[] }>('POST', '/execute', { accountIds, aggressive }),
   commands: () => request<{ commands: Command[] }>('GET', '/commands'),
-  tfSignals: (accountId: string) => request<{ rows: SentOrder[]; sentAt: string | null }>('GET', `/tf/signals${q({ accountId })}`),
+  tfSignals: (accountId: string) => request<{ rows: TfOrder[]; analyzedAt: string | null }>('GET', `/tf/signals${q({ accountId })}`),
   tfMarks: () => request<{ day: string; keys: string[] }>('GET', '/tf/marks'),
   setTfMark: (key: string, done: boolean) => request<{ day: string; key: string; done: boolean }>('PUT', '/tf/marks', { key, done }),
   journal: (accountId: string, from: string, to: string) => request<Journal>('GET', `/journal${q({ accountId, from, to })}`),

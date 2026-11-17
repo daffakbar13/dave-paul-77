@@ -1,6 +1,6 @@
 import { evaluate, summarize, type OrderRow, type RiskSummary } from './analysis/orders.ts';
 import { markRunning } from './analysis/positions.ts';
-import { analyze, srFor } from './analysis/sr.ts';
+import { analyze, EXTEND_MAX, srFor } from './analysis/sr.ts';
 import type { Candle, Timeframe } from './analysis/types.ts';
 import { symbolInputs, timeframeOf } from './lines.ts';
 import { isAffected, type Aggressive } from './news.ts';
@@ -26,7 +26,8 @@ export async function refreshAnalysis(db: Collections, symbol: string, settings:
   if (!sym) return null;
   const timeframe = timeframeOf(sym);
   const sr = srFor(settings.sr, timeframe); // H4: more candles for the same ~2 years
-  const candles = await loadCandles(db, symbol, sr.lookback, timeframe);
+  // the extra history only feeds a side of price the lookback has no line on
+  const candles = await loadCandles(db, symbol, sr.lookback * EXTEND_MAX, timeframe);
   if (!candles.length) {
     // no candles on this timeframe (yet): an old analysis on the other one must not stay
     await db.analyses.deleteOne({ _id: symbol, timeframe: { $ne: timeframe } });

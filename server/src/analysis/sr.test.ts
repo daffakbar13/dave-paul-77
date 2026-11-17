@@ -170,8 +170,8 @@ describe('analyze (swing lines)', () => {
     assert.equal(one.candidates.find((c) => c.side === 'buy')?.line, nearestAbove.price);
   });
 
-  it('only uses the last `lookback` candles', () => {
-    const short = analyze('TEST', SERIES, { ...SWINGS, lookback: 5 }, 3);
+  it('only uses the last `lookback` candles (older ones only for a side with no line)', () => {
+    const short = analyze('TEST', SERIES.slice(-5), { ...SWINGS, lookback: 5 }, 3);
     assert.equal(short.lastCandleAt, SERIES[15]!.t);
     assert.equal(short.lines.length, 0);
   });
@@ -305,10 +305,34 @@ describe('lookback per timeframe', () => {
 
   it('finds lines under price on H4 after a fall below the last 3 months', () => {
     const cs = fallBelowRange();
-    const sells = (p: SrParams) => analyze('XAUUSD', cs, p, 2).candidates.filter((c) => c.side === 'sell' && c.entry !== undefined);
-    const short = analyze('XAUUSD', cs, DEFAULT_SR, 2);
+    // only the lookback's candles: no fallback to older lines
+    const sells = (p: SrParams) => analyze('XAUUSD', cs.slice(-p.lookback), p, 2).candidates.filter((c) => c.side === 'sell' && c.entry !== undefined);
+    const short = analyze('XAUUSD', cs.slice(-DEFAULT_SR.lookback), DEFAULT_SR, 2);
     assert.equal(short.lines.filter((l) => l.price < short.price).length, 0);
     assert.equal(sells(DEFAULT_SR).length, 0);
     assert.ok(sells(srFor(DEFAULT_SR, 'H4')).length > 0);
+  });
+});
+
+describe('extendEmptySide (via analyze)', () => {
+  // two years ranging 1.10-1.20, an older range at 1.00-1.05, price now at 1.07
+  const day = 86_400_000;
+  const wave = (n: number, lo: number, hi: number, t0: number) =>
+    Array.from({ length: n }, (_, i) => {
+      const m = lo + ((hi - lo) * (1 + Math.sin(i / 3))) / 2;
+      return { t: t0 + i * day, o: m, h: m + 0.004, l: m - 0.004, c: m };
+    });
+  const old = wave(520, 1.0, 1.05, 0);
+  const recent = wave(520, 1.1, 1.2, 520 * day);
+  const p = { ...DEFAULT_SR };
+
+  it('takes the lines under price from older candles when the lookback has none', () => {
+    const short = analyze('X', recent, p, 5, 1.07);
+    assert.equal(short.lines.filter((l) => l.price < 1.07).length, 0);
+    const long = analyze('X', [...old, ...recent], p, 5, 1.07);
+    assert.ok(long.lines.some((l) => l.price < 1.07));
+    assert.ok(long.candidates.some((c) => c.side === 'sell' && c.entry !== undefined));
+    // the lines above price are the lookback's own
+    assert.deepEqual(long.lines.filter((l) => l.price > 1.07), short.lines.filter((l) => l.price > 1.07));
   });
 });

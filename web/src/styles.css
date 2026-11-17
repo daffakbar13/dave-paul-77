@@ -1545,9 +1545,6 @@ tr.off td:not(:first-child) {
 .signals tr.sig-done td:first-child .tag {
   text-decoration: none;
 }
-.signals tr.sig-running td:nth-child(2) {
-  font-style: italic;
-}
 .signals td.sig-bad,
 .sig-detail .sig-bad {
   color: var(--sltp);
