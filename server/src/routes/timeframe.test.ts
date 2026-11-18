@@ -130,8 +130,8 @@ describe('H4 lookback', () => {
     assert.ok(a.lines.some((l) => l.price < a.price));
     assert.ok(a.candidates.some((c) => c.side === 'sell' && c.entry !== undefined));
     const chart = (await call('/api/analysis/XAGUSD', web)).body;
-    assert.equal(chart.candles.length, 3120);
-    // D1 stays on 520 candles
+    // the chart shows up to 5 years (7800 H4), more than the 3120 candles the lines use
+    assert.equal(chart.candles.length, cs.length);
     assert.equal((await call('/api/analysis/EURUSD', web)).body.candles.length, 300);
   });
 });

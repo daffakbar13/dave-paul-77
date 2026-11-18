@@ -222,7 +222,8 @@ export function webRoutes(db: Collections, news: NewsProvider | null): Router {
     const account = q.accountId ? await findAccount(db, q.accountId) : null;
     const quote = freshQuote(await db.quotes.findOne({ _id: symbol }), settings);
     const timeframe = analysis.timeframe ?? 'D1';
-    const candles = await loadCandles(db, symbol, srFor(settings.sr, timeframe).lookback, timeframe);
+    // the chart shows about 5 years (2.5 lookbacks: 1300 D1 / 7800 H4), the lines use the last 2
+    const candles = await loadCandles(db, symbol, Math.round(srFor(settings.sr, timeframe).lookback * 2.5), timeframe);
     const sym = await db.symbols.findOne({ name: symbol });
     res.json({
       symbol,
