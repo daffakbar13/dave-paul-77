@@ -40,6 +40,12 @@ export const srFor = <T extends SrParams>(p: T, tf: Timeframe = 'D1'): T => (tf 
 // backtest replay) never extend; the live analysis and the chart load EXTEND_MAX lookbacks.
 export const EXTEND_MAX = 10;
 
+// A side whose nearest line is more than this many ATR from price is filled the same way, but
+// only between price and that line (AUDUSD 18 Nov 2026: 0.6734, nearest line above 0.6880 =
+// 2.8 ATR, the 2-year window never touched 0.672-0.688 twice; 4 years gives 0.6760 and 0.6799).
+// Every other pair had its nearest line within 1.3 ATR that day.
+export const FAR_LINE_ATR = 2;
+
 export const DEFAULT_SR: SrParams = {
   ...SR_LINES,
   strongBodyPct: 0.6,
@@ -347,7 +353,7 @@ export function analyze(symbol: string, all: Candle[], p: SrParams, digits: numb
     ? [...new Set(inputs.manualLines.map((x) => roundTo(x, digits)))]
         .sort((x, y) => x - y)
         .map((x) => ({ price: x, touches: 0, low: x, high: x, source: 'manual' }))
-    : extendEmptySide(all, engineLines(candles, swings, a, p, digits), ref, a, p, digits);
+    : extendFarSide(all, engineLines(candles, swings, a, p, digits), ref, a, p, digits);
   const ctx: Ctx = { inputs, ref, candles, lines, atr: a, p, digits, symbol };
   // All lines stay (they are TP targets); the limit only drops far lines' orders. Orders
   // whose entry is too close to price are listed as skipped and do not use up the limit.
@@ -369,22 +375,36 @@ export function analyze(symbol: string, all: Candle[], p: SrParams, digits: numb
   return { atr: a, price: ref, lastCandleAt: last.t, lines, candidates };
 }
 
-// Lines for a side of price that has none, from ever longer windows of `all` (see EXTEND_MAX).
-// Clustering uses the current ATR, so the far lines are spaced like the near ones.
-function extendEmptySide(all: Candle[], lines: Line[], ref: number, a: number, p: SrParams, digits: number): Line[] {
-  let below = lines.some((l) => l.price < ref);
-  let above = lines.some((l) => l.price > ref);
+// Lines for a side of price that has none, or whose nearest line is more than FAR_LINE_ATR
+// away, from ever longer windows of `all` (see EXTEND_MAX). A far side only takes the lines
+// between price and its nearest line, at least minSpacingAtr from that line. Clustering uses
+// the current ATR, so the far lines are spaced like the near ones.
+function extendFarSide(all: Candle[], lines: Line[], ref: number, a: number, p: SrParams, digits: number): Line[] {
+  const nearest = (side: Side) => {
+    const own = lines.filter((l) => (side === 'buy' ? l.price > ref : l.price < ref)).map((l) => l.price);
+    return own.length ? (side === 'buy' ? Math.min(...own) : Math.max(...own)) : undefined;
+  };
+  const near = { buy: nearest('buy'), sell: nearest('sell') };
+  const done = {
+    buy: near.buy !== undefined && near.buy - ref <= FAR_LINE_ATR * a,
+    sell: near.sell !== undefined && ref - near.sell <= FAR_LINE_ATR * a,
+  };
+  const inGap = (side: Side, x: number) => {
+    const n = near[side];
+    if (side === 'buy' ? x <= ref : x >= ref) return false;
+    return n === undefined || ((side === 'buy' ? x < n : x > n) && Math.abs(x - n) >= p.minSpacingAtr * a);
+  };
   const out = [...lines];
-  for (let n = 2; n <= EXTEND_MAX && (!below || !above) && all.length > (n - 1) * p.lookback; n++) {
+  for (let n = 2; n <= EXTEND_MAX && (!done.buy || !done.sell) && all.length > (n - 1) * p.lookback; n++) {
     const wide = all.slice(-n * p.lookback);
     const more = engineLines(wide, fractals(wide, p.fractal), a, p, digits);
-    if (!below && more.some((l) => l.price < ref)) {
-      out.push(...more.filter((l) => l.price < ref));
-      below = true;
-    }
-    if (!above && more.some((l) => l.price > ref)) {
-      out.push(...more.filter((l) => l.price > ref));
-      above = true;
+    for (const side of ['buy', 'sell'] as const) {
+      if (done[side]) continue;
+      const add = more.filter((l) => inGap(side, l.price));
+      if (add.length) {
+        out.push(...add);
+        done[side] = true;
+      }
     }
   }
   return out.length === lines.length ? lines : out.sort((x, y) => x.price - y.price);

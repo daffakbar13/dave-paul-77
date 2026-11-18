@@ -49,6 +49,8 @@ Panduan langkah demi langkah lewat website (Render, Vercel, Atlas, lalu arahkan 
   Dengan 520 candle H4 (3 bulan) emas yang turun ke bawah range 3 bulan tidak punya garis di bawah harga, jadi tanpa sell stop.
   Jika satu sisi harga tetap tanpa garis (harga keluar dari range 2 tahun, mis. NZDUSD Nov 2026), sisi itu mengambil garis
   dari jendela yang lebih panjang: 2x, 3x, ... sampai 10x lookback (D1 sekitar 20 tahun, `EXTEND_MAX`). Garis di sisi lain tidak berubah.
+  Sisi yang garis terdekatnya lebih dari 2 ATR dari harga (`FAR_LINE_ATR`, mis. AUDUSD 18 Nov 2026: buy stop terdekat
+  2,8 ATR di atas harga) diisi dengan cara yang sama, tetapi hanya garis di antara harga dan garis terdekat itu.
 - **Sinyal TF**: buy stop terdekat di atas harga dan sell stop terdekat di bawah harga per pair, dari analisa saat ini
   (bukan order/posisi EA), jadi level yang sudah terisi di MT5 tidak muncul sebagai "running". Level yang dibatalkan tidak ikut.
 - **Kalibrasi** (tombol Kalibrasi di toolbar): masukkan order manual (pair, tipe, entry, SL, TP, tanggal pasang).

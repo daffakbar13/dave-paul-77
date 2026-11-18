@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { analyze, atr, atrSeries, bodiesBetween, clusterLines, DEFAULT_SR, engineLines, fractals, lockLines, LOOKBACK, mergeClose, rangeEdge, ranges, roundTo, srFor } from './sr.ts';
+import { analyze, atr, atrSeries, bodiesBetween, clusterLines, DEFAULT_SR, engineLines, FAR_LINE_ATR, fractals, lockLines, LOOKBACK, mergeClose, rangeEdge, ranges, roundTo, srFor } from './sr.ts';
 import type { Candle, SrParams } from './types.ts';
 import { fallBelowRange } from './fixtures.ts';
 
@@ -314,7 +314,7 @@ describe('lookback per timeframe', () => {
   });
 });
 
-describe('extendEmptySide (via analyze)', () => {
+describe('extendFarSide (via analyze)', () => {
   // two years ranging 1.10-1.20, an older range at 1.00-1.05, price now at 1.07
   const day = 86_400_000;
   const wave = (n: number, lo: number, hi: number, t0: number) =>
@@ -334,5 +334,22 @@ describe('extendEmptySide (via analyze)', () => {
     assert.ok(long.candidates.some((c) => c.side === 'sell' && c.entry !== undefined));
     // the lines above price are the lookback's own
     assert.deepEqual(long.lines.filter((l) => l.price > 1.07), short.lines.filter((l) => l.price > 1.07));
+  });
+
+  it('fills the gap to a line more than FAR_LINE_ATR away, and only that gap', () => {
+    // the 2 years sat at 1.00-1.04 and 1.15-1.20; the 1.06-1.12 lines are older
+    const low = wave(260, 1.0, 1.04, 520 * day);
+    const high = wave(260, 1.15, 1.2, 780 * day);
+    const mid = wave(520, 1.06, 1.12, 0);
+    const short = analyze('X', [...low, ...high], p, 5, 1.05);
+    const nearUp = Math.min(...short.lines.filter((l) => l.price > 1.05).map((l) => l.price));
+    assert.ok(nearUp - 1.05 > FAR_LINE_ATR * short.atr);
+    const long = analyze('X', [...mid, ...low, ...high], p, 5, 1.05);
+    const added = long.lines.filter((l) => !short.lines.some((s) => s.price === l.price));
+    assert.ok(added.length > 0);
+    assert.ok(added.every((l) => l.price > 1.05 && l.price < nearUp));
+    assert.ok(long.candidates.some((c) => c.side === 'buy' && c.entry !== undefined && c.line < nearUp));
+    // the side below price was near enough and stays as it was
+    assert.deepEqual(long.lines.filter((l) => l.price < 1.05), short.lines.filter((l) => l.price < 1.05));
   });
 });
